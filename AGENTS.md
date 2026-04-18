@@ -1,0 +1,196 @@
+# AGENTS.md
+
+Guidance for AI coding agents working in this repository.
+
+## What this project is
+
+This is a **proof-of-concept** for the web UI SSR layer of a larger platform.
+It is deliberately isolated from the rest of the platform so we can exercise
+the rendering stack end-to-end and gather learnings before committing to it
+at scale. The deliverable is a small TODO app that exercises every moving
+part of the pipeline.
+
+This is **not** production code and is **not** a vertical slice of the real
+product. Treat it as an experiment.
+
+## Source of truth: Basic Memory
+
+The architectural context for this experiment lives in the **`web_ui`**
+Basic Memory project. Before making non-trivial changes — especially to the
+build, the SSR wiring, the RPC layer, or the service topology — read the
+relevant notes.
+
+Use the /memory-notes skill for creating and updating notes, any research
+made that it's relevant and good to keep in context add with /memory-research
+skill
+
+**Always use Basic Memory for architectural context. Do not rely on prior
+assumptions about how the broader platform works; this experiment is
+scoped narrowly and most of the wider architecture is intentionally out
+of scope here.**
+
+## Task managment
+
+Use beads as the tool for dividing, managing and cordinating task and
+work https://gastownhall.github.io/beads/llms.txt
+
+### Key notes
+
+All notes live under `architecture/` in the `web_ui` project:
+
+- `memory://web_ui/architecture/web-ui-stack` — technology choices
+- `memory://web_ui/architecture/web-ui-render-pipeline` — how HTML is produced, hydrated, and styled
+- `memory://web_ui/architecture/poc-service-topology` — the two-service split and Docker Compose layout
+- `memory://web_ui/architecture/rpc-data-flow` — connect-es paths for SSR and post-hydration
+- `memory://web_ui/architecture/web-ui-poc-scope` — what is and isn't in scope, and the learning goals
+
+### How to use Basic Memory
+
+- Use `search_notes` on the `web_ui` project to find relevant context by keyword.
+- Use `read_note` to load a specific note by title or permalink.
+- Use `build_context` with `memory://web_ui/architecture/<permalink>` to follow relations and gather connected knowledge.
+- When you discover something worth recording (a decision, a gotcha, a technique that worked), write or edit a note. Prefer `edit_note` over creating duplicates.
+- **Scope discipline**: only write notes that belong to this experiment. Anything about the broader platform (deployment, gateway, auth, realtime, PPR, differential serving, request lifecycle caching, etc.) goes in the `main` project, not here.
+
+## Architecture at a glance
+
+Two services orchestrated by Docker Compose:
+
+1. **web-ui-ssr** — Bun + Hono rendering server. Runs SolidJS SSR via
+   `renderToStream`, serves the client bundle, and calls the
+   business-logic server via connect-es during SSR. Owns no data.
+2. **business-logic** — Bun + Hono stub of the real backend. Exposes
+   connect-es RPC endpoints. Persists data in SQLite (file mounted as
+   a Docker volume).
+
+The browser, after hydration, talks to the business-logic server
+**directly** via connect-es. The rendering server is not a proxy for
+post-hydration traffic.
+
+## Stack
+
+- **Runtime**: Bun
+- **HTTP**: Hono
+- **UI framework**: SolidJS (no SolidStart — SSR is wired manually)
+- **Routing**: `@solidjs/router` (isomorphic, `url` prop for SSR)
+- **Head management**: `@solidjs/meta` (`MetaProvider` + `renderTags()`)
+- **Data**: TanStack Query via `solid-query`, dehydrated on SSR and rehydrated on the client
+- **RPC**: connect-es, same generated client used on server and browser
+- **Bundler**: Rsbuild (Rspack), with `web` and `node` environments in one build
+- **Code splitting**: `lazy()` on route components, producing paired JS+CSS chunks; manifest-driven preload + stylesheet injection
+- **Styling**: vanilla-extract (TypeScript-authored, zero-runtime CSS, extracted per chunk)
+- **Data store**: SQLite (business-logic server only)
+- **Orchestration**: Docker + Docker Compose
+
+## In scope
+
+- Manual SSR wiring on Rsbuild + Hono + Bun
+- `renderToStream` + client `hydrate`
+- Suspense-wrapped async data loaders calling RPC
+- Dehydrate/rehydrate of TanStack Query cache via embedded state in HTML
+- `lazy()` route splitting with JS+CSS chunk pairs, including vanilla-extract styles
+- connect-es RPC on both the SSR and post-hydration paths
+- Two-service split orchestrated by Docker Compose
+- SQLite persistence on the business-logic side
+
+## Out of scope (do not add)
+
+Do not introduce these without an explicit request. They belong to the
+broader platform and would defeat the point of keeping this experiment
+narrow:
+
+- PPR / shell caching / component render cache
+- Differential serving (modern vs legacy tiers, UA detection, polyfills)
+- Full request lifecycle with cache layers and `Vary` headers
+- Deployment concerns (cloud provider, proxies, gateways)
+- Real backend services or any reference to what the business-logic stub "really" is
+- Real authentication / JWT middleware
+- WebSockets / realtime transport
+
+If you find yourself reaching for one of these to make something work,
+stop and flag it — the experiment is probably asking a question we
+didn't intend to ask yet.
+
+## Working agreements
+
+- **Read Basic Memory first.** For anything touching the render pipeline, service split, RPC, or build, skim the relevant note(s) before changing code.
+- **Match the notes.** If the code diverges from a note, decide whether the code is wrong or the note is stale. Update one or the other; don't leave them inconsistent.
+- **Keep the two services honest.** The rendering server must not own data or proxy post-hydration traffic. The business-logic server must be the only SQLite client.
+- **Same RPC contract on both sides.** Both SSR code and browser code should import the same generated connect-es client and call the same methods.
+- **Streaming requires Suspense.** Any async boundary must be under `<Suspense>` or streaming breaks.
+- **Prefer small, reversible changes.** This is a learning exercise; optimize for clarity and the ability to rip things out, not for robustness.
+- **Record learnings.** When you hit a surprise — something that worked, something that didn't, a gotcha in a library — write or update a note in the `web_ui` project so it isn't lost.
+
+## Running the project
+
+Once implemented, the expected workflow is:
+
+```sh
+docker compose up
+```
+
+This should bring up both services. The rendering server serves HTML on
+its published port; the business-logic server is reachable by the
+rendering server over the Compose network and by the browser via its
+own published port.
+
+## Validation checklist
+
+Use these as acceptance signals for the POC:
+
+- [ ] `docker compose up` starts both services cleanly
+- [ ] A page request returns streamed HTML with the TODO list already populated
+- [ ] The HTML contains dehydrated TanStack Query state
+- [ ] Hydration does not trigger a refetch for data already present in the dehydrated state
+- [ ] After hydration, mutations go browser → business-logic directly (verify via network panel: no hits to the rendering server for data)
+- [ ] `lazy()` route produces separate JS+CSS chunks in the build output
+- [ ] vanilla-extract styles appear in the per-chunk CSS
+- [ ] Head tags (`<title>`, `<meta>`) are present in the initial streamed HTML and update on client-side navigation
+- [ ] SQLite data persists across `docker compose down` / `up`
+
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
+## Beads Issue Tracker
+
+This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
+
+### Quick Reference
+
+```bash
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd update <id> --claim  # Claim work
+bd close <id>         # Complete work
+```
+
+### Rules
+
+- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
+- Run `bd prime` for detailed command reference and session close protocol
+- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+
+## Session Completion
+
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+
+**MANDATORY WORKFLOW:**
+
+1. **File issues for remaining work** - Create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **PUSH TO REMOTE** - This is MANDATORY:
+   ```bash
+   git pull --rebase
+   bd dolt push
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+5. **Clean up** - Clear stashes, prune remote branches
+6. **Verify** - All changes committed AND pushed
+7. **Hand off** - Provide context for next session
+
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing - that leaves work stranded locally
+- NEVER say "ready to push when you are" - YOU must push
+- If push fails, resolve and retry until it succeeds
+<!-- END BEADS INTEGRATION -->

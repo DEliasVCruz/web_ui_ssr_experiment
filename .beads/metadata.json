@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "web_ui_ssr_experiment",
+  "project_id": "69d1e7da-4c4e-4a42-9392-084c57d8c65c"
+}
