@@ -1,0 +1,8 @@
+---
+# Hadolint configuration
+# https://github.com/hadolint/hadolint#configure
+
+failure-threshold: warning
+
+trustedRegistries:
+  - docker.io

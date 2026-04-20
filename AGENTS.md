@@ -55,6 +55,22 @@ Use beads as the tool for dividing, managing and cordinating task and
 work https://gastownhall.github.io/beads/llms.txt. Do not mark tasks
 as done unless I explecitly tell you so
 
+## Working directory & git worktrees
+
+You may be spawned inside a **git worktree** (a sibling directory like
+`web_ui_ssr_experiment.claude-r36-…`). When that happens:
+
+- **All file reads, edits, and writes must use paths relative to your
+  current working directory** (or its absolute equivalent). Never
+  hard-code or assume the main repo path
+  (`web_ui_ssr_experiment/`). The worktree has its own copy of every
+  tracked file; editing the main repo's files will dirty the wrong
+  branch.
+- Before editing any file, verify you are using the path under your
+  **actual CWD** (check with `pwd` if unsure).
+- `devenv.nix`, `AGENTS.md`, etc. exist in both the main repo and the
+  worktree — always operate on the worktree's copy.
+
 ## Enviroment setup
 
 You are **already running inside a devenv shell**. Do not wrap commands with
