@@ -1,0 +1,6 @@
+version: v1
+plugins:
+  - plugin: es
+    out: packages/rpc/gen
+    opt:
+      - target=ts

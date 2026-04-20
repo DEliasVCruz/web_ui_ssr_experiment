@@ -8,6 +8,7 @@
   packages = [
     pkgs.bun
     pkgs.nodejs_22
+    pkgs.buf
     pkgs.git
   ];
 

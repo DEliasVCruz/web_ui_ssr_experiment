@@ -1,3 +1,8 @@
+node_modules/
+bun.lock
+
+# Generated protobuf/connect-es code
+packages/rpc/gen/
 
 # Beads / Dolt files (added by bd init)
 .dolt
