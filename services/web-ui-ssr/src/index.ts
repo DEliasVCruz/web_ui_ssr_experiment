@@ -24,14 +24,16 @@ function loadTemplate(): string {
 	}
 }
 
+// Cache static build artifacts at startup
+const manifest = loadManifest();
+const template = loadTemplate();
+
 // Serve static assets from the client build output
 app.use("/static/*", serveStatic({ root: "dist/web" }));
 
 // SSR handler for all other routes
 app.get("*", (c) => {
 	const url = c.req.url;
-	const manifest = loadManifest();
-	const template = loadTemplate();
 
 	// Collect asset preload tags from the manifest
 	const preloadTags: string[] = [];
@@ -66,17 +68,21 @@ app.get("*", (c) => {
 	const writer = writable.getWriter();
 
 	(async () => {
-		await writer.write(encoder.encode(headWithAssets));
+		try {
+			await writer.write(encoder.encode(headWithAssets));
 
-		const reader = appStream.getReader();
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			await writer.write(value);
+			const reader = appStream.getReader();
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				await writer.write(value);
+			}
+
+			await writer.write(encoder.encode(tail));
+			await writer.close();
+		} catch (error) {
+			await writer.abort(error);
 		}
-
-		await writer.write(encoder.encode(tail));
-		await writer.close();
 	})();
 
 	return new Response(readable, {
