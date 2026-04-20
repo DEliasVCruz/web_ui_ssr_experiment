@@ -57,13 +57,15 @@ as done unless I explecitly tell you so
 
 ## Enviroment setup
 
-When devenv.nix doesn't exist and a command/tool is missing, create ad-hoc environment:
+You are running in a devenv shell managed with devenv.nix, if there is some tool that
+you require but it's not relevant to the project,  create ad-hoc environment:
 
     $ devenv -O languages.rust.enable:bool true -O packages:pkgs "mypackage mypackage2" shell -- cli args
+    
+When the tool that you require it's not available and it's miningfull for the project then
+configure it through devenv.nix
 
-When the setup is becomes complex create `devenv.nix` and run commands within:
-
-    $ devenv shell -- cli args
+Always run inside a devenv shell, even for any subagents that you spawn
 
 See https://devenv.sh/ad-hoc-developer-environments/
 
@@ -283,28 +285,15 @@ For more details, see README.md and docs/QUICKSTART.md.
 
 ## Session Completion
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+**When ending a work session**, you MUST complete ALL steps below.
 
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd dolt push
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
+4. **Clean up** - Clear stashes, prune remote branches
+5. **Verify** - All changes committed AND pushed
 7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
 
 <!-- END BEADS INTEGRATION -->
