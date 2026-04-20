@@ -1,11 +1,10 @@
 import { serve } from "bun";
 import app from "./app";
 
-const port = Number(process.env.PORT) || 3001;
+const DEFAULT_PORT = 3001;
+const port = Number(process.env.PORT) || DEFAULT_PORT;
 
 serve({
 	port,
 	fetch: app.fetch,
 });
-
-console.log(`business-logic server listening on http://localhost:${port}`);
