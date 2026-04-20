@@ -33,4 +33,43 @@
       fi
     fi
   '';
+
+  # Developer tasks
+  tasks = {
+    "biome:check" = {
+      exec = "bunx biome check .";
+      description = "Run Biome formatter, linter and import sorting checks";
+    };
+    "biome:fix" = {
+      exec = "bunx biome check --write .";
+      description = "Auto-fix Biome formatter, linter and import sorting issues";
+    };
+    "biome:format" = {
+      exec = "bunx biome format --write .";
+      description = "Format code with Biome";
+    };
+    "biome:lint" = {
+      exec = "bunx biome lint .";
+      description = "Lint code with Biome";
+    };
+    "ts:check" = {
+      exec = "bun run --filter '*' typecheck";
+      description = "Run TypeScript type checking across all workspaces";
+    };
+    "buf:generate" = {
+      exec = "buf generate";
+      description = "Generate TypeScript code from protobuf definitions";
+    };
+  };
+
+  # Pre-commit hooks
+  git-hooks.hooks = {
+    biome = {
+      enable = true;
+      name = "biome check";
+      entry = "bunx biome check --staged --no-errors-on-unmatched --colors=off";
+      pass_filenames = false;
+      types_or = [ "javascript" "jsx" "ts" "tsx" "json" ];
+    };
+  };
 }

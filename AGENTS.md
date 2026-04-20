@@ -29,6 +29,26 @@ assumptions about how the broader platform works; this experiment is
 scoped narrowly and most of the wider architecture is intentionally out
 of scope here.**
 
+## Coding rules
+
+### Linting
+
+**Biome**:
+  - When reviewing linting errors, do not try to apply them inmediatly, always prefer checking 
+    and using the autocorrection feature with `--write` and only provide direct fixes for those 
+    that can not be auto resolved or that their action is `unsafe` to apply (per biome's criteria) 
+    those who are unsafe review first that they don't affect the semantics of the program and if 
+    they don't then prefer their solution, otherwise apply your own.
+  - Warnings are to be examined and taking into account based on the full documented description
+    of the rule, they should genarabily be followed unless they would increase the complexity,
+    verbosity, functionality or undersatbility of the code.
+  - Info messages are meant to be treated as hints of code smells, they don't need to be adressed
+    necessarely but they provide a guide to stop and think if there are better paterns or
+    implementations that are inline with the code practices and style of the codebase
+  - Any rule notification that it's not an error or does not have a `safe` action should always be
+    review and analyze first that they don't affect the semantics of the program and if 
+    they don't then prefer their solution, otherwise apply your own or just ignore it.
+
 ## Task managment
 
 Use beads as the tool for dividing, managing and cordinating task and

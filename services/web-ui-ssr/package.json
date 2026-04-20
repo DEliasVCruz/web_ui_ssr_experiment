@@ -1,26 +1,26 @@
 {
-  "name": "@web-ui-poc/web-ui-ssr",
-  "version": "0.0.1",
-  "type": "module",
-  "scripts": {
-    "dev": "bun run src/index.ts",
-    "build": "rsbuild build",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@connectrpc/connect": "^2.1.1",
-    "@connectrpc/connect-node": "^2.1.1",
-    "@connectrpc/connect-web": "^2.1.1",
-    "@solidjs/meta": "^0.29.4",
-    "@solidjs/router": "^0.15.1",
-    "@tanstack/solid-query": "^5.62.7",
-    "@web-ui-poc/rpc": "workspace:*",
-    "hono": "^4.6.14",
-    "solid-js": "^1.9.5"
-  },
-  "devDependencies": {
-    "@rsbuild/core": "^1.1.12",
-    "@vanilla-extract/css": "^1.17.0",
-    "typescript": "^5.7.2"
-  }
+	"name": "@web-ui-poc/web-ui-ssr",
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "bun run src/index.ts",
+		"build": "rsbuild build",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@connectrpc/connect": "^2.1.1",
+		"@connectrpc/connect-node": "^2.1.1",
+		"@connectrpc/connect-web": "^2.1.1",
+		"@solidjs/meta": "^0.29.4",
+		"@solidjs/router": "^0.15.1",
+		"@tanstack/solid-query": "^5.62.7",
+		"@web-ui-poc/rpc": "workspace:*",
+		"hono": "^4.6.14",
+		"solid-js": "^1.9.5"
+	},
+	"devDependencies": {
+		"@rsbuild/core": "^1.1.12",
+		"@vanilla-extract/css": "^1.17.0",
+		"typescript": "^5.7.2"
+	}
 }

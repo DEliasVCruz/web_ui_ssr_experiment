@@ -1,21 +1,26 @@
 {
-  "name": "web-ui-poc",
-  "version": "0.0.1",
-  "private": true,
-  "workspaces": [
-    "packages/*",
-    "services/*"
-  ],
-  "scripts": {
-    "dev": "bun run --filter '*' dev",
-    "generate": "buf generate",
-    "build": "bun run --filter '*' build",
-    "test": "bun run --filter '*' test"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
-    "@bufbuild/buf": "^1.47.2",
-    "@bufbuild/protoc-gen-es": "^2.11.0",
-    "typescript": "^5.7.2"
-  }
+	"name": "web-ui-poc",
+	"version": "0.0.1",
+	"private": true,
+	"workspaces": [
+		"packages/*",
+		"services/*"
+	],
+	"scripts": {
+		"dev": "bun run --filter '*' dev",
+		"generate": "buf generate",
+		"build": "bun run --filter '*' build",
+		"test": "bun run --filter '*' test",
+		"check": "biome check .",
+		"check:fix": "biome check --write .",
+		"format": "biome format --write .",
+		"lint": "biome lint .",
+		"typecheck": "bun run --filter '*' typecheck"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.12",
+		"@bufbuild/buf": "^1.47.2",
+		"@bufbuild/protoc-gen-es": "^2.11.0",
+		"typescript": "^5.7.2"
+	}
 }

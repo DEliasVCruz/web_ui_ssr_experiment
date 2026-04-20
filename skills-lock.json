@@ -1,35 +1,35 @@
 {
-  "version": 1,
-  "skills": {
-    "memory-defrag": {
-      "source": "basicmachines-co/basic-memory-skills",
-      "sourceType": "github",
-      "computedHash": "82da4efe339bfb37fe68e97909df5a966d821fb790a4c0ab092a020f1252621e"
-    },
-    "memory-lifecycle": {
-      "source": "basicmachines-co/basic-memory-skills",
-      "sourceType": "github",
-      "computedHash": "13d1b99948c6341735d9e65d6a697edc83fc51bc7fab7e84df8da625fb24e081"
-    },
-    "memory-notes": {
-      "source": "basicmachines-co/basic-memory-skills",
-      "sourceType": "github",
-      "computedHash": "c6ac355ae99e11a963f05a1d2452598403078d33eb9f7e096b1e43aa60caec15"
-    },
-    "memory-reflect": {
-      "source": "basicmachines-co/basic-memory-skills",
-      "sourceType": "github",
-      "computedHash": "a2fcd9a3141857bce1ce34f55ba98b0d941c40542a1be4f53ee3d776f57127b1"
-    },
-    "memory-research": {
-      "source": "basicmachines-co/basic-memory-skills",
-      "sourceType": "github",
-      "computedHash": "294b3a6c9978a93e3bfc613ec33646c2e47a01d15633e31cb294daf79c7d81aa"
-    },
-    "memory-schema": {
-      "source": "basicmachines-co/basic-memory-skills",
-      "sourceType": "github",
-      "computedHash": "876c3923dde4f88ce9502314832471f52a4fc15a4563b31cdbd74396fba33043"
-    }
-  }
+	"version": 1,
+	"skills": {
+		"memory-defrag": {
+			"source": "basicmachines-co/basic-memory-skills",
+			"sourceType": "github",
+			"computedHash": "82da4efe339bfb37fe68e97909df5a966d821fb790a4c0ab092a020f1252621e"
+		},
+		"memory-lifecycle": {
+			"source": "basicmachines-co/basic-memory-skills",
+			"sourceType": "github",
+			"computedHash": "13d1b99948c6341735d9e65d6a697edc83fc51bc7fab7e84df8da625fb24e081"
+		},
+		"memory-notes": {
+			"source": "basicmachines-co/basic-memory-skills",
+			"sourceType": "github",
+			"computedHash": "c6ac355ae99e11a963f05a1d2452598403078d33eb9f7e096b1e43aa60caec15"
+		},
+		"memory-reflect": {
+			"source": "basicmachines-co/basic-memory-skills",
+			"sourceType": "github",
+			"computedHash": "a2fcd9a3141857bce1ce34f55ba98b0d941c40542a1be4f53ee3d776f57127b1"
+		},
+		"memory-research": {
+			"source": "basicmachines-co/basic-memory-skills",
+			"sourceType": "github",
+			"computedHash": "294b3a6c9978a93e3bfc613ec33646c2e47a01d15633e31cb294daf79c7d81aa"
+		},
+		"memory-schema": {
+			"source": "basicmachines-co/basic-memory-skills",
+			"sourceType": "github",
+			"computedHash": "876c3923dde4f88ce9502314832471f52a4fc15a4563b31cdbd74396fba33043"
+		}
+	}
 }

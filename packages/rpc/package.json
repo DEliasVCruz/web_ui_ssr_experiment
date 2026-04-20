@@ -1,12 +1,12 @@
 {
-  "name": "@web-ui-poc/rpc",
-  "version": "0.0.1",
-  "type": "module",
-  "exports": {
-    "./gen/*": "./gen/*.ts"
-  },
-  "dependencies": {
-    "@bufbuild/protobuf": "^2.11.0",
-    "@connectrpc/connect": "^2.1.1"
-  }
+	"name": "@web-ui-poc/rpc",
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		"./gen/*": "./gen/*.ts"
+	},
+	"dependencies": {
+		"@bufbuild/protobuf": "^2.11.0",
+		"@connectrpc/connect": "^2.1.1"
+	}
 }

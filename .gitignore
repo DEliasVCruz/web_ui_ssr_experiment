@@ -10,6 +10,7 @@ packages/rpc/gen/
 .beads-credential-key
 .claude/skills
 .devenv/
+.pre-commit-config.yaml
 
 # Avoid conflicts of merge when parallel working
 .beads/issues.jsonl
