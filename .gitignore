@@ -4,14 +4,15 @@ bun.lock
 # Generated protobuf/connect-es code
 packages/rpc/gen/
 
-# Beads / Dolt files (added by bd init)
+# Beads (stealth — all beads data lives locally, not in repo)
+.beads/
 .dolt
 *.db
 .beads-credential-key
-.claude/skills
+
+# devenv / nix
 .devenv/
 .pre-commit-config.yaml
 
-# Avoid conflicts of merge when parallel working
-.beads/issues.jsonl
-issues.jsonl
+# Claude
+.claude/skills
