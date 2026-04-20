@@ -35,6 +35,18 @@ Use beads as the tool for dividing, managing and cordinating task and
 work https://gastownhall.github.io/beads/llms.txt. Do not mark tasks
 as done unless I explecitly tell you so
 
+## Enviroment setup
+
+When devenv.nix doesn't exist and a command/tool is missing, create ad-hoc environment:
+
+    $ devenv -O languages.rust.enable:bool true -O packages:pkgs "mypackage mypackage2" shell -- cli args
+
+When the setup is becomes complex create `devenv.nix` and run commands within:
+
+    $ devenv shell -- cli args
+
+See https://devenv.sh/ad-hoc-developer-environments/
+
 ### Key notes
 
 All notes live under `architecture/` in the `web_ui` project:
