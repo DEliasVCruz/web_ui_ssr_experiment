@@ -1,8 +1,10 @@
 import { MetaProvider } from "@solidjs/meta";
 import { Route, Router } from "@solidjs/router";
+import { lazy } from "solid-js";
 import Layout from "./layout";
-import Home from "./pages/home";
-import Todos from "./pages/todos";
+
+const Home = lazy(() => import("./pages/home"));
+const Todos = lazy(() => import("./pages/todos"));
 
 export function App(props: { url?: string }) {
 	return (

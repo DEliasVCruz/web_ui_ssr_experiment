@@ -5,29 +5,36 @@ import { render } from "./entry-server";
 
 const app = new Hono();
 
-type ManifestEntry =
-	| { fileType: "js"; file: string }
-	| { fileType: "css"; css: string[] }
-	| { fileType: "other"; file: string };
+interface ManifestAssets {
+	initial: { js: string[]; css?: string[] };
+	async: { js?: string[]; css?: string[] };
+}
 
-// Read the manifest and classify each entry by file type
-function loadManifest(): ManifestEntry[] {
-	let raw: Record<string, { file: string; css?: string[] }>;
+/** Escape a string for safe use inside an HTML attribute value. */
+function escapeAttr(s: string): string {
+	return s
+		.replace(/&/g, "&amp;")
+		.replace(/"/g, "&quot;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+}
+
+function loadManifest(): ManifestAssets {
+	const empty: ManifestAssets = {
+		initial: { js: [] },
+		async: {},
+	};
 	try {
-		raw = JSON.parse(readFileSync("dist/web/manifest.json", "utf-8"));
+		const raw = JSON.parse(readFileSync("dist/web/manifest.json", "utf-8"));
+		const entry = raw.entries?.index;
+		if (!entry) return empty;
+		return {
+			initial: entry.initial ?? { js: [] },
+			async: entry.async ?? {},
+		};
 	} catch {
-		return [];
+		return empty;
 	}
-
-	return Object.values(raw).map((entry) => {
-		if (entry.file?.endsWith(".js")) {
-			return { fileType: "js", file: entry.file };
-		}
-		if (entry.css) {
-			return { fileType: "css", css: entry.css };
-		}
-		return { fileType: "other", file: entry.file };
-	});
 }
 
 // Read the HTML template produced by Rsbuild
@@ -52,22 +59,22 @@ app.get("*", (c) => {
 
 	// Collect asset preload tags from the manifest
 	const preloadTags: string[] = [];
-	manifest.forEach((entry) => {
-		switch (entry.fileType) {
-			case "js":
-				preloadTags.push(`<link rel="modulepreload" href="/static/${entry.file}">`);
 
-				break;
-			case "css":
-				entry.css.forEach((css) => {
-					preloadTags.push(`<link rel="stylesheet" href="/static/${css}">`);
-				});
+	// Initial chunks — needed on every page
+	for (const js of manifest.initial.js) {
+		preloadTags.push(`<link rel="modulepreload" href="${escapeAttr(js)}">`);
+	}
+	for (const css of manifest.initial.css ?? []) {
+		preloadTags.push(`<link rel="stylesheet" href="${escapeAttr(css)}">`);
+	}
 
-				break;
-			default:
-				break;
-		}
-	});
+	// Async chunks — prefetch so lazy routes load fast
+	for (const js of manifest.async.js ?? []) {
+		preloadTags.push(`<link rel="prefetch" as="script" href="${escapeAttr(js)}">`);
+	}
+	for (const css of manifest.async.css ?? []) {
+		preloadTags.push(`<link rel="prefetch" as="style" href="${escapeAttr(css)}">`);
+	}
 
 	// Render the SolidJS app to a readable stream
 	const appStream = render(url);
