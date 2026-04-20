@@ -29,6 +29,27 @@ assumptions about how the broader platform works; this experiment is
 scoped narrowly and most of the wider architecture is intentionally out
 of scope here.**
 
+## Running commands
+
+### Prefer devenv tasks and `bun run`
+
+Always use **devenv tasks** for project-wide operations and **`bun run`** for
+package scripts. Never use `npx` or raw tool invocations when a devenv task
+or `bun run` script exists for the same purpose.
+
+| Instead of              | Use                                  |
+|-------------------------|--------------------------------------|
+| `npx tsc --noEmit`     | `devenv tasks run ts:check`          |
+| `npx biome check .`    | `devenv tasks run biome:check`       |
+| `npx biome check --write .` | `devenv tasks run biome:fix`    |
+| `npx biome lint .`     | `devenv tasks run biome:lint`        |
+| `npx biome format --write .` | `devenv tasks run biome:format` |
+| `npx buf generate`     | `devenv tasks run buf:generate`      |
+| raw `bun run src/...`  | `bun run dev` (per-service script)   |
+
+For single-service type checking: `bun run typecheck` from the service
+directory (defined in each service's `package.json`).
+
 ## Coding rules
 
 ### Linting

@@ -53,45 +53,50 @@ const template = loadTemplate();
 // Serve static assets from the client build output
 app.use("/static/*", serveStatic({ root: "dist/web" }));
 
+// Collect asset preload tags from the manifest (computed once at startup)
+const preloadTags: string[] = [];
+
+// Initial chunks — needed on every page
+for (const js of manifest.initial.js) {
+	preloadTags.push(`<link rel="modulepreload" href="${escapeAttr(js)}">`);
+}
+for (const css of manifest.initial.css ?? []) {
+	preloadTags.push(`<link rel="stylesheet" href="${escapeAttr(css)}">`);
+}
+
+// Async chunks — prefetch so lazy routes load fast
+for (const js of manifest.async.js ?? []) {
+	preloadTags.push(`<link rel="prefetch" as="script" href="${escapeAttr(js)}">`);
+}
+for (const css of manifest.async.css ?? []) {
+	preloadTags.push(`<link rel="prefetch" as="style" href="${escapeAttr(css)}">`);
+}
+
+const preloadHtml = preloadTags.join("\n");
+
+// Split template at the SSR outlet marker (computed once at startup)
+const [templateHead, templateTail] = template.split("<!--ssr-outlet-->");
+
 // SSR handler for all other routes
 app.get("*", (c) => {
 	const url = c.req.url;
+	const { readable: appStream, headTags } = render(url);
 
-	// Collect asset preload tags from the manifest
-	const preloadTags: string[] = [];
-
-	// Initial chunks — needed on every page
-	for (const js of manifest.initial.js) {
-		preloadTags.push(`<link rel="modulepreload" href="${escapeAttr(js)}">`);
-	}
-	for (const css of manifest.initial.css ?? []) {
-		preloadTags.push(`<link rel="stylesheet" href="${escapeAttr(css)}">`);
-	}
-
-	// Async chunks — prefetch so lazy routes load fast
-	for (const js of manifest.async.js ?? []) {
-		preloadTags.push(`<link rel="prefetch" as="script" href="${escapeAttr(js)}">`);
-	}
-	for (const css of manifest.async.css ?? []) {
-		preloadTags.push(`<link rel="prefetch" as="style" href="${escapeAttr(css)}">`);
-	}
-
-	// Render the SolidJS app to a readable stream
-	const appStream = render(url);
-
-	// Split template at the SSR outlet marker
-	const [head, tail] = template.split("<!--ssr-outlet-->");
-
-	// Inject preload tags before </head>
-	const headWithAssets = head.replace("</head>", `${preloadTags.join("\n")}\n</head>`);
-
-	// Build the response stream: head + app stream + tail
 	const encoder = new TextEncoder();
 	const { readable, writable } = new TransformStream();
 	const writer = writable.getWriter();
 
 	(async () => {
 		try {
+			// Wait for the shell to complete so @solidjs/meta tags are available
+			const metaTags = await headTags;
+
+			// Inject manifest preloads and meta tags before </head>
+			const headWithAssets = templateHead.replace(
+				"</head>",
+				`${preloadHtml}\n${metaTags}\n</head>`,
+			);
+
 			await writer.write(encoder.encode(headWithAssets));
 
 			const reader = appStream.getReader();
@@ -101,7 +106,7 @@ app.get("*", (c) => {
 				await writer.write(value);
 			}
 
-			await writer.write(encoder.encode(tail));
+			await writer.write(encoder.encode(templateTail));
 			await writer.close();
 		} catch (error) {
 			await writer.abort(error);
