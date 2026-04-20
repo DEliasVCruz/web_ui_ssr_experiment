@@ -16,3 +16,6 @@ packages/rpc/gen/
 
 # Claude
 .claude/skills
+
+# Temporary files
+dist/
