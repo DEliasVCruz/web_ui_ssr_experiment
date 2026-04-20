@@ -57,15 +57,17 @@ as done unless I explecitly tell you so
 
 ## Enviroment setup
 
-You are running in a devenv shell managed with devenv.nix, if there is some tool that
-you require but it's not relevant to the project,  create ad-hoc environment:
+You are **already running inside a devenv shell**. Do not wrap commands with
+`devenv shell --`; just run them directly. The shell is managed by devenv.nix
+at the repo root.
+
+If there is some tool that you require but it's not relevant to the project,
+create an ad-hoc environment:
 
     $ devenv -O languages.rust.enable:bool true -O packages:pkgs "mypackage mypackage2" shell -- cli args
     
 When the tool that you require it's not available and it's miningfull for the project then
 configure it through devenv.nix
-
-Always run inside a devenv shell, even for any subagents that you spawn
 
 See https://devenv.sh/ad-hoc-developer-environments/
 
