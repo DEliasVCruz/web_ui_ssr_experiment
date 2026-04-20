@@ -1,0 +1,26 @@
+name: web-ui-ssr-experiment
+
+services:
+  business-logic:
+    build:
+      context: .
+      dockerfile: services/business-logic/Dockerfile
+    depends_on: []
+    volumes:
+      - sqlite-data:/data
+    environment:
+      - DATABASE_PATH=/data/todos.db
+    ports:
+      - '127.0.0.1:3001:3001'
+
+  web-ui-ssr:
+    build:
+      context: .
+      dockerfile: services/web-ui-ssr/Dockerfile
+    depends_on:
+      - business-logic
+    ports:
+      - '127.0.0.1:3000:3000'
+
+volumes:
+  sqlite-data:

@@ -1,0 +1,27 @@
+rules:
+  # Style (all enabled as warnings, auto-fixable)
+  no-quotes-in-volumes: 1
+  service-dependencies-alphabetical-order: 1
+  service-keys-order: 1
+  service-ports-alphabetical-order: 1
+  services-alphabetical-order: 1
+  top-level-properties-order: 1
+
+  # Security (all enabled as errors)
+  no-duplicate-container-names: 2
+  no-duplicate-exported-ports: 2
+  no-unbound-port-interfaces: 2
+  service-container-name-regex: 2
+  service-image-require-explicit-tag: 2
+
+  # Best practices (all enabled as errors)
+  no-build-and-image: 2
+  no-version-field: 2
+  require-project-name-field: 1
+  require-quotes-in-ports: 2
+
+quiet: false
+
+exclude:
+  - .devenv
+  - node_modules

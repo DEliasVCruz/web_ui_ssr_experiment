@@ -99,6 +99,14 @@ in
       '';
       description = "Lint Dockerfiles with hadolint (pass a path to lint a specific file)";
     };
+    "compose:lint" = {
+      exec = ''bunx dclint . --recursive --exclude .devenv node_modules'';
+      description = "Lint docker-compose files with dclint";
+    };
+    "compose:lint:fix" = {
+      exec = ''bunx dclint . --recursive --fix --exclude .devenv node_modules'';
+      description = "Auto-fix docker-compose lint issues";
+    };
   };
 
   # Pre-commit hooks
@@ -122,6 +130,13 @@ in
       name = "hadolint";
       entry = "hadolint";
       types = [ "dockerfile" ];
+    };
+    dclint = {
+      enable = true;
+      name = "dclint";
+      entry = "bunx dclint";
+      files = "(^|/)(docker-)?compose[^/]*\\.ya?ml$";
+      pass_filenames = true;
     };
   };
 }
