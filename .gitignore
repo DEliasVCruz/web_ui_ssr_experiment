@@ -11,4 +11,6 @@ packages/rpc/gen/
 .claude/skills
 .devenv/
 
+# Avoid conflicts of merge when parallel working
 .beads/issues.jsonl
+issues.jsonl

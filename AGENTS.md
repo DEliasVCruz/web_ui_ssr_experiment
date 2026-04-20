@@ -47,6 +47,11 @@ When the setup is becomes complex create `devenv.nix` and run commands within:
 
 See https://devenv.sh/ad-hoc-developer-environments/
 
+## Committing your work
+
+Do not auto commit commit your work wait for the user to confirm that it's ok with the changes
+and then commit it ussing best practices and meaninfull messages
+
 ### Key notes
 
 All notes live under `architecture/` in the `web_ui` project:
