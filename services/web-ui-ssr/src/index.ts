@@ -106,6 +106,7 @@ app.get("*", async (c) => {
 
 			const reader = appStream.getReader();
 			while (true) {
+				// biome-ignore lint/performance/noAwaitInLoops: stream reading is sequential
 				const { done, value } = await reader.read();
 				if (done) break;
 				await writer.write(value);
