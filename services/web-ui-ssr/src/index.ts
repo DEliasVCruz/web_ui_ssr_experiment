@@ -19,6 +19,11 @@ function escapeAttr(s: string): string {
 		.replace(/>/g, "&gt;");
 }
 
+/** Escape JSON content for safe embedding inside a <script> tag. */
+function escapeScriptContent(s: string): string {
+	return s.replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
+}
+
 function loadManifest(): ManifestAssets {
 	const empty: ManifestAssets = {
 		initial: { js: [] },
@@ -80,7 +85,7 @@ const [templateHead, templateTail] = template.split("<!--ssr-outlet-->");
 // SSR handler for all other routes
 app.get("*", (c) => {
 	const url = c.req.url;
-	const { readable: appStream, headTags } = render(url);
+	const { readable: appStream, headTags, dehydratedState } = render(url);
 
 	const encoder = new TextEncoder();
 	const { readable, writable } = new TransformStream();
@@ -106,7 +111,12 @@ app.get("*", (c) => {
 				await writer.write(value);
 			}
 
-			await writer.write(encoder.encode(templateTail));
+			// Inject dehydrated TanStack Query state before closing body
+			const state = await dehydratedState;
+			const stateScript = `<script id="__QUERY_STATE__" type="application/json">${escapeScriptContent(state)}</script>`;
+			const tail = templateTail.replace("</body>", `${stateScript}\n</body>`);
+
+			await writer.write(encoder.encode(tail));
 			await writer.close();
 		} catch (error) {
 			await writer.abort(error);
