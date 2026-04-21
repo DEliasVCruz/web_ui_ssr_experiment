@@ -8,14 +8,18 @@ import { createServerTransport } from "./transport";
 interface RenderResult {
 	readable: ReadableStream<Uint8Array>;
 	headTags: Promise<string>;
-	dehydratedState: Promise<string>;
+	dehydratedState: string;
 }
 
-export function render(url: string): RenderResult {
+export async function render(url: string): Promise<RenderResult> {
 	const { readable, writable } = new TransformStream();
 
 	const queryClient = createQueryClient();
 	const transport = createServerTransport();
+
+	// Prefetch data before rendering so components see populated cache during SSR
+	await prefetchForRoute(url, queryClient, transport);
+	const dehydratedState = JSON.stringify(dehydrate(queryClient));
 
 	let resolveHead!: (tags: string) => void;
 	let rejectHead!: (err: unknown) => void;
@@ -23,11 +27,6 @@ export function render(url: string): RenderResult {
 		resolveHead = resolve;
 		rejectHead = reject;
 	});
-
-	// Prefetch data based on URL before rendering
-	const dehydratedState = prefetchForRoute(url, queryClient, transport).then(() =>
-		JSON.stringify(dehydrate(queryClient)),
-	);
 
 	const stream = renderToStream(() => <App url={url} queryClient={queryClient} />, {
 		onCompleteShell() {

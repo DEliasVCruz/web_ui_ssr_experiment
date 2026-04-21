@@ -83,9 +83,9 @@ const preloadHtml = preloadTags.join("\n");
 const [templateHead, templateTail] = template.split("<!--ssr-outlet-->");
 
 // SSR handler for all other routes
-app.get("*", (c) => {
+app.get("*", async (c) => {
 	const url = c.req.url;
-	const { readable: appStream, headTags, dehydratedState } = render(url);
+	const { readable: appStream, headTags, dehydratedState } = await render(url);
 
 	const encoder = new TextEncoder();
 	const { readable, writable } = new TransformStream();
@@ -112,8 +112,7 @@ app.get("*", (c) => {
 			}
 
 			// Inject dehydrated TanStack Query state before closing body
-			const state = await dehydratedState;
-			const stateScript = `<script id="__QUERY_STATE__" type="application/json">${escapeScriptContent(state)}</script>`;
+			const stateScript = `<script id="__QUERY_STATE__" type="application/json">${escapeScriptContent(dehydratedState)}</script>`;
 			const tail = templateTail.replace("</body>", `${stateScript}\n</body>`);
 
 			await writer.write(encoder.encode(tail));
