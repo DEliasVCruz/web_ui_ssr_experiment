@@ -10,6 +10,8 @@ RUN bun install --frozen-lockfile
 
 # Build the client and server bundles with Rsbuild
 FROM deps AS build
+ARG PUBLIC_BUSINESS_LOGIC_URL=http://localhost:3001
+ENV PUBLIC_BUSINESS_LOGIC_URL=$PUBLIC_BUSINESS_LOGIC_URL
 COPY packages/rpc packages/rpc
 COPY services/web-ui-ssr services/web-ui-ssr
 COPY tsconfig.json ./

@@ -17,8 +17,12 @@ services:
     build:
       context: .
       dockerfile: services/web-ui-ssr/Dockerfile
+      args:
+        PUBLIC_BUSINESS_LOGIC_URL: 'http://localhost:3001'
     depends_on:
       - business-logic
+    environment:
+      - BUSINESS_LOGIC_URL=http://business-logic:3001
     ports:
       - '127.0.0.1:3000:3000'
 

@@ -2,6 +2,8 @@ import { defineConfig } from "@rsbuild/core";
 import { pluginSolid } from "@rsbuild/plugin-solid";
 import { VanillaExtractPlugin } from "@vanilla-extract/webpack-plugin";
 
+const PUBLIC_BUSINESS_LOGIC_URL = process.env.PUBLIC_BUSINESS_LOGIC_URL ?? "http://localhost:3001";
+
 export default defineConfig({
 	plugins: [pluginSolid()],
 
@@ -15,6 +17,10 @@ export default defineConfig({
 		web: {
 			source: {
 				entry: { index: "./src/entry-client.tsx" },
+				define: {
+					// biome-ignore lint/style/useNamingConvention: key must match the global identifier replaced at compile time
+					PUBLIC_BUSINESS_LOGIC_URL: JSON.stringify(PUBLIC_BUSINESS_LOGIC_URL),
+				},
 			},
 			output: {
 				target: "web",
