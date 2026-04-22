@@ -47,3 +47,19 @@ export function deleteTodoMutation(transport: Transport) {
 		},
 	};
 }
+
+export const todoQueryKey = (id: string) => ["todo", id] as const;
+
+export function todoQueryOptions(transport: Transport, id: string) {
+	return {
+		queryKey: todoQueryKey(id),
+		queryFn: async () => {
+			const response = await todoClient(transport).getTodo({ id });
+			return response.todo;
+		},
+	} as const;
+}
+
+export async function prefetchTodo(queryClient: QueryClient, transport: Transport, id: string) {
+	await queryClient.prefetchQuery(todoQueryOptions(transport, id));
+}

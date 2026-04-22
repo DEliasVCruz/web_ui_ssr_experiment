@@ -1,4 +1,5 @@
 import { Meta, Title } from "@solidjs/meta";
+import { A } from "@solidjs/router";
 import { createMutation, createQuery, useQueryClient } from "@tanstack/solid-query";
 import { createSignal, For, Show, Suspense } from "solid-js";
 import {
@@ -112,7 +113,9 @@ function TodoList() {
 									onChange={() => update.mutate({ id: todo.id, completed: !todo.completed })}
 									disabled={update.isPending && update.variables?.id === todo.id}
 								/>
-								<span class={todo.completed ? titleCompleted : titleText}>{todo.title}</span>
+								<A href={`/todos/${todo.id}`} class={todo.completed ? titleCompleted : titleText}>
+									{todo.title}
+								</A>
 								<span class={timestamp}>{formatDate(todo.createdAt)}</span>
 								<button
 									type="button"

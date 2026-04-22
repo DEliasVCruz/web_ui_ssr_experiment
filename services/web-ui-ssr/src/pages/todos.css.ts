@@ -38,6 +38,12 @@ export const titleText = style({
 	flex: 1,
 	fontSize: "1rem",
 	color: "#1f2937",
+	textDecoration: "none",
+	selectors: {
+		"&:hover": {
+			color: "#2563eb",
+		},
+	},
 });
 
 export const titleCompleted = style({

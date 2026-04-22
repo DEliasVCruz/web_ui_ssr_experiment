@@ -1,7 +1,7 @@
 import { dehydrate } from "@tanstack/solid-query";
 import { getAssets, renderToStream } from "solid-js/web";
 import { App } from "./app";
-import { prefetchTodos } from "./queries/todos";
+import { prefetchTodo, prefetchTodos } from "./queries/todos";
 import { createQueryClient } from "./query-client";
 import { createServerTransport } from "./transport";
 
@@ -47,5 +47,10 @@ async function prefetchForRoute(
 
 	if (pathname === "/todos") {
 		await prefetchTodos(queryClient, transport);
+	}
+
+	const todoDetailMatch = pathname.match(/^\/todos\/([^/]+)$/);
+	if (todoDetailMatch) {
+		await prefetchTodo(queryClient, transport, todoDetailMatch[1]);
 	}
 }

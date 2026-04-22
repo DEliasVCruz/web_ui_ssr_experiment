@@ -7,6 +7,7 @@ import Layout from "./layout";
 
 const Home = lazy(() => import("./pages/home"));
 const Todos = lazy(() => import("./pages/todos"));
+const TodoDetail = lazy(() => import("./pages/todo-detail"));
 
 export function App(props: { url?: string; queryClient: QueryClient }) {
 	return (
@@ -15,6 +16,7 @@ export function App(props: { url?: string; queryClient: QueryClient }) {
 				<Router url={props.url} root={Layout}>
 					<Route path="/" component={Home} />
 					<Route path="/todos" component={Todos} />
+					<Route path="/todos/:id" component={TodoDetail} />
 				</Router>
 			</MetaProvider>
 		</QueryClientProvider>
