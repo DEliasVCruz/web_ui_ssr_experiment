@@ -8,7 +8,7 @@ import { createServerTransport } from "./transport";
 /** Initialises _$HY before SSR inline scripts in the body run. */
 const hydrationScript = generateHydrationScript();
 
-interface RenderResult {
+export interface RenderResult {
 	readable: ReadableStream<Uint8Array>;
 	headTags: Promise<string>;
 	hydrationScript: string;

@@ -1,16 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
-import { render as untypedRender } from "../dist/server/index.js";
-
-interface SsrRenderResult {
-	readable: ReadableStream<Uint8Array>;
-	headTags: Promise<string>;
-	hydrationScript: string;
-	dehydratedState: string;
-}
-
-const render = untypedRender as (url: string) => Promise<SsrRenderResult>;
+import { render } from "./entry-server";
 
 const app = new Hono();
 
