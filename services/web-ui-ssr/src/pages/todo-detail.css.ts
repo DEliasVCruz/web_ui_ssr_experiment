@@ -2,9 +2,9 @@ import { style } from "@vanilla-extract/css";
 
 export const backLink = style({
 	display: "inline-block",
-	marginBottom: "1.5rem",
-	color: "#2563eb",
+	marginBlockEnd: "1.5rem",
 	textDecoration: "none",
+	color: "#2563eb",
 	fontSize: "0.875rem",
 	selectors: {
 		"&:hover": {
@@ -14,27 +14,27 @@ export const backLink = style({
 });
 
 export const title = style({
+	marginBlockEnd: "0.5rem",
+	color: "#1f2937",
 	fontSize: "1.75rem",
 	fontWeight: 700,
-	marginBottom: "0.5rem",
-	color: "#1f2937",
 });
 
 export const titleCompleted = style({
+	marginBlockEnd: "0.5rem",
+	textDecoration: "line-through",
+	color: "#9ca3af",
 	fontSize: "1.75rem",
 	fontWeight: 700,
-	marginBottom: "0.5rem",
-	color: "#9ca3af",
-	textDecoration: "line-through",
 });
 
 export const statusBadge = style({
 	display: "inline-block",
+	marginBlockEnd: "1rem",
+	borderRadius: "9999rem",
 	padding: "0.25rem 0.75rem",
-	borderRadius: "9999px",
 	fontSize: "0.75rem",
 	fontWeight: 600,
-	marginBottom: "1rem",
 });
 
 export const statusComplete = style({
@@ -48,10 +48,10 @@ export const statusPending = style({
 });
 
 export const meta = style({
-	fontSize: "0.875rem",
-	color: "#6b7280",
 	display: "flex",
 	flexDirection: "column",
 	gap: "0.25rem",
-	marginTop: "1rem",
+	marginBlockStart: "1rem",
+	color: "#6b7280",
+	fontSize: "0.875rem",
 });

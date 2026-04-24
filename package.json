@@ -15,12 +15,19 @@
 		"check:fix": "biome check --write .",
 		"format": "biome format --write .",
 		"lint": "biome lint .",
-		"typecheck": "bun run --filter '*' typecheck"
+		"typecheck": "bun run --filter '*' typecheck",
+		"lint:eslint": "bun run --filter '*' lint:eslint",
+		"lint:eslint:fix": "bun run --filter '*' lint:eslint -- --fix"
 	},
 	"devDependencies": {
+		"@antebudimir/eslint-plugin-vanilla-extract": "^1.16.0",
 		"@biomejs/biome": "^2.4.12",
 		"@bufbuild/buf": "^1.47.2",
 		"@bufbuild/protoc-gen-es": "^2.11.0",
-		"typescript": "^5.7.2"
+		"@tanstack/eslint-plugin-query": "^5.99.2",
+		"eslint": "^10.2.1",
+		"eslint-plugin-solid": "^0.14.5",
+		"typescript": "^5.7.2",
+		"typescript-eslint": "^8.59.0"
 	}
 }

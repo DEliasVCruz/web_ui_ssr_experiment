@@ -1,44 +1,44 @@
 import { style } from "@vanilla-extract/css";
 
 export const heading = style({
+	marginBlockEnd: "1rem",
+	color: "#2563eb",
 	fontSize: "2rem",
 	fontWeight: 700,
-	marginBottom: "1rem",
-	color: "#2563eb",
 });
 
 export const list = style({
-	listStyle: "none",
-	padding: 0,
 	margin: 0,
+	padding: 0,
+	listStyle: "none",
 });
 
 export const item = style({
 	display: "flex",
 	alignItems: "center",
 	gap: "0.75rem",
+	borderBlockEnd: "1px solid #e5e7eb",
 	padding: "0.75rem 1rem",
-	borderBottom: "1px solid #e5e7eb",
 	selectors: {
 		"&:last-child": {
-			borderBottom: "none",
+			borderBlockEnd: "none",
 		},
 	},
 });
 
 export const checkbox = style({
-	width: "1.25rem",
-	height: "1.25rem",
 	flexShrink: 0,
-	accentColor: "#2563eb",
 	cursor: "default",
+	blockSize: "1.25rem",
+	inlineSize: "1.25rem",
+	accentColor: "#2563eb",
 });
 
 export const titleText = style({
 	flex: 1,
-	fontSize: "1rem",
-	color: "#1f2937",
 	textDecoration: "none",
+	color: "#1f2937",
+	fontSize: "1rem",
 	selectors: {
 		"&:hover": {
 			color: "#2563eb",
@@ -48,15 +48,15 @@ export const titleText = style({
 
 export const titleCompleted = style({
 	flex: 1,
-	fontSize: "1rem",
-	color: "#9ca3af",
 	textDecoration: "line-through",
+	color: "#9ca3af",
+	fontSize: "1rem",
 });
 
 export const timestamp = style({
-	fontSize: "0.75rem",
-	color: "#9ca3af",
 	whiteSpace: "nowrap",
+	color: "#9ca3af",
+	fontSize: "0.75rem",
 });
 
 export const emptyState = style({
@@ -68,16 +68,16 @@ export const emptyState = style({
 export const addForm = style({
 	display: "flex",
 	gap: "0.5rem",
-	marginBottom: "1rem",
+	marginBlockEnd: "1rem",
 });
 
 export const addInput = style({
 	flex: 1,
-	padding: "0.5rem 0.75rem",
-	fontSize: "1rem",
+	outline: "none",
 	border: "1px solid #d1d5db",
 	borderRadius: "0.375rem",
-	outline: "none",
+	padding: "0.5rem 0.75rem",
+	fontSize: "1rem",
 	selectors: {
 		"&:focus": {
 			borderColor: "#2563eb",
@@ -87,14 +87,14 @@ export const addInput = style({
 });
 
 export const addButton = style({
-	padding: "0.5rem 1rem",
-	fontSize: "1rem",
-	fontWeight: 600,
-	color: "#fff",
-	backgroundColor: "#2563eb",
 	border: "none",
 	borderRadius: "0.375rem",
+	backgroundColor: "#2563eb",
 	cursor: "pointer",
+	padding: "0.5rem 1rem",
+	color: "#fff",
+	fontSize: "1rem",
+	fontWeight: 600,
 	selectors: {
 		"&:disabled": {
 			opacity: 0.5,
@@ -104,20 +104,20 @@ export const addButton = style({
 });
 
 export const errorMessage = style({
+	padding: "0.5rem 0",
 	color: "#ef4444",
 	fontSize: "0.875rem",
-	padding: "0.5rem 0",
 });
 
 export const deleteButton = style({
-	padding: "0.25rem 0.5rem",
-	fontSize: "0.75rem",
-	color: "#ef4444",
-	backgroundColor: "transparent",
+	flexShrink: 0,
 	border: "1px solid #ef4444",
 	borderRadius: "0.25rem",
+	backgroundColor: "transparent",
 	cursor: "pointer",
-	flexShrink: 0,
+	padding: "0.25rem 0.5rem",
+	color: "#ef4444",
+	fontSize: "0.75rem",
 	selectors: {
 		"&:disabled": {
 			opacity: 0.5,

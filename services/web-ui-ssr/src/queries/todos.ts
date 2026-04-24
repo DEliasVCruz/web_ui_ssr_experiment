@@ -1,4 +1,4 @@
-import { type Client, createClient, type Transport } from "@connectrpc/connect";
+import { type Client, Code, ConnectError, createClient, type Transport } from "@connectrpc/connect";
 import type { QueryClient } from "@tanstack/solid-query";
 import { TodoService } from "@web-ui-poc/rpc/gen/proto/todo/v1/todo_pb";
 
@@ -9,6 +9,7 @@ function todoClient(transport: Transport): Client<typeof TodoService> {
 }
 
 export function todosQueryOptions(transport: Transport) {
+	// eslint-disable-next-line @tanstack/query/exhaustive-deps -- transport intentionally excluded: server/client use different transports but share the same cache key for SSR hydration
 	return {
 		queryKey: todosQueryKey,
 		queryFn: async () => {
@@ -51,11 +52,19 @@ export function deleteTodoMutation(transport: Transport) {
 export const todoQueryKey = (id: string) => ["todo", id] as const;
 
 export function todoQueryOptions(transport: Transport, id: string) {
+	// eslint-disable-next-line @tanstack/query/exhaustive-deps -- transport intentionally excluded: server/client use different transports but share the same cache key for SSR hydration
 	return {
 		queryKey: todoQueryKey(id),
 		queryFn: async () => {
-			const response = await todoClient(transport).getTodo({ id });
-			return response.todo;
+			try {
+				const { todo } = await todoClient(transport).getTodo({ id });
+				return todo ?? null;
+			} catch (err) {
+				if (err instanceof ConnectError && err.code === Code.NotFound) {
+					return null;
+				}
+				throw err;
+			}
 		},
 	} as const;
 }

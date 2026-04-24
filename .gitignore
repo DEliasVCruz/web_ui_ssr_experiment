@@ -17,5 +17,8 @@ packages/rpc/gen/
 # Claude
 .claude/skills
 
+# Playwright MCP snapshots
+.playwright-mcp/
+
 # Temporary files
 dist/

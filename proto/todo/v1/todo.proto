@@ -4,66 +4,88 @@ package todo.v1;
 
 import "google/protobuf/timestamp.proto";
 
+// Todo represents a single todo item.
 message Todo {
+  // Unique identifier for the todo.
   string id = 1;
+  // Title of the todo.
   string title = 2;
+  // Whether the todo has been completed.
   bool completed = 3;
+  // Timestamp when the todo was created.
   google.protobuf.Timestamp created_at = 4;
+  // Timestamp when the todo was last updated.
   google.protobuf.Timestamp updated_at = 5;
 }
 
-// ListTodos
-
+// ListTodosRequest is the request message for ListTodos.
 message ListTodosRequest {}
 
+// ListTodosResponse is the response message for ListTodos.
 message ListTodosResponse {
+  // The list of todos.
   repeated Todo todos = 1;
 }
 
-// GetTodo
-
+// GetTodoRequest is the request message for GetTodo.
 message GetTodoRequest {
+  // The ID of the todo to retrieve.
   string id = 1;
 }
 
+// GetTodoResponse is the response message for GetTodo.
 message GetTodoResponse {
+  // The requested todo.
   Todo todo = 1;
 }
 
-// CreateTodo
-
+// CreateTodoRequest is the request message for CreateTodo.
 message CreateTodoRequest {
+  // The title for the new todo.
   string title = 1;
 }
 
+// CreateTodoResponse is the response message for CreateTodo.
 message CreateTodoResponse {
+  // The newly created todo.
   Todo todo = 1;
 }
 
-// UpdateTodo
-
+// UpdateTodoRequest is the request message for UpdateTodo.
 message UpdateTodoRequest {
+  // The ID of the todo to update.
   string id = 1;
+  // The new title, if updating.
   optional string title = 2;
+  // The new completed status, if updating.
   optional bool completed = 3;
 }
 
+// UpdateTodoResponse is the response message for UpdateTodo.
 message UpdateTodoResponse {
+  // The updated todo.
   Todo todo = 1;
 }
 
-// DeleteTodo
-
+// DeleteTodoRequest is the request message for DeleteTodo.
 message DeleteTodoRequest {
+  // The ID of the todo to delete.
   string id = 1;
 }
 
+// DeleteTodoResponse is the response message for DeleteTodo.
 message DeleteTodoResponse {}
 
+// TodoService provides CRUD operations for todo items.
 service TodoService {
+  // ListTodos returns all todos.
   rpc ListTodos(ListTodosRequest) returns (ListTodosResponse);
+  // GetTodo returns a single todo by ID.
   rpc GetTodo(GetTodoRequest) returns (GetTodoResponse);
+  // CreateTodo creates a new todo.
   rpc CreateTodo(CreateTodoRequest) returns (CreateTodoResponse);
+  // UpdateTodo updates an existing todo.
   rpc UpdateTodo(UpdateTodoRequest) returns (UpdateTodoResponse);
+  // DeleteTodo deletes a todo by ID.
   rpc DeleteTodo(DeleteTodoRequest) returns (DeleteTodoResponse);
 }

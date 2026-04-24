@@ -1,4 +1,4 @@
-FROM oven/bun:1 AS base
+FROM oven/bun:1.3.13 AS base
 WORKDIR /app
 
 # Install dependencies
@@ -6,7 +6,8 @@ FROM base AS deps
 COPY package.json bun.lock ./
 COPY packages/rpc/package.json packages/rpc/
 COPY services/business-logic/package.json services/business-logic/
-RUN bun install --frozen-lockfile
+COPY services/web-ui-ssr/package.json services/web-ui-ssr/
+RUN bun install
 
 # Production image
 FROM base AS runtime

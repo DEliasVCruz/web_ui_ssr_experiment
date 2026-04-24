@@ -5,11 +5,11 @@ import { createSignal, For, Show, Suspense } from "solid-js";
 import {
 	createTodoMutation,
 	deleteTodoMutation,
-	todosQueryKey,
+	todoQueryKey,
 	todosQueryOptions,
 	updateTodoMutation,
 } from "../queries/todos";
-import { getClientTransport } from "../transport-client";
+import { useTransport } from "../transport-context";
 import { container } from "./shared.css";
 import {
 	addButton,
@@ -35,7 +35,7 @@ function formatDate(ts: { seconds: bigint } | undefined): string {
 }
 
 function AddTodoForm() {
-	const transport = getClientTransport();
+	const transport = useTransport();
 	const queryClient = useQueryClient();
 	const [title, setTitle] = createSignal("");
 
@@ -43,7 +43,7 @@ function AddTodoForm() {
 		...createTodoMutation(transport),
 		onSuccess: () => {
 			setTitle("");
-			queryClient.invalidateQueries({ queryKey: [...todosQueryKey] });
+			void queryClient.invalidateQueries({ queryKey: todosQueryOptions(transport).queryKey });
 		},
 	}));
 
@@ -76,21 +76,23 @@ function AddTodoForm() {
 }
 
 function TodoList() {
-	const transport = getClientTransport();
+	const transport = useTransport();
 	const queryClient = useQueryClient();
 	const query = createQuery(() => todosQueryOptions(transport));
 
 	const update = createMutation(() => ({
 		...updateTodoMutation(transport),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: [...todosQueryKey] });
+		onSuccess: (_data, vars) => {
+			void queryClient.invalidateQueries({ queryKey: todosQueryOptions(transport).queryKey });
+			void queryClient.invalidateQueries({ queryKey: todoQueryKey(vars.id) });
 		},
 	}));
 
 	const remove = createMutation(() => ({
 		...deleteTodoMutation(transport),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: [...todosQueryKey] });
+		onSuccess: (_data, id) => {
+			void queryClient.invalidateQueries({ queryKey: todosQueryOptions(transport).queryKey });
+			queryClient.removeQueries({ queryKey: todoQueryKey(id) });
 		},
 	}));
 
@@ -110,8 +112,10 @@ function TodoList() {
 									type="checkbox"
 									class={checkbox}
 									checked={todo.completed}
-									onChange={() => update.mutate({ id: todo.id, completed: !todo.completed })}
-									disabled={update.isPending && update.variables?.id === todo.id}
+									onChange={() => {
+										update.mutate({ id: todo.id, completed: !todo.completed });
+									}}
+									disabled={update.isPending && update.variables.id === todo.id}
 								/>
 								<A href={`/todos/${todo.id}`} class={todo.completed ? titleCompleted : titleText}>
 									{todo.title}
@@ -120,7 +124,9 @@ function TodoList() {
 								<button
 									type="button"
 									class={deleteButton}
-									onClick={() => remove.mutate(todo.id)}
+									onClick={() => {
+										remove.mutate(todo.id);
+									}}
 									disabled={remove.isPending && remove.variables === todo.id}
 								>
 									Delete

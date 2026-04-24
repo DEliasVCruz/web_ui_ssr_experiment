@@ -1,9 +1,9 @@
 import { Meta, Title } from "@solidjs/meta";
 import { A, useParams } from "@solidjs/router";
 import { createQuery } from "@tanstack/solid-query";
-import { Show, Suspense } from "solid-js";
+import { Match, Show, Suspense, Switch } from "solid-js";
 import { todoQueryOptions } from "../queries/todos";
-import { getClientTransport } from "../transport-client";
+import { useTransport } from "../transport-context";
 import { container } from "./shared.css";
 import {
 	backLink,
@@ -24,28 +24,36 @@ function formatDate(ts: { seconds: bigint } | undefined): string {
 
 function TodoDetail() {
 	const params = useParams<{ id: string }>();
-	const transport = getClientTransport();
+	const transport = useTransport();
 	const query = createQuery(() => todoQueryOptions(transport, params.id));
 
 	return (
-		<Show when={query.data} fallback={<p>Todo not found.</p>}>
-			{(todo) => (
-				<>
-					<Title>{todo().title} | Web UI SSR</Title>
-					<Meta name="description" content={`TODO: ${todo().title}`} />
-					<h1 class={todo().completed ? titleCompleted : title}>{todo().title}</h1>
-					<span class={`${statusBadge} ${todo().completed ? statusComplete : statusPending}`}>
-						{todo().completed ? "Completed" : "Pending"}
-					</span>
-					<div class={meta}>
-						<span>Created: {formatDate(todo().createdAt)}</span>
-						<Show when={todo().updatedAt}>
-							<span>Updated: {formatDate(todo().updatedAt)}</span>
-						</Show>
-					</div>
-				</>
-			)}
-		</Show>
+		<Switch>
+			<Match when={query.isError}>
+				<p>Error loading todo. Please try again later.</p>
+			</Match>
+			<Match when={query.isSuccess && query.data === null}>
+				<p>Todo not found.</p>
+			</Match>
+			<Match when={query.data}>
+				{(todo) => (
+					<>
+						<Title>{todo().title} | Web UI SSR</Title>
+						<Meta name="description" content={`TODO: ${todo().title}`} />
+						<h1 class={todo().completed ? titleCompleted : title}>{todo().title}</h1>
+						<span class={`${statusBadge} ${todo().completed ? statusComplete : statusPending}`}>
+							{todo().completed ? "Completed" : "Pending"}
+						</span>
+						<div class={meta}>
+							<span>Created: {formatDate(todo().createdAt)}</span>
+							<Show when={todo().updatedAt}>
+								<span>Updated: {formatDate(todo().updatedAt)}</span>
+							</Show>
+						</div>
+					</>
+				)}
+			</Match>
+		</Switch>
 	);
 }
 

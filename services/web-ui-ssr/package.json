@@ -5,7 +5,8 @@
 	"scripts": {
 		"dev": "bun run src/index.ts",
 		"build": "rsbuild build",
-		"typecheck": "tsc --noEmit"
+		"typecheck": "tsc --noEmit",
+		"lint:eslint": "eslint src/"
 	},
 	"dependencies": {
 		"@connectrpc/connect": "^2.1.1",
@@ -21,7 +22,7 @@
 	"devDependencies": {
 		"@rsbuild/core": "^1.1.12",
 		"@rsbuild/plugin-solid": "^1.1.1",
-		"@vanilla-extract/css": "^1.17.0",
+		"@vanilla-extract/css": "^1.20.1",
 		"@vanilla-extract/webpack-plugin": "^2.3.27",
 		"bun-types": "^1.3.13",
 		"typescript": "^5.7.2"

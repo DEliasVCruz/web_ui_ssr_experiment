@@ -72,7 +72,7 @@ export function updateTodo(
 		id,
 	);
 
-	return getTodo(id) as TodoRow;
+	return getTodo(id);
 }
 
 export function deleteTodo(id: string): boolean {

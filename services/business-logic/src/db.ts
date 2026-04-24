@@ -10,10 +10,10 @@ export function getDb(): Database {
 	const dbPath = process.env.DATABASE_PATH ?? DEFAULT_DB_PATH;
 	db = new Database(dbPath, { create: true });
 
-	db.exec("PRAGMA journal_mode = WAL;");
-	db.exec("PRAGMA foreign_keys = ON;");
+	db.run("PRAGMA journal_mode = WAL;");
+	db.run("PRAGMA foreign_keys = ON;");
 
-	db.exec(`
+	db.run(`
 		CREATE TABLE IF NOT EXISTS todos (
 			id TEXT PRIMARY KEY,
 			title TEXT NOT NULL,

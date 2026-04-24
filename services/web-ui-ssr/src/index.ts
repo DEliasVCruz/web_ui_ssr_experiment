@@ -1,13 +1,28 @@
 import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
-import { render } from "./entry-server";
+import { render as untypedRender } from "../dist/server/index.js";
+
+interface SsrRenderResult {
+	readable: ReadableStream<Uint8Array>;
+	headTags: Promise<string>;
+	hydrationScript: string;
+	dehydratedState: string;
+}
+
+const render = untypedRender as (url: string) => Promise<SsrRenderResult>;
 
 const app = new Hono();
 
 interface ManifestAssets {
 	initial: { js: string[]; css?: string[] };
 	async: { js?: string[]; css?: string[] };
+}
+
+interface RawManifest {
+	entries?: {
+		index?: Partial<ManifestAssets>;
+	};
 }
 
 /** Escape a string for safe use inside an HTML attribute value. */
@@ -30,7 +45,7 @@ function loadManifest(): ManifestAssets {
 		async: {},
 	};
 	try {
-		const raw = JSON.parse(readFileSync("dist/web/manifest.json", "utf-8"));
+		const raw = JSON.parse(readFileSync("dist/web/manifest.json", "utf-8")) as RawManifest;
 		const entry = raw.entries?.index;
 		if (!entry) return empty;
 		return {
@@ -74,7 +89,7 @@ for (const js of manifest.async.js ?? []) {
 	preloadTags.push(`<link rel="prefetch" as="script" href="${escapeAttr(js)}">`);
 }
 for (const css of manifest.async.css ?? []) {
-	preloadTags.push(`<link rel="prefetch" as="style" href="${escapeAttr(css)}">`);
+	preloadTags.push(`<link rel="stylesheet" href="${escapeAttr(css)}">`);
 }
 
 const preloadHtml = preloadTags.join("\n");
@@ -85,13 +100,13 @@ const [templateHead, templateTail] = template.split("<!--ssr-outlet-->");
 // SSR handler for all other routes
 app.get("*", async (c) => {
 	const url = c.req.url;
-	const { readable: appStream, headTags, dehydratedState } = await render(url);
+	const { readable: appStream, headTags, hydrationScript, dehydratedState } = await render(url);
 
 	const encoder = new TextEncoder();
 	const { readable, writable } = new TransformStream();
 	const writer = writable.getWriter();
 
-	(async () => {
+	void (async () => {
 		try {
 			// Wait for the shell to complete so @solidjs/meta tags are available
 			const metaTags = await headTags;
@@ -99,13 +114,13 @@ app.get("*", async (c) => {
 			// Inject manifest preloads and meta tags before </head>
 			const headWithAssets = templateHead.replace(
 				"</head>",
-				`${preloadHtml}\n${metaTags}\n</head>`,
+				`${hydrationScript}\n${preloadHtml}\n${metaTags}\n</head>`,
 			);
 
 			await writer.write(encoder.encode(headWithAssets));
 
 			const reader = appStream.getReader();
-			while (true) {
+			for (;;) {
 				// biome-ignore lint/performance/noAwaitInLoops: stream reading is sequential
 				const { done, value } = await reader.read();
 				if (done) break;
@@ -137,4 +152,4 @@ export default {
 };
 
 // biome-ignore lint/suspicious/noConsole: intentional startup log
-console.log(`web-ui-ssr listening on http://localhost:${port}`);
+console.log(`web-ui-ssr listening on http://localhost:${String(port)}`);

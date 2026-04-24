@@ -1,0 +1,25 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.4.12/schema.json",
+	"extends": ["./base.json"],
+	"linter": {
+		"rules": {
+			"nursery": {
+				"noFloatingPromises": "error",
+				"noMisleadingReturnType": "error",
+				"noMisusedPromises": "error",
+				"noUnnecessaryConditions": "error",
+				"noUnsafePlusOperands": "error",
+				"noUselessTypeConversion": "error",
+				"useArraySortCompare": "error",
+				"useAwaitThenable": "error",
+				"useConsistentEnumValueType": "error",
+				"useDisposables": "error",
+				"useExhaustiveSwitchCases": "error",
+				"useFind": "error",
+				"useNullishCoalescing": "error",
+				"useRegexpExec": "error",
+				"useStringStartsEndsWith": "error"
+			}
+		}
+	}
+}
