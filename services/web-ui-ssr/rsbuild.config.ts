@@ -38,6 +38,21 @@ export default defineConfig({
 						"vendor-solid": /node_modules[\\/]solid-js/,
 						"vendor-router": /node_modules[\\/]@solidjs[\\/]router/,
 					},
+					override: {
+						cacheGroups: {
+							// Dev-only: pin vanilla-extract virtual modules to a stable chunk
+							// name so splitChunks doesn't reorganize chunk boundaries on HMR,
+							// which causes "undefined factory" errors (rsbuild#6049).
+							...(process.env.NODE_ENV === "development" && {
+								vanillaCss: {
+									minSize: 0,
+									test: /@vanilla-extract\/webpack-plugin/,
+									priority: 1000,
+									name: "vanilla-extract",
+								},
+							}),
+						},
+					},
 				},
 			},
 			html: {
