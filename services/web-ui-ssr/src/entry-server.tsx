@@ -43,7 +43,6 @@ export async function render(url: string): Promise<RenderResult> {
 		},
 	);
 
-	// eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- solid's renderToStream.pipeTo is typed as void but returns a Promise at runtime
 	const pipePromise = stream.pipeTo(writable) as unknown as Promise<void>;
 	pipePromise.catch(rejectHead);
 	return { readable, headTags, hydrationScript, dehydratedState };

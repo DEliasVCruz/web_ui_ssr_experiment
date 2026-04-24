@@ -16,6 +16,7 @@ packages/rpc/gen/
 
 # Claude
 .claude/skills
+.mcp.json
 
 # Playwright MCP snapshots
 .playwright-mcp/

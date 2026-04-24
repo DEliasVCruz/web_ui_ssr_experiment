@@ -29,47 +29,6 @@ assumptions about how the broader platform works; this experiment is
 scoped narrowly and most of the wider architecture is intentionally out
 of scope here.**
 
-## Running commands
-
-### Prefer devenv tasks and `bun run`
-
-Always use **devenv tasks** for project-wide operations and **`bun run`** for
-package scripts. Never use `npx` or raw tool invocations when a devenv task
-or `bun run` script exists for the same purpose.
-
-| Instead of              | Use                                  |
-|-------------------------|--------------------------------------|
-| `npx tsc --noEmit`     | `devenv tasks run ts:check`          |
-| `npx biome check .`    | `devenv tasks run biome:check`       |
-| `npx biome check --write .` | `devenv tasks run biome:fix`    |
-| `npx biome lint .`     | `devenv tasks run biome:lint`        |
-| `npx biome format --write .` | `devenv tasks run biome:format` |
-| `npx buf generate`     | `devenv tasks run buf:generate`      |
-| raw `bun run src/...`  | `bun run dev` (per-service script)   |
-
-For single-service type checking: `bun run typecheck` from the service
-directory (defined in each service's `package.json`).
-
-## Coding rules
-
-### Linting
-
-**Biome**:
-  - When reviewing linting errors, do not try to apply them inmediatly, always prefer checking 
-    and using the autocorrection feature with `--write` and only provide direct fixes for those 
-    that can not be auto resolved or that their action is `unsafe` to apply (per biome's criteria) 
-    those who are unsafe review first that they don't affect the semantics of the program and if 
-    they don't then prefer their solution, otherwise apply your own.
-  - Warnings are to be examined and taking into account based on the full documented description
-    of the rule, they should genarabily be followed unless they would increase the complexity,
-    verbosity, functionality or undersatbility of the code.
-  - Info messages are meant to be treated as hints of code smells, they don't need to be adressed
-    necessarely but they provide a guide to stop and think if there are better paterns or
-    implementations that are inline with the code practices and style of the codebase
-  - Any rule notification that it's not an error or does not have a `safe` action should always be
-    review and analyze first that they don't affect the semantics of the program and if 
-    they don't then prefer their solution, otherwise apply your own or just ignore it.
-
 ## Task managment
 
 Use beads as the tool for dividing, managing and cordinating task and
@@ -161,17 +120,6 @@ post-hydration traffic.
 - **Data store**: SQLite (business-logic server only)
 - **Orchestration**: Docker + Docker Compose
 
-## In scope
-
-- Manual SSR wiring on Rsbuild + Hono + Bun
-- `renderToStream` + client `hydrate`
-- Suspense-wrapped async data loaders calling RPC
-- Dehydrate/rehydrate of TanStack Query cache via embedded state in HTML
-- `lazy()` route splitting with JS+CSS chunk pairs, including vanilla-extract styles
-- connect-es RPC on both the SSR and post-hydration paths
-- Two-service split orchestrated by Docker Compose
-- SQLite persistence on the business-logic side
-
 ## Out of scope (do not add)
 
 Do not introduce these without an explicit request. They belong to the
@@ -199,33 +147,6 @@ didn't intend to ask yet.
 - **Streaming requires Suspense.** Any async boundary must be under `<Suspense>` or streaming breaks.
 - **Prefer small, reversible changes.** This is a learning exercise; optimize for clarity and the ability to rip things out, not for robustness.
 - **Record learnings.** When you hit a surprise — something that worked, something that didn't, a gotcha in a library — write or update a note in the `web_ui` project so it isn't lost.
-
-## Running the project
-
-Once implemented, the expected workflow is:
-
-```sh
-docker compose up
-```
-
-This should bring up both services. The rendering server serves HTML on
-its published port; the business-logic server is reachable by the
-rendering server over the Compose network and by the browser via its
-own published port.
-
-## Validation checklist
-
-Use these as acceptance signals for the POC:
-
-- [ ] `docker compose up` starts both services cleanly
-- [ ] A page request returns streamed HTML with the TODO list already populated
-- [ ] The HTML contains dehydrated TanStack Query state
-- [ ] Hydration does not trigger a refetch for data already present in the dehydrated state
-- [ ] After hydration, mutations go browser → business-logic directly (verify via network panel: no hits to the rendering server for data)
-- [ ] `lazy()` route produces separate JS+CSS chunks in the build output
-- [ ] vanilla-extract styles appear in the per-chunk CSS
-- [ ] Head tags (`<title>`, `<meta>`) are present in the initial streamed HTML and update on client-side navigation
-- [ ] SQLite data persists across `docker compose down` / `up`
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:full hash:f65d5d33 -->
 ## Issue Tracking with bd (beads)
