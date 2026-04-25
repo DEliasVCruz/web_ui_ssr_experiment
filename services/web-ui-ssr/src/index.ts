@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import type { Context } from "hono";
 import { Hono } from "hono";
 import type { RenderResult } from "./entry-server";
 
@@ -11,7 +12,7 @@ type RenderFn = (url: string) => Promise<RenderResult>;
 const app = new Hono();
 
 let getRender: () => Promise<RenderFn>;
-let getTemplate: () => string | Promise<string>;
+let getTemplateParts: () => [string, string] | Promise<[string, string]>;
 let preloadHtml = "";
 
 if (isDev) {
@@ -45,8 +46,12 @@ if (isDev) {
 		return cachedRender;
 	};
 
-	// Rsbuild injects dev scripts into the template automatically
-	getTemplate = () => rsbuildServer.environments.web.getTransformedHtml("index");
+	// Rsbuild injects dev scripts into the template automatically;
+	// split per-request because the template changes on HMR rebuilds
+	getTemplateParts = async () => {
+		const tpl = await rsbuildServer.environments.web.getTransformedHtml("index");
+		return tpl.split("<!--ssr-outlet-->") as [string, string];
+	};
 
 	app.get("*", handleSsr);
 
@@ -68,8 +73,10 @@ if (isDev) {
 
 	getRender = async () => render;
 
-	const template = loadTemplate();
-	getTemplate = () => template;
+	// We call the loadTemplate function and split it early to avoid
+	// repeated calling of these function on each request by caching
+	const parts = loadTemplate().split("<!--ssr-outlet-->") as [string, string];
+	getTemplateParts = () => parts;
 	preloadHtml = buildPreloadHtml();
 
 	app.use("/static/*", serveStatic({ root: "dist/web" }));
@@ -81,13 +88,11 @@ if (isDev) {
 
 // ── Shared SSR handler ──────────────────────────────────────────────────
 
-async function handleSsr(c: { req: { url: string } }): Promise<Response> {
+async function handleSsr(c: Context): Promise<Response> {
 	const url = c.req.url;
 	const render = await getRender();
-	const template = await getTemplate();
+	const [templateHead, templateTail] = await getTemplateParts();
 	const { readable: appStream, headTags, hydrationScript, dehydratedState } = await render(url);
-
-	const [templateHead, templateTail] = template.split("<!--ssr-outlet-->");
 
 	const encoder = new TextEncoder();
 	const { readable, writable } = new TransformStream();
@@ -189,4 +194,7 @@ function buildPreloadHtml(): string {
 	return tags.join("\n");
 }
 
-export default { port, fetch: app.fetch };
+// Bun picks up this default export to start its HTTP server.
+// In dev mode (Node), undefined prevents accidental dual server binding.
+// In prod, dead-code elimination reduces isDev to false, keeping the export.
+export default isDev ? undefined : { port, fetch: app.fetch };
