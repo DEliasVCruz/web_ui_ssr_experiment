@@ -1,10 +1,41 @@
+import type { RsbuildPlugin } from "@rsbuild/core";
 import { defineConfig } from "@rsbuild/core";
-import { pluginBabel } from "@rsbuild/plugin-babel";
+import { modifyBabelLoaderOptions, pluginBabel } from "@rsbuild/plugin-babel";
 import { pluginSolid } from "@rsbuild/plugin-solid";
 import { VanillaExtractPlugin } from "@vanilla-extract/webpack-plugin";
 
 const PUBLIC_BUSINESS_LOGIC_URL = process.env.PUBLIC_BUSINESS_LOGIC_URL ?? "http://localhost:3001";
 const isDev = process.env.NODE_ENV !== "production";
+
+/**
+ * Strips the solid-refresh/babel plugin that pluginSolid injects for HMR
+ * in the web environment. solid-refresh wraps components in HMR proxies,
+ * changing the component tree depth. Since the SSR environment doesn't get
+ * these wrappers (pluginSolid only adds them for target "web"), hydration
+ * keys diverge and hydrate() fails. Removing solid-refresh from the client
+ * aligns both trees. Regular module HMR still works; only per-component
+ * hot-swap is lost.
+ */
+function pluginStripSolidRefresh(): RsbuildPlugin {
+	return {
+		name: "strip-solid-refresh",
+		setup(api) {
+			api.modifyBundlerChain((chain, { CHAIN_ID }) => {
+				modifyBabelLoaderOptions({
+					chain,
+					// biome-ignore lint/style/useNamingConvention: must match Rsbuild's API key
+					CHAIN_ID,
+					modifier: (babelOptions) => {
+						babelOptions.plugins = (babelOptions.plugins ?? []).filter(
+							(p: unknown) => !String(Array.isArray(p) ? p[0] : p).includes("solid-refresh"),
+						);
+						return babelOptions;
+					},
+				});
+			});
+		},
+	};
+}
 
 // Shared SSR compilation config used by both dev (ssr) and prod (server) environments
 const ssrShared = {
@@ -28,6 +59,13 @@ const ssrShared = {
 export default defineConfig({
 	plugins: [pluginBabel({ include: /\.(?:jsx|tsx)$/ })],
 
+	// Disable lazy compilation in dev so CSS for all routes is compiled
+	// upfront. Without this, CSS is only compiled when the browser requests
+	// a lazy chunk, causing FOUC during SSR.
+	dev: {
+		lazyCompilation: false,
+	},
+
 	tools: {
 		rspack: {
 			plugins: [new VanillaExtractPlugin()],
@@ -36,7 +74,10 @@ export default defineConfig({
 
 	environments: {
 		web: {
-			plugins: [pluginSolid({ solidPresetOptions: { hydratable: true } })],
+			plugins: [
+				pluginSolid({ solidPresetOptions: { hydratable: true } }),
+				...(isDev ? [pluginStripSolidRefresh()] : []),
+			],
 			source: {
 				entry: { index: "./src/entry-client.tsx" },
 				define: {
@@ -48,6 +89,9 @@ export default defineConfig({
 				target: "web",
 				manifest: true,
 				distPath: { root: "dist/web" },
+			},
+			resolve: {
+				conditionNames: ["solid", "browser", "import", "module", "default"],
 			},
 			performance: {
 				chunkSplit: {

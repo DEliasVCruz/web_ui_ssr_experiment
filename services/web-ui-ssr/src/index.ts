@@ -28,13 +28,30 @@ if (isDev) {
 
 	const { content: rsbuildConfig } = await loadConfig({});
 	const rsbuild = await createRsbuild({ rsbuildConfig });
-	const rsbuildServer = await rsbuild.createDevServer();
 
-	// Invalidate cached render function when SSR bundle recompiles
+	// Register hooks BEFORE createDevServer() so the initial build is captured.
+	// Invalidate cached render function when SSR bundle recompiles,
+	// and collect CSS assets from the web environment for SSR injection
+	// to prevent FOUC (flash of unstyled content) during dev SSR.
 	let cachedRender: RenderFn | null = null;
-	rsbuild.onAfterDevCompile(() => {
+	rsbuild.onAfterDevCompile(({ stats }) => {
 		cachedRender = null;
+		if (stats) {
+			// MultiStats: assets are nested under children, not at the top level.
+			// Extract CSS assets from the web environment to inject as <link> tags
+			// in the SSR response, preventing FOUC.
+			const json = stats.toJson({ all: false, assets: true, children: true });
+			const webChild = json.children?.find((c: { name?: string }) => c.name === "web");
+			const cssAssets = (webChild?.assets ?? [])
+				.filter((a: { name?: string }) => a.name?.endsWith(".css"))
+				.map((a: { name: string }) => `/${a.name}`);
+			preloadHtml = cssAssets
+				.map((href: string) => `<link rel="stylesheet" href="${href}">`)
+				.join("\n");
+		}
 	});
+
+	const rsbuildServer = await rsbuild.createDevServer();
 
 	getRender = async () => {
 		if (!cachedRender) {
@@ -55,11 +72,18 @@ if (isDev) {
 
 	app.get("*", handleSsr);
 
-	// Bridge: Rsbuild middleware handles static assets + HMR WebSocket;
-	// everything else falls through to Hono's SSR handler.
+	// Bridge: Rsbuild middleware handles static assets, HMR, lazy compilation,
+	// etc. For the root path Rsbuild would serve its compiled index.html, so
+	// we route it directly to Hono's SSR handler. All other paths try Rsbuild
+	// first and fall through to Hono for SSR on miss.
 	const honoListener = getRequestListener(app.fetch);
 	const server = createServer((req, res) => {
-		rsbuildServer.middlewares(req, res, () => honoListener(req, res));
+		const url = req.url ?? "/";
+		if (url === "/" || url === "/index.html") {
+			honoListener(req, res);
+		} else {
+			rsbuildServer.middlewares(req, res, () => honoListener(req, res));
+		}
 	});
 	rsbuildServer.connectWebSocket({ server });
 	server.listen(port, () => {
@@ -82,8 +106,14 @@ if (isDev) {
 	app.use("/static/*", serveStatic({ root: "dist/web" }));
 	app.get("*", handleSsr);
 
-	// biome-ignore lint/suspicious/noConsole: startup log
-	console.log(`web-ui-ssr listening on http://localhost:${port}`);
+	// Explicitly start the server — the `export default { port, fetch }`
+	// pattern doesn't survive rspack's async-module wrapping, so Bun
+	// can't detect it and the process exits immediately.
+	const { serve } = await import(/* webpackIgnore: true */ "@hono/node-server");
+	serve({ fetch: app.fetch, port }, () => {
+		// biome-ignore lint/suspicious/noConsole: startup log
+		console.log(`web-ui-ssr listening on http://localhost:${port}`);
+	});
 }
 
 // ── Shared SSR handler ──────────────────────────────────────────────────
@@ -193,8 +223,3 @@ function buildPreloadHtml(): string {
 	}
 	return tags.join("\n");
 }
-
-// Bun picks up this default export to start its HTTP server.
-// In dev mode (Node), undefined prevents accidental dual server binding.
-// In prod, dead-code elimination reduces isDev to false, keeping the export.
-export default isDev ? undefined : { port, fetch: app.fetch };
