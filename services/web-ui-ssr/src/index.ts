@@ -1,20 +1,133 @@
 import { readFileSync } from "node:fs";
 import { Hono } from "hono";
-import { serveStatic } from "hono/bun";
-import { render } from "./entry-server";
+import type { RenderResult } from "./entry-server";
+
+const isDev = process.env.NODE_ENV === "development";
+const DEFAULT_PORT = 3000;
+const port = Number(process.env.PORT) || DEFAULT_PORT;
+
+type RenderFn = (url: string) => Promise<RenderResult>;
 
 const app = new Hono();
 
-interface ManifestAssets {
-	initial: { js: string[]; css?: string[] };
-	async: { js?: string[]; css?: string[] };
+let getRender: () => Promise<RenderFn>;
+let getTemplate: () => string | Promise<string>;
+let preloadHtml = "";
+
+if (isDev) {
+	// ── DEV MODE ────────────────────────────────────────────────────────
+	// Stripped entirely in the production build: Rsbuild replaces
+	// process.env.NODE_ENV with "production", so the condition becomes
+	// if (false) and the minifier removes this branch along with all
+	// dynamic imports (@rsbuild/core, @hono/node-server).
+
+	const { createRsbuild, loadConfig } = await import(/* webpackIgnore: true */ "@rsbuild/core");
+	const { createServer } = await import(/* webpackIgnore: true */ "node:http");
+	const { getRequestListener } = await import(/* webpackIgnore: true */ "@hono/node-server");
+
+	const { content: rsbuildConfig } = await loadConfig({});
+	const rsbuild = await createRsbuild({ rsbuildConfig });
+	const rsbuildServer = await rsbuild.createDevServer();
+
+	// Invalidate cached render function when SSR bundle recompiles
+	let cachedRender: RenderFn | null = null;
+	rsbuild.onAfterDevCompile(() => {
+		cachedRender = null;
+	});
+
+	getRender = async () => {
+		if (!cachedRender) {
+			const mod = await rsbuildServer.environments.ssr.loadBundle<{
+				render: RenderFn;
+			}>("index");
+			cachedRender = mod.render;
+		}
+		return cachedRender;
+	};
+
+	// Rsbuild injects dev scripts into the template automatically
+	getTemplate = () => rsbuildServer.environments.web.getTransformedHtml("index");
+
+	app.get("*", handleSsr);
+
+	// Bridge: Rsbuild middleware handles static assets + HMR WebSocket;
+	// everything else falls through to Hono's SSR handler.
+	const honoListener = getRequestListener(app.fetch);
+	const server = createServer((req, res) => {
+		rsbuildServer.middlewares(req, res, () => honoListener(req, res));
+	});
+	rsbuildServer.connectWebSocket({ server });
+	server.listen(port, () => {
+		// biome-ignore lint/suspicious/noConsole: startup log
+		console.log(`web-ui-ssr dev server on http://localhost:${port}`);
+	});
+} else {
+	// ── PRODUCTION MODE ─────────────────────────────────────────────────
+	const { render } = await import(/* webpackMode: "eager" */ "./entry-server");
+	const { serveStatic } = await import("hono/bun");
+
+	getRender = async () => render;
+
+	const template = loadTemplate();
+	getTemplate = () => template;
+	preloadHtml = buildPreloadHtml();
+
+	app.use("/static/*", serveStatic({ root: "dist/web" }));
+	app.get("*", handleSsr);
+
+	// biome-ignore lint/suspicious/noConsole: startup log
+	console.log(`web-ui-ssr listening on http://localhost:${port}`);
 }
 
-interface RawManifest {
-	entries?: {
-		index?: Partial<ManifestAssets>;
-	};
+// ── Shared SSR handler ──────────────────────────────────────────────────
+
+async function handleSsr(c: { req: { url: string } }): Promise<Response> {
+	const url = c.req.url;
+	const render = await getRender();
+	const template = await getTemplate();
+	const { readable: appStream, headTags, hydrationScript, dehydratedState } = await render(url);
+
+	const [templateHead, templateTail] = template.split("<!--ssr-outlet-->");
+
+	const encoder = new TextEncoder();
+	const { readable, writable } = new TransformStream();
+	const writer = writable.getWriter();
+
+	void (async () => {
+		try {
+			// Wait for the shell to complete so @solidjs/meta tags are available
+			const metaTags = await headTags;
+
+			const headWithAssets = templateHead.replace(
+				"</head>",
+				`${hydrationScript}\n${preloadHtml}\n${metaTags}\n</head>`,
+			);
+			await writer.write(encoder.encode(headWithAssets));
+
+			const reader = appStream.getReader();
+			for (;;) {
+				// biome-ignore lint/performance/noAwaitInLoops: stream reading is sequential
+				const { done, value } = await reader.read();
+				if (done) break;
+				await writer.write(value);
+			}
+
+			// Inject dehydrated TanStack Query state before closing body
+			const stateScript = `<script id="__QUERY_STATE__" type="application/json">${escapeScriptContent(dehydratedState)}</script>`;
+			const tail = templateTail.replace("</body>", `${stateScript}\n</body>`);
+			await writer.write(encoder.encode(tail));
+			await writer.close();
+		} catch (error) {
+			await writer.abort(error);
+		}
+	})();
+
+	return new Response(readable, {
+		headers: { "content-type": "text/html; charset=utf-8" },
+	});
 }
+
+// ── Production helpers ──────────────────────────────────────────────────
 
 /** Escape a string for safe use inside an HTML attribute value. */
 function escapeAttr(s: string): string {
@@ -30,25 +143,17 @@ function escapeScriptContent(s: string): string {
 	return s.replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
 }
 
-function loadManifest(): ManifestAssets {
-	const empty: ManifestAssets = {
-		initial: { js: [] },
-		async: {},
-	};
-	try {
-		const raw = JSON.parse(readFileSync("dist/web/manifest.json", "utf-8")) as RawManifest;
-		const entry = raw.entries?.index;
-		if (!entry) return empty;
-		return {
-			initial: entry.initial ?? { js: [] },
-			async: entry.async ?? {},
-		};
-	} catch {
-		return empty;
-	}
+interface ManifestAssets {
+	initial: { js: string[]; css?: string[] };
+	async: { js?: string[]; css?: string[] };
 }
 
-// Read the HTML template produced by Rsbuild
+interface RawManifest {
+	entries?: {
+		index?: Partial<ManifestAssets>;
+	};
+}
+
 function loadTemplate(): string {
 	try {
 		return readFileSync("dist/web/index.html", "utf-8");
@@ -57,90 +162,31 @@ function loadTemplate(): string {
 	}
 }
 
-// Cache static build artifacts at startup
-const manifest = loadManifest();
-const template = loadTemplate();
+function buildPreloadHtml(): string {
+	const empty: ManifestAssets = { initial: { js: [] }, async: {} };
+	let manifest: ManifestAssets;
+	try {
+		const raw = JSON.parse(readFileSync("dist/web/manifest.json", "utf-8")) as RawManifest;
+		const entry = raw.entries?.index;
+		manifest = entry ? { initial: entry.initial ?? { js: [] }, async: entry.async ?? {} } : empty;
+	} catch {
+		manifest = empty;
+	}
 
-// Serve static assets from the client build output
-app.use("/static/*", serveStatic({ root: "dist/web" }));
-
-// Collect asset preload tags from the manifest (computed once at startup)
-const preloadTags: string[] = [];
-
-// Initial chunks — needed on every page
-for (const js of manifest.initial.js) {
-	preloadTags.push(`<link rel="modulepreload" href="${escapeAttr(js)}">`);
+	const tags: string[] = [];
+	for (const js of manifest.initial.js) {
+		tags.push(`<link rel="modulepreload" href="${escapeAttr(js)}">`);
+	}
+	for (const css of manifest.initial.css ?? []) {
+		tags.push(`<link rel="stylesheet" href="${escapeAttr(css)}">`);
+	}
+	for (const js of manifest.async.js ?? []) {
+		tags.push(`<link rel="prefetch" as="script" href="${escapeAttr(js)}">`);
+	}
+	for (const css of manifest.async.css ?? []) {
+		tags.push(`<link rel="stylesheet" href="${escapeAttr(css)}">`);
+	}
+	return tags.join("\n");
 }
-for (const css of manifest.initial.css ?? []) {
-	preloadTags.push(`<link rel="stylesheet" href="${escapeAttr(css)}">`);
-}
 
-// Async chunks — prefetch so lazy routes load fast
-for (const js of manifest.async.js ?? []) {
-	preloadTags.push(`<link rel="prefetch" as="script" href="${escapeAttr(js)}">`);
-}
-for (const css of manifest.async.css ?? []) {
-	preloadTags.push(`<link rel="stylesheet" href="${escapeAttr(css)}">`);
-}
-
-const preloadHtml = preloadTags.join("\n");
-
-// Split template at the SSR outlet marker (computed once at startup)
-const [templateHead, templateTail] = template.split("<!--ssr-outlet-->");
-
-// SSR handler for all other routes
-app.get("*", async (c) => {
-	const url = c.req.url;
-	const { readable: appStream, headTags, hydrationScript, dehydratedState } = await render(url);
-
-	const encoder = new TextEncoder();
-	const { readable, writable } = new TransformStream();
-	const writer = writable.getWriter();
-
-	void (async () => {
-		try {
-			// Wait for the shell to complete so @solidjs/meta tags are available
-			const metaTags = await headTags;
-
-			// Inject manifest preloads and meta tags before </head>
-			const headWithAssets = templateHead.replace(
-				"</head>",
-				`${hydrationScript}\n${preloadHtml}\n${metaTags}\n</head>`,
-			);
-
-			await writer.write(encoder.encode(headWithAssets));
-
-			const reader = appStream.getReader();
-			for (;;) {
-				// biome-ignore lint/performance/noAwaitInLoops: stream reading is sequential
-				const { done, value } = await reader.read();
-				if (done) break;
-				await writer.write(value);
-			}
-
-			// Inject dehydrated TanStack Query state before closing body
-			const stateScript = `<script id="__QUERY_STATE__" type="application/json">${escapeScriptContent(dehydratedState)}</script>`;
-			const tail = templateTail.replace("</body>", `${stateScript}\n</body>`);
-
-			await writer.write(encoder.encode(tail));
-			await writer.close();
-		} catch (error) {
-			await writer.abort(error);
-		}
-	})();
-
-	return new Response(readable, {
-		headers: { "content-type": "text/html; charset=utf-8" },
-	});
-});
-
-const DEFAULT_PORT = 3000;
-const port = Number(process.env.PORT) || DEFAULT_PORT;
-
-export default {
-	port,
-	fetch: app.fetch,
-};
-
-// biome-ignore lint/suspicious/noConsole: intentional startup log
-console.log(`web-ui-ssr listening on http://localhost:${String(port)}`);
+export default { port, fetch: app.fetch };

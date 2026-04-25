@@ -32,12 +32,10 @@ COPY --from=deps /app/node_modules node_modules
 COPY --from=deps /app/packages/rpc/node_modules packages/rpc/node_modules
 COPY --from=deps /app/services/web-ui-ssr/node_modules services/web-ui-ssr/node_modules
 COPY packages/rpc packages/rpc
-COPY services/web-ui-ssr/src services/web-ui-ssr/src
 COPY services/web-ui-ssr/package.json services/web-ui-ssr/
-COPY services/web-ui-ssr/tsconfig.json services/web-ui-ssr/
 COPY --from=build /app/services/web-ui-ssr/dist services/web-ui-ssr/dist
 
 WORKDIR /app/services/web-ui-ssr
 ENV PORT=3000
 EXPOSE 3000
-CMD ["bun", "run", "src/index.ts"]
+CMD ["bun", "dist/server/index.js"]

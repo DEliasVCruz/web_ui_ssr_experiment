@@ -4,12 +4,29 @@ import { pluginSolid } from "@rsbuild/plugin-solid";
 import { VanillaExtractPlugin } from "@vanilla-extract/webpack-plugin";
 
 const PUBLIC_BUSINESS_LOGIC_URL = process.env.PUBLIC_BUSINESS_LOGIC_URL ?? "http://localhost:3001";
+const isDev = process.env.NODE_ENV !== "production";
+
+// Shared SSR compilation config used by both dev (ssr) and prod (server) environments
+const ssrShared = {
+	plugins: [pluginSolid({ solidPresetOptions: { generate: "ssr", hydratable: true } })],
+	source: {
+		define: {
+			// biome-ignore lint/style/useNamingConvention: must match the global identifier
+			PUBLIC_BUSINESS_LOGIC_URL: JSON.stringify("http://placeholder"),
+		},
+	},
+	output: {
+		target: "node" as const,
+		distPath: { root: "dist/server" },
+		emitCss: false,
+	},
+	resolve: {
+		conditionNames: ["solid", "node", "import", "module", "default"],
+	},
+};
 
 export default defineConfig({
-	plugins: [
-		pluginBabel({ include: /\.(?:jsx|tsx)$/ }),
-		pluginSolid({ solidPresetOptions: { hydratable: true } }),
-	],
+	plugins: [pluginBabel({ include: /\.(?:jsx|tsx)$/ })],
 
 	tools: {
 		rspack: {
@@ -19,6 +36,7 @@ export default defineConfig({
 
 	environments: {
 		web: {
+			plugins: [pluginSolid({ solidPresetOptions: { hydratable: true } })],
 			source: {
 				entry: { index: "./src/entry-client.tsx" },
 				define: {
@@ -60,31 +78,27 @@ export default defineConfig({
 			},
 		},
 
-		node: {
-			plugins: [
-				// SSR environment: compile Solid JSX with generate:"ssr"
-				pluginSolid({ solidPresetOptions: { generate: "ssr", hydratable: true } }),
-			],
-			source: {
-				entry: { index: "./src/entry-server.tsx" },
-				define: {
-					// The client transport is imported by shared page components;
-					// on the server this value is unused but must be defined to
-					// avoid a ReferenceError when the module is loaded.
-					// biome-ignore lint/style/useNamingConvention: must match the global identifier
-					PUBLIC_BUSINESS_LOGIC_URL: JSON.stringify("http://placeholder"),
-				},
-			},
-			output: {
-				target: "node",
-				distPath: { root: "dist/server" },
-				emitCss: false,
-			},
-			// Resolve @solidjs/* packages to their JSX source so
-			// babel-preset-solid can compile them for SSR.
-			resolve: {
-				conditionNames: ["solid", "node", "import", "module", "default"],
-			},
-		},
+		// Dev mode: SSR entry compiled separately, loaded via loadBundle() at runtime
+		// Prod mode: full Hono server as entry — bundles entry-server.tsx, dev code
+		// stripped via dead-code elimination
+		...(isDev
+			? {
+					ssr: {
+						...ssrShared,
+						source: {
+							...ssrShared.source,
+							entry: { index: "./src/entry-server.tsx" },
+						},
+					},
+				}
+			: {
+					server: {
+						...ssrShared,
+						source: {
+							...ssrShared.source,
+							entry: { index: "./src/index.ts" },
+						},
+					},
+				}),
 	},
 });
