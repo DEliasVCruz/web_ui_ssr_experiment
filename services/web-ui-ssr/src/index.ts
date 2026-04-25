@@ -78,8 +78,8 @@ if (isDev) {
 	// first and fall through to Hono for SSR on miss.
 	const honoListener = getRequestListener(app.fetch);
 	const server = createServer((req, res) => {
-		const url = req.url ?? "/";
-		if (url === "/" || url === "/index.html") {
+		const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+		if (pathname === "/" || pathname === "/index.html") {
 			honoListener(req, res);
 		} else {
 			rsbuildServer.middlewares(req, res, () => honoListener(req, res));
@@ -106,14 +106,12 @@ if (isDev) {
 	app.use("/static/*", serveStatic({ root: "dist/web" }));
 	app.get("*", handleSsr);
 
-	// Explicitly start the server — the `export default { port, fetch }`
+	// Use Bun.serve() explicitly — the `export default { port, fetch }`
 	// pattern doesn't survive rspack's async-module wrapping, so Bun
 	// can't detect it and the process exits immediately.
-	const { serve } = await import(/* webpackIgnore: true */ "@hono/node-server");
-	serve({ fetch: app.fetch, port }, () => {
-		// biome-ignore lint/suspicious/noConsole: startup log
-		console.log(`web-ui-ssr listening on http://localhost:${port}`);
-	});
+	Bun.serve({ port, fetch: app.fetch });
+	// biome-ignore lint/suspicious/noConsole: startup log
+	console.log(`web-ui-ssr listening on http://localhost:${port}`);
 }
 
 // ── Shared SSR handler ──────────────────────────────────────────────────
