@@ -1,26 +1,24 @@
-import { style } from "@vanilla-extract/css";
+import { css } from "../../styled-system/css";
 
-export const backLink = style({
+export const backLink = css({
 	display: "inline-block",
 	marginBlockEnd: "1.5rem",
 	textDecoration: "none",
 	color: "#2563eb",
 	fontSize: "0.875rem",
-	selectors: {
-		"&:hover": {
-			textDecoration: "underline",
-		},
+	_hover: {
+		textDecoration: "underline",
 	},
 });
 
-export const title = style({
+export const title = css({
 	marginBlockEnd: "0.5rem",
 	color: "#1f2937",
 	fontSize: "1.75rem",
 	fontWeight: 700,
 });
 
-export const titleCompleted = style({
+export const titleCompleted = css({
 	marginBlockEnd: "0.5rem",
 	textDecoration: "line-through",
 	color: "#9ca3af",
@@ -28,7 +26,7 @@ export const titleCompleted = style({
 	fontWeight: 700,
 });
 
-export const statusBadge = style({
+export const statusBadge = css({
 	display: "inline-block",
 	marginBlockEnd: "1rem",
 	borderRadius: "9999rem",
@@ -37,17 +35,17 @@ export const statusBadge = style({
 	fontWeight: 600,
 });
 
-export const statusComplete = style({
+export const statusComplete = css({
 	backgroundColor: "#d1fae5",
 	color: "#065f46",
 });
 
-export const statusPending = style({
+export const statusPending = css({
 	backgroundColor: "#fef3c7",
 	color: "#92400e",
 });
 
-export const meta = style({
+export const meta = css({
 	display: "flex",
 	flexDirection: "column",
 	gap: "0.25rem",

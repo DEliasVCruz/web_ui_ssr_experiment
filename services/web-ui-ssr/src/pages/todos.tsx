@@ -10,7 +10,7 @@ import {
 	updateTodoMutation,
 } from "../queries/todos";
 import { useTransport } from "../transport-context";
-import { container } from "./shared.css";
+import { container } from "./shared.styles";
 import {
 	addButton,
 	addForm,
@@ -25,7 +25,7 @@ import {
 	timestamp,
 	titleCompleted,
 	titleText,
-} from "./todos.css";
+} from "./todos.styles";
 
 const MS_PER_SECOND = 1000;
 

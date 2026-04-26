@@ -4,7 +4,7 @@ import { createQuery } from "@tanstack/solid-query";
 import { Match, Show, Suspense, Switch } from "solid-js";
 import { todoQueryOptions } from "../queries/todos";
 import { useTransport } from "../transport-context";
-import { container } from "./shared.css";
+import { container } from "./shared.styles";
 import {
 	backLink,
 	meta,
@@ -13,7 +13,7 @@ import {
 	statusPending,
 	title,
 	titleCompleted,
-} from "./todo-detail.css";
+} from "./todo-detail.styles";
 
 const MS_PER_SECOND = 1000;
 

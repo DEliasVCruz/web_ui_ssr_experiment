@@ -1,5 +1,5 @@
 import { Meta, Title } from "@solidjs/meta";
-import { container, heading } from "./shared.css";
+import { container, heading } from "./shared.styles";
 
 export default function Home() {
 	return (
