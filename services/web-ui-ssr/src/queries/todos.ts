@@ -1,6 +1,6 @@
 import { type Client, Code, ConnectError, createClient, type Transport } from "@connectrpc/connect";
 import type { QueryClient } from "@tanstack/solid-query";
-import { TodoService } from "@web-ui-poc/rpc/gen/proto/todo/v1/todo_pb";
+import { TodoService } from "@web-ui-poc/rpc/gen/todo/v1/todo_pb";
 
 export const todosQueryKey = ["todos"] as const;
 

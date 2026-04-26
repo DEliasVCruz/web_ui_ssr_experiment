@@ -2,7 +2,7 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { TodoSchema, type TodoService } from "@web-ui-poc/rpc/gen/proto/todo/v1/todo_pb";
+import { TodoSchema, type TodoService } from "@web-ui-poc/rpc/gen/todo/v1/todo_pb";
 import {
 	createTodo,
 	deleteTodo,

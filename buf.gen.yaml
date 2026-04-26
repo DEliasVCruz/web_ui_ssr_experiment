@@ -4,3 +4,7 @@ plugins:
     out: packages/rpc/gen
     opt:
       - target=ts
+  - plugin: connect-query
+    out: packages/rpc/gen
+    opt:
+      - target=ts

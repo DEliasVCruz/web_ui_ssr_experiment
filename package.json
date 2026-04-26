@@ -23,6 +23,7 @@
 		"@biomejs/biome": "^2.4.12",
 		"@bufbuild/buf": "^1.47.2",
 		"@bufbuild/protoc-gen-es": "^2.11.0",
+		"@connectrpc/protoc-gen-connect-query": "^2.0.1",
 		"@tanstack/eslint-plugin-query": "^5.99.2",
 		"eslint": "^10.2.1",
 		"eslint-plugin-solid": "^0.14.5",

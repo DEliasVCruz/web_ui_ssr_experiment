@@ -1,6 +1,6 @@
 import { cors as connectCors, createConnectRouter } from "@connectrpc/connect";
 import { createFetchHandler } from "@connectrpc/connect/protocol";
-import { TodoService } from "@web-ui-poc/rpc/gen/proto/todo/v1/todo_pb";
+import { TodoService } from "@web-ui-poc/rpc/gen/todo/v1/todo_pb";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { todoServiceImpl } from "./todo-service";

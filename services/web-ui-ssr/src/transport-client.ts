@@ -1,3 +1,4 @@
+import { addStaticKeyToTransport } from "@connectrpc/connect-query-core";
 import { createConnectTransport } from "@connectrpc/connect-web";
 
 /**
@@ -9,9 +10,12 @@ import { createConnectTransport } from "@connectrpc/connect-web";
  */
 declare const PUBLIC_BUSINESS_LOGIC_URL: string;
 
-const clientTransport = createConnectTransport({
-	baseUrl: PUBLIC_BUSINESS_LOGIC_URL,
-});
+const clientTransport = addStaticKeyToTransport(
+	createConnectTransport({
+		baseUrl: PUBLIC_BUSINESS_LOGIC_URL,
+	}),
+	"app",
+);
 
 export function getClientTransport() {
 	return clientTransport;
