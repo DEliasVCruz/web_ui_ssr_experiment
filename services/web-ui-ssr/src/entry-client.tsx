@@ -1,3 +1,4 @@
+import "./styles.css";
 import { hydrate as hydrateQuery } from "@tanstack/solid-query";
 import { hydrate } from "solid-js/web";
 import { App } from "./app";

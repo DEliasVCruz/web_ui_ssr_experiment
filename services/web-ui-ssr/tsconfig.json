@@ -8,7 +8,8 @@
 		"jsx": "preserve",
 		"jsxImportSource": "solid-js",
 		"paths": {
-			"@/*": ["./src/*"]
+			"@/*": ["./src/*"],
+			"styled-system/*": ["./styled-system/*"]
 		}
 	},
 	"include": ["src/**/*"],
