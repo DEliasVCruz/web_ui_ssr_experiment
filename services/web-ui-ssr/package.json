@@ -4,7 +4,7 @@
 	"type": "module",
 	"scripts": {
 		"prepare": "panda codegen --clean",
-		"dev": "NODE_ENV=development node --import tsx src/index.ts",
+		"dev": "NODE_ENV=development bun src/index.ts",
 		"build": "rsbuild build",
 		"start": "bun dist/server/index.js",
 		"typecheck": "tsc --noEmit",

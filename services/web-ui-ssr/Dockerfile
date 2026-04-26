@@ -7,12 +7,10 @@ COPY package.json bun.lock ./
 COPY packages/rpc/package.json packages/rpc/
 COPY services/business-logic/package.json services/business-logic/
 COPY services/web-ui-ssr/package.json services/web-ui-ssr/
-RUN bun install
+RUN bun install --ignore-scripts
 
 # Build the client and server bundles with Rsbuild
-# Use Node for the build step — Rsbuild/Rspack uses Node-specific APIs
-FROM node:22-slim AS build
-WORKDIR /app
+FROM base AS build
 ARG PUBLIC_BUSINESS_LOGIC_URL=http://localhost:3001
 ENV PUBLIC_BUSINESS_LOGIC_URL=$PUBLIC_BUSINESS_LOGIC_URL
 COPY --from=deps /app/node_modules node_modules
@@ -22,7 +20,7 @@ COPY packages/rpc packages/rpc
 COPY services/web-ui-ssr services/web-ui-ssr
 COPY tsconfig.json ./
 WORKDIR /app/services/web-ui-ssr
-RUN npx rsbuild build
+RUN bunx panda codegen --clean && bunx rsbuild build
 WORKDIR /app
 
 # Production image — bun runtime
