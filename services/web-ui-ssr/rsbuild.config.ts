@@ -85,12 +85,20 @@ export default defineConfig({
 			resolve: {
 				conditionNames: ["solid", "browser", "import", "module", "default"],
 			},
-			performance: {
-				chunkSplit: {
-					strategy: "custom",
-					forceSplitting: {
-						"vendor-solid": /node_modules[\\/]solid-js/,
-						"vendor-router": /node_modules[\\/]@solidjs[\\/]router/,
+			splitChunks: {
+				preset: "none",
+				cacheGroups: {
+					"vendor-solid": {
+						test: /node_modules[\\/]solid-js/,
+						name: "vendor-solid",
+						chunks: "all",
+						enforce: true,
+					},
+					"vendor-router": {
+						test: /node_modules[\\/]@solidjs[\\/]router/,
+						name: "vendor-router",
+						chunks: "all",
+						enforce: true,
 					},
 				},
 			},
