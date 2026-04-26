@@ -116,7 +116,7 @@ post-hydration traffic.
 - **RPC**: connect-es, same generated client used on server and browser
 - **Bundler**: Rsbuild (Rspack), with `web` and `node` environments in one build
 - **Code splitting**: `lazy()` on route components, producing paired JS+CSS chunks; manifest-driven preload + stylesheet injection
-- **Styling**: vanilla-extract (TypeScript-authored, zero-runtime CSS, extracted per chunk)
+- **Styling**: Panda CSS (zero-runtime CSS-in-JS via PostCSS, utility + recipe patterns)
 - **Data store**: SQLite (business-logic server only)
 - **Orchestration**: Docker + Docker Compose
 

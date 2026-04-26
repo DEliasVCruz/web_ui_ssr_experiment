@@ -10,8 +10,7 @@ COPY services/web-ui-ssr/package.json services/web-ui-ssr/
 RUN bun install
 
 # Build the client and server bundles with Rsbuild
-# Use Node for the build step — vanilla-extract's vm.runInNewContext
-# doesn't work under Bun on Linux (tested through Bun 1.3.13)
+# Use Node for the build step — Rsbuild/Rspack uses Node-specific APIs
 FROM node:22-slim AS build
 WORKDIR /app
 ARG PUBLIC_BUSINESS_LOGIC_URL=http://localhost:3001

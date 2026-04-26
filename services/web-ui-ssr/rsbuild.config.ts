@@ -2,7 +2,6 @@ import type { RsbuildPlugin } from "@rsbuild/core";
 import { defineConfig } from "@rsbuild/core";
 import { modifyBabelLoaderOptions, pluginBabel } from "@rsbuild/plugin-babel";
 import { pluginSolid } from "@rsbuild/plugin-solid";
-import { VanillaExtractPlugin } from "@vanilla-extract/webpack-plugin";
 
 const PUBLIC_BUSINESS_LOGIC_URL = process.env.PUBLIC_BUSINESS_LOGIC_URL ?? "http://localhost:3001";
 const isDev = process.env.NODE_ENV !== "production";
@@ -59,17 +58,10 @@ const ssrShared = {
 export default defineConfig({
 	plugins: [pluginBabel({ include: /\.(?:jsx|tsx)$/ })],
 
-	// Disable lazy compilation in dev so CSS for all routes is compiled
-	// upfront. Without this, CSS is only compiled when the browser requests
-	// a lazy chunk, causing FOUC during SSR.
+	// Disable lazy compilation so all route CSS is compiled upfront,
+	// preventing FOUC during SSR.
 	dev: {
 		lazyCompilation: false,
-	},
-
-	tools: {
-		rspack: {
-			plugins: [new VanillaExtractPlugin()],
-		},
 	},
 
 	environments: {
@@ -99,21 +91,6 @@ export default defineConfig({
 					forceSplitting: {
 						"vendor-solid": /node_modules[\\/]solid-js/,
 						"vendor-router": /node_modules[\\/]@solidjs[\\/]router/,
-					},
-					override: {
-						cacheGroups: {
-							// Dev-only: pin vanilla-extract virtual modules to a stable chunk
-							// name so splitChunks doesn't reorganize chunk boundaries on HMR,
-							// which causes "undefined factory" errors (rsbuild#6049).
-							...(process.env.NODE_ENV === "development" && {
-								vanillaCss: {
-									minSize: 0,
-									test: /@vanilla-extract\/webpack-plugin/,
-									priority: 1000,
-									name: "vanilla-extract",
-								},
-							}),
-						},
 					},
 				},
 			},

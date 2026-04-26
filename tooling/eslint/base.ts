@@ -1,4 +1,3 @@
-import vanillaExtract from "@antebudimir/eslint-plugin-vanilla-extract";
 import tanstackQuery from "@tanstack/eslint-plugin-query";
 import { globalIgnores } from "eslint/config";
 import solid from "eslint-plugin-solid";
@@ -37,24 +36,9 @@ const solidConfig = {
 	},
 };
 
-// ─── eslint-plugin-vanilla-extract: CSS-in-TS style rules ─────────
-// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- plugin config object is untyped
-const vanillaExtractRecommended: Record<string, unknown> = vanillaExtract.configs.recommended;
-const vanillaExtractConfig = {
-	files: ["**/*.css.ts"],
-	...vanillaExtractRecommended,
-	rules: {
-		...(vanillaExtractRecommended.rules as Record<string, unknown>),
-		"vanilla-extract/no-px-unit": ["warn", { allow: ["border", "borderBlockEnd", "boxShadow"] }],
-		"vanilla-extract/no-unitless-values": "error",
-		"vanilla-extract/prefer-logical-properties": "error",
-	},
-};
-
 export default [
 	ignores,
 	tseslint.configs.base,
 	solidConfig,
 	...tanstackQuery.configs["flat/recommended-strict"],
-	vanillaExtractConfig,
 ];
