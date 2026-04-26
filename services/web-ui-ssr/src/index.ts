@@ -55,17 +55,17 @@ if (isDev) {
 
 	app.get("*", handleSsr);
 
-	// Bridge: Rsbuild middleware handles static assets, HMR, lazy compilation,
-	// etc. For the root path Rsbuild would serve its compiled index.html, so
-	// we route it directly to Hono's SSR handler. All other paths try Rsbuild
-	// first and fall through to Hono for SSR on miss.
+	// Bridge: Rsbuild middleware handles /static/* assets, HMR, and dev tooling.
+	// All other paths go directly to Hono's SSR handler. This avoids Rsbuild
+	// middleware interfering with SSR streaming responses (which causes
+	// ERR_ABORTED in browsers).
 	const honoListener = getRequestListener(app.fetch);
 	const server = createServer((req, res) => {
 		const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
-		if (pathname === "/" || pathname === "/index.html") {
-			honoListener(req, res);
-		} else {
+		if (pathname.startsWith("/static/") || pathname.startsWith("/__rsbuild")) {
 			rsbuildServer.middlewares(req, res, () => honoListener(req, res));
+		} else {
+			honoListener(req, res);
 		}
 	});
 	rsbuildServer.connectWebSocket({ server });
@@ -114,10 +114,14 @@ async function handleSsr(c: Context): Promise<Response> {
 			// Wait for the shell to complete so @solidjs/meta tags are available
 			const metaTags = await headTags;
 
-			const headWithAssets = templateHead.replace(
-				"</head>",
-				`${hydrationScript}\n${metaTags}\n</head>`,
-			);
+			// Strip the template <title> if SolidJS meta provides one,
+			// to avoid duplicate title elements.
+			let head = templateHead;
+			if (metaTags.includes("<title")) {
+				head = head.replace(/<title>[^<]*<\/title>/, "");
+			}
+
+			const headWithAssets = head.replace("</head>", `${hydrationScript}\n${metaTags}\n</head>`);
 			await writer.write(encoder.encode(headWithAssets));
 
 			const reader = appStream.getReader();
