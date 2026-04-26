@@ -7,7 +7,7 @@ COPY package.json bun.lock ./
 COPY packages/rpc/package.json packages/rpc/
 COPY services/business-logic/package.json services/business-logic/
 COPY services/web-ui-ssr/package.json services/web-ui-ssr/
-RUN bun install
+RUN bun install --ignore-scripts
 
 # Production image
 FROM base AS runtime

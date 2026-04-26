@@ -13,7 +13,6 @@ const app = new Hono();
 
 let getRender: () => Promise<RenderFn>;
 let getTemplateParts: () => [string, string] | Promise<[string, string]>;
-let preloadHtml = "";
 
 if (isDev) {
 	// ── DEV MODE ────────────────────────────────────────────────────────
@@ -29,26 +28,10 @@ if (isDev) {
 	const { content: rsbuildConfig } = await loadConfig({});
 	const rsbuild = await createRsbuild({ rsbuildConfig });
 
-	// Register hooks BEFORE createDevServer() so the initial build is captured.
-	// Invalidate cached render function when SSR bundle recompiles,
-	// and collect CSS assets from the web environment for SSR injection
-	// to prevent FOUC (flash of unstyled content) during dev SSR.
+	// Invalidate cached render function when SSR bundle recompiles.
 	let cachedRender: RenderFn | null = null;
-	rsbuild.onAfterDevCompile(({ stats }) => {
+	rsbuild.onAfterDevCompile(() => {
 		cachedRender = null;
-		if (stats) {
-			// MultiStats: assets are nested under children, not at the top level.
-			// Extract CSS assets from the web environment to inject as <link> tags
-			// in the SSR response, preventing FOUC.
-			const json = stats.toJson({ all: false, assets: true, children: true });
-			const webChild = json.children?.find((c: { name?: string }) => c.name === "web");
-			const cssAssets = (webChild?.assets ?? [])
-				.filter((a: { name?: string }) => a.name?.endsWith(".css"))
-				.map((a: { name: string }) => `/${a.name}`);
-			preloadHtml = cssAssets
-				.map((href: string) => `<link rel="stylesheet" href="${href}">`)
-				.join("\n");
-		}
 	});
 
 	const rsbuildServer = await rsbuild.createDevServer();
@@ -86,7 +69,8 @@ if (isDev) {
 		}
 	});
 	rsbuildServer.connectWebSocket({ server });
-	server.listen(port, () => {
+	server.listen(port, async () => {
+		await rsbuildServer.afterListen();
 		// biome-ignore lint/suspicious/noConsole: startup log
 		console.log(`web-ui-ssr dev server on http://localhost:${port}`);
 	});
@@ -101,7 +85,6 @@ if (isDev) {
 	// repeated calling of these function on each request by caching
 	const parts = loadTemplate().split("<!--ssr-outlet-->") as [string, string];
 	getTemplateParts = () => parts;
-	preloadHtml = buildPreloadHtml();
 
 	app.use("/static/*", serveStatic({ root: "dist/web" }));
 	app.get("*", handleSsr);
@@ -133,7 +116,7 @@ async function handleSsr(c: Context): Promise<Response> {
 
 			const headWithAssets = templateHead.replace(
 				"</head>",
-				`${hydrationScript}\n${preloadHtml}\n${metaTags}\n</head>`,
+				`${hydrationScript}\n${metaTags}\n</head>`,
 			);
 			await writer.write(encoder.encode(headWithAssets));
 
@@ -162,29 +145,9 @@ async function handleSsr(c: Context): Promise<Response> {
 
 // ── Production helpers ──────────────────────────────────────────────────
 
-/** Escape a string for safe use inside an HTML attribute value. */
-function escapeAttr(s: string): string {
-	return s
-		.replace(/&/g, "&amp;")
-		.replace(/"/g, "&quot;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;");
-}
-
 /** Escape JSON content for safe embedding inside a <script> tag. */
 function escapeScriptContent(s: string): string {
 	return s.replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
-}
-
-interface ManifestAssets {
-	initial: { js: string[]; css?: string[] };
-	async: { js?: string[]; css?: string[] };
-}
-
-interface RawManifest {
-	entries?: {
-		index?: Partial<ManifestAssets>;
-	};
 }
 
 function loadTemplate(): string {
@@ -193,31 +156,4 @@ function loadTemplate(): string {
 	} catch {
 		return '<!doctype html><html><head></head><body><div id="app"><!--ssr-outlet--></div></body></html>';
 	}
-}
-
-function buildPreloadHtml(): string {
-	const empty: ManifestAssets = { initial: { js: [] }, async: {} };
-	let manifest: ManifestAssets;
-	try {
-		const raw = JSON.parse(readFileSync("dist/web/manifest.json", "utf-8")) as RawManifest;
-		const entry = raw.entries?.index;
-		manifest = entry ? { initial: entry.initial ?? { js: [] }, async: entry.async ?? {} } : empty;
-	} catch {
-		manifest = empty;
-	}
-
-	const tags: string[] = [];
-	for (const js of manifest.initial.js) {
-		tags.push(`<link rel="modulepreload" href="${escapeAttr(js)}">`);
-	}
-	for (const css of manifest.initial.css ?? []) {
-		tags.push(`<link rel="stylesheet" href="${escapeAttr(css)}">`);
-	}
-	for (const js of manifest.async.js ?? []) {
-		tags.push(`<link rel="prefetch" as="script" href="${escapeAttr(js)}">`);
-	}
-	for (const css of manifest.async.css ?? []) {
-		tags.push(`<link rel="stylesheet" href="${escapeAttr(css)}">`);
-	}
-	return tags.join("\n");
 }
