@@ -1,22 +1,24 @@
-import { type Client, Code, ConnectError, createClient, type Transport } from "@connectrpc/connect";
+import { Code, ConnectError, type Transport } from "@connectrpc/connect";
+import {
+	callUnaryMethod,
+	createConnectQueryKey,
+	createQueryOptions,
+} from "@connectrpc/connect-query-core";
 import type { QueryClient } from "@tanstack/solid-query";
-import { TodoService } from "@web-ui-poc/rpc/gen/todo/v1/todo_pb";
-
-export const todosQueryKey = ["todos"] as const;
-
-function todoClient(transport: Transport): Client<typeof TodoService> {
-	return createClient(TodoService, transport);
-}
+import type { ListTodosResponse } from "@web-ui-poc/rpc/gen/todo/v1/todo_pb";
+import {
+	createTodo as createTodoMethod,
+	deleteTodo as deleteTodoMethod,
+	getTodo,
+	listTodos,
+	updateTodo as updateTodoMethod,
+} from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService_connectquery";
 
 export function todosQueryOptions(transport: Transport) {
-	// eslint-disable-next-line @tanstack/query/exhaustive-deps -- transport intentionally excluded: server/client use different transports but share the same cache key for SSR hydration
 	return {
-		queryKey: todosQueryKey,
-		queryFn: async () => {
-			const response = await todoClient(transport).listTodos({});
-			return response.todos;
-		},
-	} as const;
+		...createQueryOptions(listTodos, {}, { transport }),
+		select: (data: ListTodosResponse) => data.todos,
+	};
 }
 
 export async function prefetchTodos(queryClient: QueryClient, transport: Transport) {
@@ -26,7 +28,7 @@ export async function prefetchTodos(queryClient: QueryClient, transport: Transpo
 export function createTodoMutation(transport: Transport) {
 	return {
 		mutationFn: async (title: string) => {
-			const response = await todoClient(transport).createTodo({ title });
+			const response = await callUnaryMethod(transport, createTodoMethod, { title });
 			return response.todo;
 		},
 	};
@@ -35,7 +37,7 @@ export function createTodoMutation(transport: Transport) {
 export function updateTodoMutation(transport: Transport) {
 	return {
 		mutationFn: async (vars: { id: string; title?: string; completed?: boolean }) => {
-			const response = await todoClient(transport).updateTodo(vars);
+			const response = await callUnaryMethod(transport, updateTodoMethod, vars);
 			return response.todo;
 		},
 	};
@@ -44,21 +46,23 @@ export function updateTodoMutation(transport: Transport) {
 export function deleteTodoMutation(transport: Transport) {
 	return {
 		mutationFn: async (id: string) => {
-			await todoClient(transport).deleteTodo({ id });
+			await callUnaryMethod(transport, deleteTodoMethod, { id });
 		},
 	};
 }
 
-export const todoQueryKey = (id: string) => ["todo", id] as const;
-
 export function todoQueryOptions(transport: Transport, id: string) {
-	// eslint-disable-next-line @tanstack/query/exhaustive-deps -- transport intentionally excluded: server/client use different transports but share the same cache key for SSR hydration
 	return {
-		queryKey: todoQueryKey(id),
+		queryKey: createConnectQueryKey({
+			schema: getTodo,
+			input: { id },
+			transport,
+			cardinality: "finite",
+		}),
 		queryFn: async () => {
 			try {
-				const { todo } = await todoClient(transport).getTodo({ id });
-				return todo ?? null;
+				const response = await callUnaryMethod(transport, getTodo, { id });
+				return response.todo ?? null;
 			} catch (err) {
 				if (err instanceof ConnectError && err.code === Code.NotFound) {
 					return null;

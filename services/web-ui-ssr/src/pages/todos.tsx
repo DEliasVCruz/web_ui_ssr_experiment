@@ -1,11 +1,12 @@
+import { createConnectQueryKey } from "@connectrpc/connect-query-core";
 import { Meta, Title } from "@solidjs/meta";
 import { A } from "@solidjs/router";
 import { createMutation, createQuery, useQueryClient } from "@tanstack/solid-query";
+import { getTodo, listTodos } from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService_connectquery";
 import { createSignal, For, Show, Suspense } from "solid-js";
 import {
 	createTodoMutation,
 	deleteTodoMutation,
-	todoQueryKey,
 	todosQueryOptions,
 	updateTodoMutation,
 } from "../queries/todos";
@@ -43,7 +44,9 @@ function AddTodoForm() {
 		...createTodoMutation(transport),
 		onSuccess: () => {
 			setTitle("");
-			void queryClient.invalidateQueries({ queryKey: todosQueryOptions(transport).queryKey });
+			void queryClient.invalidateQueries({
+				queryKey: createConnectQueryKey({ schema: listTodos, transport, cardinality: undefined }),
+			});
 		},
 	}));
 
@@ -83,16 +86,34 @@ function TodoList() {
 	const update = createMutation(() => ({
 		...updateTodoMutation(transport),
 		onSuccess: (_data, vars) => {
-			void queryClient.invalidateQueries({ queryKey: todosQueryOptions(transport).queryKey });
-			void queryClient.invalidateQueries({ queryKey: todoQueryKey(vars.id) });
+			void queryClient.invalidateQueries({
+				queryKey: createConnectQueryKey({ schema: listTodos, transport, cardinality: undefined }),
+			});
+			void queryClient.invalidateQueries({
+				queryKey: createConnectQueryKey({
+					schema: getTodo,
+					input: { id: vars.id },
+					transport,
+					cardinality: "finite",
+				}),
+			});
 		},
 	}));
 
 	const remove = createMutation(() => ({
 		...deleteTodoMutation(transport),
 		onSuccess: (_data, id) => {
-			void queryClient.invalidateQueries({ queryKey: todosQueryOptions(transport).queryKey });
-			queryClient.removeQueries({ queryKey: todoQueryKey(id) });
+			void queryClient.invalidateQueries({
+				queryKey: createConnectQueryKey({ schema: listTodos, transport, cardinality: undefined }),
+			});
+			queryClient.removeQueries({
+				queryKey: createConnectQueryKey({
+					schema: getTodo,
+					input: { id },
+					transport,
+					cardinality: "finite",
+				}),
+			});
 		},
 	}));
 
