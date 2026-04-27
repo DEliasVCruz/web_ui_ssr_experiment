@@ -2,6 +2,7 @@ import type { RsbuildPlugin } from "@rsbuild/core";
 import { defineConfig } from "@rsbuild/core";
 import { modifyBabelLoaderOptions, pluginBabel } from "@rsbuild/plugin-babel";
 import { pluginSolid } from "@rsbuild/plugin-solid";
+import { tanstackRouter } from "@tanstack/router-plugin/rspack";
 
 const PUBLIC_BUSINESS_LOGIC_URL = process.env.PUBLIC_BUSINESS_LOGIC_URL ?? "http://localhost:3001";
 const isDev = process.env.NODE_ENV !== "production";
@@ -58,6 +59,12 @@ const ssrShared = {
 export default defineConfig({
 	plugins: [pluginBabel({ include: /\.(?:jsx|tsx)$/ })],
 
+	tools: {
+		rspack: {
+			plugins: [tanstackRouter({ target: "solid", autoCodeSplitting: true })],
+		},
+	},
+
 	// Disable lazy compilation so all route CSS is compiled upfront,
 	// preventing FOUC during SSR.
 	dev: {
@@ -95,7 +102,7 @@ export default defineConfig({
 						enforce: true,
 					},
 					"vendor-router": {
-						test: /node_modules[\\/]@solidjs[\\/]router/,
+						test: /node_modules[\\/]@tanstack[\\/]solid-router/,
 						name: "vendor-router",
 						chunks: "all",
 						enforce: true,
