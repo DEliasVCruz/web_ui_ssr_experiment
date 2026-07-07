@@ -14,8 +14,11 @@ interface RouterContext {
 //   - RouterServer/RouterClient provide the <html><head></head><body> shell.
 //   - <HeadContent> (rendered in the body per its own docs) portals the head()
 //     meta/links — including the FOUC-preventing CSS <link> from ssrContext —
-//     into <head>. It must live in the component tree so client navigation can
-//     update the head reactively.
+//     into <head>. It is LOAD-BEARING here, not redundant: under @rsbuild/plugin-solid
+//     the nested MetaProvider inside RouterServer's ServerHeadContent does not hoist
+//     title/meta/links, so removing this <HeadContent> empirically drops ALL head
+//     tags (title/description/charset/viewport/CSS) from the SSR output. It also
+//     keeps the head reactive across client navigation.
 //   - The client bundle <script> tags come from the route-level `scripts` option
 //     (below), which the framework's <Scripts> renders once in the body. They are
 //     intentionally NOT in head()'s `scripts`, which would render them a second

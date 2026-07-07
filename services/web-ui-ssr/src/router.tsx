@@ -3,7 +3,6 @@ import type { QueryClient } from "@tanstack/solid-query";
 import { createRouter as createSolidRouter } from "@tanstack/solid-router";
 import { setupRouterSsrQueryIntegration } from "@tanstack/solid-router-ssr-query";
 import { routeTree } from "./routeTree.gen";
-import { TransportProvider } from "./transport-context";
 
 export interface SsrContext {
 	cssUrls: string[];
@@ -18,6 +17,10 @@ export function createRouter(opts: {
 	queryClient: QueryClient;
 	ssrContext?: SsrContext;
 }) {
+	// transport + queryClient live on the router context so they reach route
+	// loaders AND components (via Route.useRouteContext). A Solid context Provider
+	// (Wrap/InnerWrap) would NOT survive the code-split/streaming boundary on the
+	// server, so components must read them from the router context, not Solid ctx.
 	const router = createSolidRouter({
 		routeTree,
 		defaultPreload: "intent",
@@ -27,10 +30,6 @@ export function createRouter(opts: {
 			transport: opts.transport,
 			ssr: opts.ssrContext,
 		},
-		// biome-ignore lint/style/useNamingConvention: "Wrap" is a TanStack Router option key and must match its API
-		Wrap: ({ children }) => (
-			<TransportProvider value={opts.transport}>{children}</TransportProvider>
-		),
 	});
 	setupRouterSsrQueryIntegration({ router, queryClient: opts.queryClient });
 	return router;

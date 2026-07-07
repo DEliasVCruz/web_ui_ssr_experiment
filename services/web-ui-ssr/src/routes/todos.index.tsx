@@ -1,5 +1,5 @@
 import { createConnectQueryKey } from "@connectrpc/connect-query-core";
-import { createMutation, createQuery, useQueryClient } from "@tanstack/solid-query";
+import { createMutation, createQuery } from "@tanstack/solid-query";
 import { createFileRoute, Link } from "@tanstack/solid-router";
 import { getTodo, listTodos } from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService_connectquery";
 import { createSignal, For, Show, Suspense } from "solid-js";
@@ -25,7 +25,6 @@ import {
 	todosQueryOptions,
 	updateTodoMutation,
 } from "../queries/todos";
-import { useTransport } from "../transport-context";
 
 const MS_PER_SECOND = 1000;
 
@@ -35,16 +34,22 @@ function formatDate(ts: { seconds: number } | undefined): string {
 }
 
 function AddTodoForm() {
-	const transport = useTransport();
-	const queryClient = useQueryClient();
+	// transport/queryClient come from the TanStack router context (which crosses
+	// the code-split/streaming boundary), not Solid context — see __root.tsx.
+	const transport = Route.useRouteContext({ select: (c) => c.transport });
+	const queryClient = Route.useRouteContext({ select: (c) => c.queryClient });
 	const [title, setTitle] = createSignal("");
 
 	const create = createMutation(() => ({
-		...createTodoMutation(transport),
+		...createTodoMutation(transport()),
 		onSuccess: () => {
 			setTitle("");
-			void queryClient.invalidateQueries({
-				queryKey: createConnectQueryKey({ schema: listTodos, transport, cardinality: undefined }),
+			void queryClient().invalidateQueries({
+				queryKey: createConnectQueryKey({
+					schema: listTodos,
+					transport: transport(),
+					cardinality: undefined,
+				}),
 			});
 		},
 	}));
@@ -78,21 +83,25 @@ function AddTodoForm() {
 }
 
 function TodoList() {
-	const transport = useTransport();
-	const queryClient = useQueryClient();
-	const query = createQuery(() => todosQueryOptions(transport));
+	const transport = Route.useRouteContext({ select: (c) => c.transport });
+	const queryClient = Route.useRouteContext({ select: (c) => c.queryClient });
+	const query = createQuery(() => todosQueryOptions(transport()));
 
 	const update = createMutation(() => ({
-		...updateTodoMutation(transport),
+		...updateTodoMutation(transport()),
 		onSuccess: (_data, vars) => {
-			void queryClient.invalidateQueries({
-				queryKey: createConnectQueryKey({ schema: listTodos, transport, cardinality: undefined }),
+			void queryClient().invalidateQueries({
+				queryKey: createConnectQueryKey({
+					schema: listTodos,
+					transport: transport(),
+					cardinality: undefined,
+				}),
 			});
-			void queryClient.invalidateQueries({
+			void queryClient().invalidateQueries({
 				queryKey: createConnectQueryKey({
 					schema: getTodo,
 					input: { id: vars.id },
-					transport,
+					transport: transport(),
 					cardinality: "finite",
 				}),
 			});
@@ -100,16 +109,20 @@ function TodoList() {
 	}));
 
 	const remove = createMutation(() => ({
-		...deleteTodoMutation(transport),
+		...deleteTodoMutation(transport()),
 		onSuccess: (_data, id) => {
-			void queryClient.invalidateQueries({
-				queryKey: createConnectQueryKey({ schema: listTodos, transport, cardinality: undefined }),
+			void queryClient().invalidateQueries({
+				queryKey: createConnectQueryKey({
+					schema: listTodos,
+					transport: transport(),
+					cardinality: undefined,
+				}),
 			});
-			queryClient.removeQueries({
+			queryClient().removeQueries({
 				queryKey: createConnectQueryKey({
 					schema: getTodo,
 					input: { id },
-					transport,
+					transport: transport(),
 					cardinality: "finite",
 				}),
 			});

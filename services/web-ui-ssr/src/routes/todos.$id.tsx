@@ -12,7 +12,6 @@ import {
 	titleCompleted,
 } from "../pages/todo-detail.styles";
 import { todoQueryOptions } from "../queries/todos";
-import { useTransport } from "../transport-context";
 
 const MS_PER_SECOND = 1000;
 
@@ -23,8 +22,10 @@ function formatDate(ts: { seconds: number } | undefined): string {
 
 function TodoDetail() {
 	const params = Route.useParams();
-	const transport = useTransport();
-	const query = createQuery(() => todoQueryOptions(transport, params().id));
+	// transport comes from the TanStack router context (crosses the code-split/
+	// streaming boundary), not Solid context — see __root.tsx.
+	const transport = Route.useRouteContext({ select: (c) => c.transport });
+	const query = createQuery(() => todoQueryOptions(transport(), params().id));
 
 	return (
 		<Switch>

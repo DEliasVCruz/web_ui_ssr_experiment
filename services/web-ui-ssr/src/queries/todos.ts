@@ -1,10 +1,5 @@
 import { Code, ConnectError, type Transport } from "@connectrpc/connect";
-import {
-	callUnaryMethod,
-	createConnectQueryKey,
-	createQueryOptions,
-} from "@connectrpc/connect-query-core";
-import type { ListTodosResponse } from "@web-ui-poc/rpc/gen/todo/v1/todo_pb";
+import { callUnaryMethod, createConnectQueryKey } from "@connectrpc/connect-query-core";
 import {
 	createTodo as createTodoMethod,
 	deleteTodo as deleteTodoMethod,
@@ -13,7 +8,11 @@ import {
 	updateTodo as updateTodoMethod,
 } from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService_connectquery";
 
-/** Convert BigInt timestamp seconds to number so TanStack Router SSR serialization works. */
+/**
+ * Protobuf Timestamps carry `seconds` as bigint; the UI (formatDate) works with
+ * numbers. Normalise inside the queryFn so the query cache — and its dehydrated
+ * SSR payload — holds numbers consistently for both the list and detail queries.
+ */
 function toNumberTimestamp(ts: { seconds: bigint } | undefined): { seconds: number } | undefined {
 	if (!ts) return undefined;
 	return { seconds: Number(ts.seconds) };
@@ -21,14 +20,17 @@ function toNumberTimestamp(ts: { seconds: bigint } | undefined): { seconds: numb
 
 export function todosQueryOptions(transport: Transport) {
 	return {
-		...createQueryOptions(listTodos, {}, { transport }),
-		select: (data: ListTodosResponse) =>
-			data.todos.map((todo) => ({
+		// Same key the mutations invalidate with, so writes refresh the list.
+		queryKey: createConnectQueryKey({ schema: listTodos, transport, cardinality: undefined }),
+		queryFn: async () => {
+			const response = await callUnaryMethod(transport, listTodos, {});
+			return response.todos.map((todo) => ({
 				...todo,
 				createdAt: toNumberTimestamp(todo.createdAt),
 				updatedAt: toNumberTimestamp(todo.updatedAt),
-			})),
-	};
+			}));
+		},
+	} as const;
 }
 
 export function createTodoMutation(transport: Transport) {

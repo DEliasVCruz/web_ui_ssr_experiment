@@ -132,18 +132,29 @@ function extractSsrContextFromStats(
 	};
 }
 
-/** Read hashed CSS/JS URLs for the client entry from the production manifest. */
+/**
+ * Read hashed CSS/JS URLs for the client entry from the production manifest.
+ * Fails loudly at startup: an empty context would ship a page with no CSS and,
+ * worse, no hydration scripts (a dead page), so manifest drift must not be
+ * silently swallowed.
+ */
 function loadManifestSsrContext(): SsrContext {
+	let initial: { js?: string[]; css?: string[] } | undefined;
 	try {
 		const manifest = JSON.parse(readFileSync("dist/web/manifest.json", "utf-8")) as {
 			entries?: Record<string, { initial?: { js?: string[]; css?: string[] } }>;
 		};
-		const initial = manifest.entries?.index.initial;
-		return {
-			cssUrls: initial?.css ?? [],
-			scriptUrls: initial?.js ?? [],
-		};
-	} catch {
-		return { cssUrls: [], scriptUrls: [] };
+		initial = manifest.entries?.index.initial;
+	} catch (error) {
+		throw new Error(
+			`Failed to load SSR context from dist/web/manifest.json (missing, malformed, or entries.index absent): ${String(error)}`,
+		);
 	}
+	const scriptUrls = initial?.js ?? [];
+	if (scriptUrls.length === 0) {
+		throw new Error(
+			"SSR context has no client entry scripts (dist/web/manifest.json entries.index.initial.js is empty) — the page would render without hydration. Did the web build run?",
+		);
+	}
+	return { cssUrls: initial?.css ?? [], scriptUrls };
 }
