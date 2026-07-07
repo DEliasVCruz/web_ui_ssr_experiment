@@ -15,7 +15,14 @@ export default defineConfig({
 	retries: 0,
 	timeout: 30_000,
 	expect: { timeout: 15_000 },
-	reporter: [["list"]],
+	// Persist a report to disk regardless of pass/fail: `devenv tasks run ci:e2e`
+	// swallows stdout, so a failing run needs an on-disk artifact to diagnose from.
+	// Paths are relative to this config's dir (services/web-ui-ssr); both are gitignored.
+	reporter: [
+		["list"],
+		["junit", { outputFile: "test-results/junit.xml" }],
+		["html", { open: "never", outputFolder: "playwright-report" }],
+	],
 	use: {
 		// biome-ignore lint/style/useNamingConvention: `baseURL` is Playwright's config key
 		baseURL: BASE_URL,

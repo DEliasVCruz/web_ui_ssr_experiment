@@ -236,7 +236,18 @@ in
         done
 
         echo "==> Running Playwright E2E suite (CDP @ http://localhost:9222)"
+        # Capture the suite's exit code without letting `set -e` abort before we
+        # print where the persisted report lives (needed because devenv swallows
+        # this stdout on the happy path and we still want the artifact path on
+        # failure).
+        set +e
         bunx playwright test
+        PW_EXIT=$?
+        set -e
+
+        echo "==> Playwright report (HTML):  $PWD/playwright-report/index.html"
+        echo "==> Playwright report (JUnit): $PWD/test-results/junit.xml"
+        exit "$PW_EXIT"
       '';
       description = "Build web-ui-ssr, start prod server, run Playwright E2E over CDP, teardown (needs backend on :3001)";
     };

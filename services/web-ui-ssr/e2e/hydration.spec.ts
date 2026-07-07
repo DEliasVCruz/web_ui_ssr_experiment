@@ -28,13 +28,17 @@ test.describe("hydration + interactivity (regression guard)", () => {
 			)
 			.toBe(true);
 
-		// Signal 2 (completion): Solid's pre-hydration event buffer has drained.
-		const eventsLength = await page.evaluate(() => {
-			// biome-ignore lint/style/useNamingConvention: `_$HY` is Solid's hydration global; the name is fixed by the framework
-			const hy = (window as unknown as { _$HY?: { events?: unknown[] } })._$HY;
-			return hy?.events?.length ?? -1;
-		});
-		expect(eventsLength).toBe(0);
+		// Signal 2 (completion): Solid's pre-hydration event buffer drains to 0.
+		// Polled (not a hard read) so it can't false-fail if read a tick early.
+		await expect
+			.poll(() =>
+				page.evaluate(() => {
+					// biome-ignore lint/style/useNamingConvention: `_$HY` is Solid's hydration global; the name is fixed by the framework
+					const hy = (window as unknown as { _$HY?: { events?: unknown[] } })._$HY;
+					return hy?.events?.length ?? -1;
+				}),
+			)
+			.toBe(0);
 
 		// Signal 3 (authoritative): typing into the Add input flips the previously
 		// disabled button to enabled — proves reactivity + event handlers are live,
