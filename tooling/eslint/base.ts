@@ -1,4 +1,5 @@
 import tanstackQuery from "@tanstack/eslint-plugin-query";
+import tanstackRouter from "@tanstack/eslint-plugin-router";
 import { globalIgnores } from "eslint/config";
 import solid from "eslint-plugin-solid";
 import tseslint from "typescript-eslint";
@@ -42,4 +43,5 @@ export default [
 	tseslint.configs.base,
 	solidConfig,
 	...tanstackQuery.configs["flat/recommended-strict"],
+	...tanstackRouter.configs["flat/recommended"],
 ];
