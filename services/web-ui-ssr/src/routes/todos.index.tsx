@@ -5,6 +5,7 @@ import { getTodo, listTodos } from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService
 import { createSignal, For, Show, Suspense } from "solid-js";
 import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
+import { Dialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { container } from "../pages/shared.styles";
 import {
@@ -83,6 +84,62 @@ function AddTodoForm() {
 	);
 }
 
+// Confirm-before-delete (ol9.4). The Delete control is the Ark Dialog trigger;
+// the dialog (focus-trapped, ESC/Cancel to dismiss, aria-modal) only mounts its
+// portalled content when open — client-only, so SSR/hydration are unaffected.
+// Cancel closes with no effect; Confirm calls onConfirm then closes.
+function DeleteTodoDialog(props: { title: string; pending: boolean; onConfirm: () => void }) {
+	const [open, setOpen] = createSignal(false);
+	return (
+		<Dialog.Root open={open()} onOpenChange={(details) => setOpen(details.open)}>
+			<Dialog.Trigger
+				asChild={(triggerProps) => (
+					<Button
+						{...triggerProps()}
+						type="button"
+						variant="outline"
+						size="sm"
+						class={controlShrink}
+						disabled={props.pending}
+					>
+						Delete
+					</Button>
+				)}
+			/>
+			<Dialog.Portal>
+				<Dialog.Backdrop />
+				<Dialog.Positioner>
+					<Dialog.Content>
+						<Dialog.Title>Delete todo?</Dialog.Title>
+						<Dialog.Description>
+							This permanently deletes “{props.title}”. This action cannot be undone.
+						</Dialog.Description>
+						<Dialog.Actions>
+							<Dialog.CloseTrigger
+								asChild={(closeProps) => (
+									<Button {...closeProps()} type="button" variant="ghost">
+										Cancel
+									</Button>
+								)}
+							/>
+							<Button
+								type="button"
+								variant="dangerSolid"
+								onClick={() => {
+									props.onConfirm();
+									setOpen(false);
+								}}
+							>
+								Delete
+							</Button>
+						</Dialog.Actions>
+					</Dialog.Content>
+				</Dialog.Positioner>
+			</Dialog.Portal>
+		</Dialog.Root>
+	);
+}
+
 function TodoList() {
 	const transport = Route.useRouteContext({ select: (c) => c.transport });
 	const queryClient = Route.useRouteContext({ select: (c) => c.queryClient });
@@ -158,18 +215,13 @@ function TodoList() {
 									{todo.title}
 								</Link>
 								<span class={timestamp}>{formatDate(todo.createdAt)}</span>
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									class={controlShrink}
-									onClick={() => {
+								<DeleteTodoDialog
+									title={todo.title}
+									pending={remove.isPending && remove.variables === todo.id}
+									onConfirm={() => {
 										remove.mutate(todo.id);
 									}}
-									disabled={remove.isPending && remove.variables === todo.id}
-								>
-									Delete
-								</Button>
+								/>
 							</li>
 						)}
 					</For>

@@ -42,6 +42,9 @@ export default defineConfig({
 						fg: { value: "#92400e" },
 						bg: { value: "#fef3c7" },
 					},
+					// Surface + scrim for overlay UI (Dialog, Toast) added in ol9.4/ol9.5.
+					surface: { value: "#ffffff" },
+					overlay: { value: "rgba(0, 0, 0, 0.4)" },
 				},
 			},
 			// Reference recipe for the Ark UI + Panda component pattern (ol9.1).

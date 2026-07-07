@@ -34,7 +34,12 @@ test.describe("CRUD round-trip", () => {
 		await expect(checkbox).toBeChecked();
 
 		// ── DELETE ───────────────────────────────────────────────────────
+		// Delete is now a confirm dialog: the row button opens it, and the
+		// destructive action runs only after confirming inside the dialog.
 		await newRow.getByRole("button", { name: "Delete" }).click();
+		const confirmDialog = page.getByRole("dialog");
+		await expect(confirmDialog).toBeVisible();
+		await confirmDialog.getByRole("button", { name: "Delete" }).click();
 		await expect(page.locator("main ul li", { hasText: uniqueTitle })).toHaveCount(0);
 	});
 });
