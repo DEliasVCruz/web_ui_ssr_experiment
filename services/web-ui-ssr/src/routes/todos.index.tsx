@@ -1,4 +1,5 @@
 import { createConnectQueryKey } from "@connectrpc/connect-query-core";
+import { createForm } from "@tanstack/solid-form";
 import { createMutation, createQuery } from "@tanstack/solid-query";
 import { createFileRoute, Link } from "@tanstack/solid-router";
 import { getTodo, listTodos } from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService_connectquery";
@@ -42,12 +43,12 @@ function AddTodoForm() {
 	// the code-split/streaming boundary), not Solid context — see __root.tsx.
 	const transport = Route.useRouteContext({ select: (c) => c.transport });
 	const queryClient = Route.useRouteContext({ select: (c) => c.queryClient });
-	const [title, setTitle] = createSignal("");
 
 	const create = createMutation(() => ({
 		...createTodoMutation(transport()),
 		onSuccess: () => {
-			setTitle("");
+			// Clear the form on success (was a manual setTitle(""); now form.reset()).
+			form.reset();
 			toast.success("Todo added");
 			void queryClient().invalidateQueries({
 				queryKey: createConnectQueryKey({
@@ -62,31 +63,63 @@ function AddTodoForm() {
 		},
 	}));
 
-	const handleSubmit = (e: SubmitEvent) => {
-		e.preventDefault();
-		const value = title().trim();
-		if (value) {
-			create.mutate(value);
-		}
-	};
+	// Form state now lives in @tanstack/solid-form (no createSignal for the title).
+	// A single `title` field with non-empty (trim) validation; onSubmit mutates.
+	const form = createForm(() => ({
+		defaultValues: { title: "" },
+		onSubmit: ({ value }) => {
+			const title = value.title.trim();
+			if (title) {
+				create.mutate(title);
+			}
+		},
+	}));
 
 	return (
-		<form class={addForm} onSubmit={handleSubmit}>
+		<form
+			class={addForm}
+			onSubmit={(e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				void form.handleSubmit();
+			}}
+		>
 			<Field.Root>
 				{/* Visually-hidden label gives the input a real accessible name
 				    (input gets aria-labelledby → this label) beyond the placeholder. */}
 				<Field.Label class={srOnly}>New todo</Field.Label>
-				<Field.Input
-					type="text"
-					placeholder="What needs to be done?"
-					value={title()}
-					onInput={(e) => setTitle(e.currentTarget.value)}
-					disabled={create.isPending}
-				/>
+				<form.Field
+					name="title"
+					validators={{
+						onChange: ({ value }) => (value.trim() ? undefined : "Title is required"),
+					}}
+				>
+					{(field) => (
+						<Field.Input
+							type="text"
+							placeholder="What needs to be done?"
+							value={field().state.value}
+							onInput={(e) => {
+								field().handleChange(e.currentTarget.value);
+							}}
+							onBlur={() => {
+								field().handleBlur();
+							}}
+							disabled={create.isPending}
+						/>
+					)}
+				</form.Field>
 			</Field.Root>
-			<Button type="submit" disabled={create.isPending || !title().trim()}>
-				Add
-			</Button>
+			{/* Button disabled state is derived reactively from form state (the
+			    current title value) plus the mutation's pending flag — this is what
+			    the hydration guard relies on: typing must reactively enable Add. */}
+			<form.Subscribe selector={(state) => state.values.title}>
+				{(title) => (
+					<Button type="submit" disabled={create.isPending || !title().trim()}>
+						Add
+					</Button>
+				)}
+			</form.Subscribe>
 		</form>
 	);
 }
