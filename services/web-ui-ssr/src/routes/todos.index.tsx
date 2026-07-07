@@ -1,17 +1,9 @@
 import { createConnectQueryKey } from "@connectrpc/connect-query-core";
-import { Meta, Title } from "@solidjs/meta";
-import { A } from "@solidjs/router";
 import { createMutation, createQuery, useQueryClient } from "@tanstack/solid-query";
+import { createFileRoute, Link } from "@tanstack/solid-router";
 import { getTodo, listTodos } from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService_connectquery";
 import { createSignal, For, Show, Suspense } from "solid-js";
-import {
-	createTodoMutation,
-	deleteTodoMutation,
-	todosQueryOptions,
-	updateTodoMutation,
-} from "../queries/todos";
-import { useTransport } from "../transport-context";
-import { container } from "./shared.styles";
+import { container } from "../pages/shared.styles";
 import {
 	addButton,
 	addForm,
@@ -26,13 +18,20 @@ import {
 	timestamp,
 	titleCompleted,
 	titleText,
-} from "./todos.styles";
+} from "../pages/todos.styles";
+import {
+	createTodoMutation,
+	deleteTodoMutation,
+	todosQueryOptions,
+	updateTodoMutation,
+} from "../queries/todos";
+import { useTransport } from "../transport-context";
 
 const MS_PER_SECOND = 1000;
 
-function formatDate(ts: { seconds: bigint } | undefined): string {
+function formatDate(ts: { seconds: number } | undefined): string {
 	if (!ts) return "";
-	return new Date(Number(ts.seconds) * MS_PER_SECOND).toLocaleDateString();
+	return new Date(ts.seconds * MS_PER_SECOND).toLocaleDateString();
 }
 
 function AddTodoForm() {
@@ -138,9 +137,13 @@ function TodoList() {
 									}}
 									disabled={update.isPending && update.variables.id === todo.id}
 								/>
-								<A href={`/todos/${todo.id}`} class={todo.completed ? titleCompleted : titleText}>
+								<Link
+									to="/todos/$id"
+									params={{ id: todo.id }}
+									class={todo.completed ? titleCompleted : titleText}
+								>
 									{todo.title}
-								</A>
+								</Link>
 								<span class={timestamp}>{formatDate(todo.createdAt)}</span>
 								<button
 									type="button"
@@ -161,16 +164,19 @@ function TodoList() {
 	);
 }
 
-export default function Todos() {
-	return (
+export const Route = createFileRoute("/todos/")({
+	loader: ({ context }) =>
+		context.queryClient.ensureQueryData(todosQueryOptions(context.transport)),
+	head: () => ({
+		meta: [{ title: "Todos | Web UI SSR" }, { name: "description", content: "TODO list" }],
+	}),
+	component: () => (
 		<div class={container}>
-			<Title>Todos | Web UI SSR</Title>
-			<Meta name="description" content="TODO list" />
 			<h1 class={heading}>Todos</h1>
 			<AddTodoForm />
 			<Suspense fallback={<p>Loading todos...</p>}>
 				<TodoList />
 			</Suspense>
 		</div>
-	);
-}
+	),
+});

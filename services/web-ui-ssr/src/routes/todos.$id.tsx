@@ -1,10 +1,7 @@
-import { Meta, Title } from "@solidjs/meta";
-import { A, useParams } from "@solidjs/router";
 import { createQuery } from "@tanstack/solid-query";
+import { createFileRoute, Link } from "@tanstack/solid-router";
 import { Match, Show, Suspense, Switch } from "solid-js";
-import { todoQueryOptions } from "../queries/todos";
-import { useTransport } from "../transport-context";
-import { container } from "./shared.styles";
+import { container } from "../pages/shared.styles";
 import {
 	backLink,
 	meta,
@@ -13,19 +10,21 @@ import {
 	statusPending,
 	title,
 	titleCompleted,
-} from "./todo-detail.styles";
+} from "../pages/todo-detail.styles";
+import { todoQueryOptions } from "../queries/todos";
+import { useTransport } from "../transport-context";
 
 const MS_PER_SECOND = 1000;
 
-function formatDate(ts: { seconds: bigint } | undefined): string {
+function formatDate(ts: { seconds: number } | undefined): string {
 	if (!ts) return "";
-	return new Date(Number(ts.seconds) * MS_PER_SECOND).toLocaleDateString();
+	return new Date(ts.seconds * MS_PER_SECOND).toLocaleDateString();
 }
 
 function TodoDetail() {
-	const params = useParams<{ id: string }>();
+	const params = Route.useParams();
 	const transport = useTransport();
-	const query = createQuery(() => todoQueryOptions(transport, params.id));
+	const query = createQuery(() => todoQueryOptions(transport, params().id));
 
 	return (
 		<Switch>
@@ -38,8 +37,6 @@ function TodoDetail() {
 			<Match when={query.data}>
 				{(todo) => (
 					<>
-						<Title>{todo().title} | Web UI SSR</Title>
-						<Meta name="description" content={`TODO: ${todo().title}`} />
 						<h1 class={todo().completed ? titleCompleted : title}>{todo().title}</h1>
 						<span class={`${statusBadge} ${todo().completed ? statusComplete : statusPending}`}>
 							{todo().completed ? "Completed" : "Pending"}
@@ -57,15 +54,29 @@ function TodoDetail() {
 	);
 }
 
-export default function TodoDetailPage() {
-	return (
+export const Route = createFileRoute("/todos/$id")({
+	loader: ({ context, params }) =>
+		context.queryClient.ensureQueryData(todoQueryOptions(context.transport, params.id)),
+	head: ({ loaderData }) => {
+		const todo = loaderData as { title?: string } | null | undefined;
+		return {
+			meta: [
+				{ title: todo?.title ? `${todo.title} | Web UI SSR` : "Todo | Web UI SSR" },
+				{
+					name: "description",
+					content: todo?.title ? `TODO: ${todo.title}` : "Todo detail page",
+				},
+			],
+		};
+	},
+	component: () => (
 		<div class={container}>
-			<A href="/todos" class={backLink}>
+			<Link to="/todos" class={backLink}>
 				&larr; Back to Todos
-			</A>
+			</Link>
 			<Suspense fallback={<p>Loading todo...</p>}>
 				<TodoDetail />
 			</Suspense>
 		</div>
-	);
-}
+	),
+});

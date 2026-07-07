@@ -4,7 +4,6 @@ import {
 	createConnectQueryKey,
 	createQueryOptions,
 } from "@connectrpc/connect-query-core";
-import type { QueryClient } from "@tanstack/solid-query";
 import type { ListTodosResponse } from "@web-ui-poc/rpc/gen/todo/v1/todo_pb";
 import {
 	createTodo as createTodoMethod,
@@ -14,15 +13,22 @@ import {
 	updateTodo as updateTodoMethod,
 } from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService_connectquery";
 
+/** Convert BigInt timestamp seconds to number so TanStack Router SSR serialization works. */
+function toNumberTimestamp(ts: { seconds: bigint } | undefined): { seconds: number } | undefined {
+	if (!ts) return undefined;
+	return { seconds: Number(ts.seconds) };
+}
+
 export function todosQueryOptions(transport: Transport) {
 	return {
 		...createQueryOptions(listTodos, {}, { transport }),
-		select: (data: ListTodosResponse) => data.todos,
+		select: (data: ListTodosResponse) =>
+			data.todos.map((todo) => ({
+				...todo,
+				createdAt: toNumberTimestamp(todo.createdAt),
+				updatedAt: toNumberTimestamp(todo.updatedAt),
+			})),
 	};
-}
-
-export async function prefetchTodos(queryClient: QueryClient, transport: Transport) {
-	await queryClient.prefetchQuery(todosQueryOptions(transport));
 }
 
 export function createTodoMutation(transport: Transport) {
@@ -62,7 +68,13 @@ export function todoQueryOptions(transport: Transport, id: string) {
 		queryFn: async () => {
 			try {
 				const response = await callUnaryMethod(transport, getTodo, { id });
-				return response.todo ?? null;
+				const todo = response.todo;
+				if (!todo) return null;
+				return {
+					...todo,
+					createdAt: toNumberTimestamp(todo.createdAt),
+					updatedAt: toNumberTimestamp(todo.updatedAt),
+				};
 			} catch (err) {
 				if (err instanceof ConnectError && err.code === Code.NotFound) {
 					return null;
@@ -71,8 +83,4 @@ export function todoQueryOptions(transport: Transport, id: string) {
 			}
 		},
 	} as const;
-}
-
-export async function prefetchTodo(queryClient: QueryClient, transport: Transport, id: string) {
-	await queryClient.prefetchQuery(todoQueryOptions(transport, id));
 }

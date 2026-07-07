@@ -7,7 +7,16 @@
 	},
 	"files": {
 		"ignoreUnknown": false,
-		"includes": ["**", "!packages/rpc/gen", "!dist", "!build", "!.opencode", "!.beads", "!.claude"]
+		"includes": [
+			"**",
+			"!packages/rpc/gen",
+			"!dist",
+			"!build",
+			"!.opencode",
+			"!.beads",
+			"!.claude",
+			"!**/routeTree.gen.ts"
+		]
 	},
 	"formatter": {
 		"enabled": true,
@@ -149,5 +158,17 @@
 				"organizeImports": "on"
 			}
 		}
-	}
+	},
+	"overrides": [
+		{
+			"includes": ["services/web-ui-ssr/src/routes/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"useFilenamingConvention": "off"
+					}
+				}
+			}
+		}
+	]
 }
