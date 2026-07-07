@@ -5,7 +5,7 @@
 	"scripts": {
 		"prepare": "panda codegen --clean",
 		"dev": "NODE_ENV=development NODE_OPTIONS=--experimental-vm-modules tsx src/index.ts",
-		"build": "rsbuild build",
+		"build": "NODE_ENV=production rsbuild build",
 		"start": "bun dist/server/index.js",
 		"typecheck": "tsc --noEmit",
 		"lint:eslint": "eslint src/",

@@ -20,7 +20,7 @@ COPY packages/rpc packages/rpc
 COPY services/web-ui-ssr services/web-ui-ssr
 COPY tsconfig.json ./
 WORKDIR /app/services/web-ui-ssr
-RUN bunx panda codegen --clean && bunx rsbuild build
+RUN bunx panda codegen --clean && NODE_ENV=production bunx rsbuild build
 WORKDIR /app
 
 # Production image — bun runtime

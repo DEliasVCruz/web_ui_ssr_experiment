@@ -63,6 +63,11 @@ export default defineConfig({
 		rspack: {
 			plugins: [tanstackRouter({ target: "solid", autoCodeSplitting: true })],
 		},
+		// The root route (routes/__root.tsx) renders the full HTML document, so
+		// Rsbuild must not generate an HTML template. CSS/script URLs are read
+		// from the compilation stats (dev) / manifest.json (prod) and injected
+		// through the router context into the root route's head().
+		htmlPlugin: false,
 	},
 
 	// Disable lazy compilation so all route CSS is compiled upfront,
@@ -108,9 +113,6 @@ export default defineConfig({
 						enforce: true,
 					},
 				},
-			},
-			html: {
-				template: "./src/template.html",
 			},
 		},
 
