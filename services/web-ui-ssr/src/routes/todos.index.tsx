@@ -7,12 +7,12 @@ import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
 import { Dialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
+import { toast } from "../components/ui/toast";
 import { container } from "../pages/shared.styles";
 import {
 	addForm,
 	controlShrink,
 	emptyState,
-	errorMessage,
 	heading,
 	item,
 	list,
@@ -45,6 +45,7 @@ function AddTodoForm() {
 		...createTodoMutation(transport()),
 		onSuccess: () => {
 			setTitle("");
+			toast.success("Todo added");
 			void queryClient().invalidateQueries({
 				queryKey: createConnectQueryKey({
 					schema: listTodos,
@@ -52,6 +53,9 @@ function AddTodoForm() {
 					cardinality: undefined,
 				}),
 			});
+		},
+		onError: () => {
+			toast.error("Failed to add todo", "Please try again.");
 		},
 	}));
 
@@ -65,7 +69,7 @@ function AddTodoForm() {
 
 	return (
 		<form class={addForm} onSubmit={handleSubmit}>
-			<Field.Root invalid={create.isError}>
+			<Field.Root>
 				<Field.Input
 					type="text"
 					placeholder="What needs to be done?"
@@ -73,9 +77,6 @@ function AddTodoForm() {
 					onInput={(e) => setTitle(e.currentTarget.value)}
 					disabled={create.isPending}
 				/>
-				<Show when={create.isError}>
-					<Field.ErrorText>Failed to add todo. Please try again.</Field.ErrorText>
-				</Show>
 			</Field.Root>
 			<Button type="submit" disabled={create.isPending || !title().trim()}>
 				Add
@@ -148,6 +149,7 @@ function TodoList() {
 	const update = createMutation(() => ({
 		...updateTodoMutation(transport()),
 		onSuccess: (_data, vars) => {
+			toast.success("Todo updated");
 			void queryClient().invalidateQueries({
 				queryKey: createConnectQueryKey({
 					schema: listTodos,
@@ -164,11 +166,15 @@ function TodoList() {
 				}),
 			});
 		},
+		onError: () => {
+			toast.error("Failed to update todo", "Please try again.");
+		},
 	}));
 
 	const remove = createMutation(() => ({
 		...deleteTodoMutation(transport()),
 		onSuccess: (_data, id) => {
+			toast.success("Todo deleted");
 			void queryClient().invalidateQueries({
 				queryKey: createConnectQueryKey({
 					schema: listTodos,
@@ -185,15 +191,13 @@ function TodoList() {
 				}),
 			});
 		},
+		onError: () => {
+			toast.error("Failed to delete todo", "Please try again.");
+		},
 	}));
 
 	return (
 		<Show when={!query.error} fallback={<p class={emptyState}>Failed to load todos.</p>}>
-			<Show when={update.isError || remove.isError}>
-				<p class={errorMessage}>
-					{update.isError ? "Failed to update todo." : "Failed to delete todo."} Please try again.
-				</p>
-			</Show>
 			<Show when={query.data?.length} fallback={<p class={emptyState}>No todos yet.</p>}>
 				<ul class={list}>
 					<For each={query.data}>

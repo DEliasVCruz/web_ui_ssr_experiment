@@ -2,6 +2,7 @@ import type { Transport } from "@connectrpc/connect";
 import type { QueryClient } from "@tanstack/solid-query";
 import { createRootRouteWithContext, HeadContent, Link, Outlet } from "@tanstack/solid-router";
 import { Suspense } from "solid-js";
+import { Toaster } from "../components/ui/toast";
 import type { SsrContext } from "../router";
 
 interface RouterContext {
@@ -51,6 +52,9 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 					<Outlet />
 				</Suspense>
 			</main>
+			{/* App-shell toast region (ol9.5). Empty during SSR/hydration; toasts are
+			    only ever emitted by client interactions, so it never mismatches. */}
+			<Toaster />
 		</>
 	),
 });
