@@ -4,11 +4,11 @@ import { createFileRoute, Link } from "@tanstack/solid-router";
 import { getTodo, listTodos } from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService_connectquery";
 import { createSignal, For, Show, Suspense } from "solid-js";
 import { Button } from "../components/ui/button";
+import { Checkbox } from "../components/ui/checkbox";
 import { Field } from "../components/ui/field";
 import { container } from "../pages/shared.styles";
 import {
 	addForm,
-	checkbox,
 	controlShrink,
 	emptyState,
 	errorMessage,
@@ -142,12 +142,11 @@ function TodoList() {
 					<For each={query.data}>
 						{(todo) => (
 							<li class={item}>
-								<input
-									type="checkbox"
-									class={checkbox}
+								<Checkbox
 									checked={todo.completed}
-									onChange={() => {
-										update.mutate({ id: todo.id, completed: !todo.completed });
+									aria-label={todo.title}
+									onCheckedChange={(details) => {
+										update.mutate({ id: todo.id, completed: details.checked === true });
 									}}
 									disabled={update.isPending && update.variables.id === todo.id}
 								/>

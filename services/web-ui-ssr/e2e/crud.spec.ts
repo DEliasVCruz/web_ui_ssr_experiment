@@ -24,9 +24,12 @@ test.describe("CRUD round-trip", () => {
 		await expect(input).toHaveValue("");
 
 		// ── TOGGLE ───────────────────────────────────────────────────────
+		// The completed control is now an Ark Checkbox: the real state lives on the
+		// visually-hidden native <input type="checkbox">, and clicks land on the
+		// styled control part. Assert on the input, interact via the control.
 		const checkbox = newRow.locator('input[type="checkbox"]');
 		await expect(checkbox).not.toBeChecked();
-		await checkbox.click();
+		await newRow.locator('[data-part="control"]').click();
 		// After the update mutation + list invalidation refetch, it stays checked.
 		await expect(checkbox).toBeChecked();
 

@@ -24,14 +24,6 @@ export const item = css({
 	},
 });
 
-export const checkbox = css({
-	flexShrink: 0,
-	cursor: "default",
-	blockSize: "1.25rem",
-	inlineSize: "1.25rem",
-	accentColor: "brand",
-});
-
 export const titleText = css({
 	flex: 1,
 	textDecoration: "none",
