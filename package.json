@@ -24,6 +24,7 @@
 		"@bufbuild/buf": "^1.47.2",
 		"@bufbuild/protoc-gen-es": "^2.11.0",
 		"@connectrpc/protoc-gen-connect-query": "^2.0.1",
+		"@pandacss/eslint-plugin": "^0.3.2",
 		"@tanstack/eslint-plugin-query": "^5.99.2",
 		"@tanstack/eslint-plugin-router": "^1.162.0",
 		"eslint": "^10.2.1",
