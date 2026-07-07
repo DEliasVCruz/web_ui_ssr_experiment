@@ -3,6 +3,8 @@ import { createMutation, createQuery } from "@tanstack/solid-query";
 import { createFileRoute, Link } from "@tanstack/solid-router";
 import { getTodo, listTodos } from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService_connectquery";
 import { createSignal, For, Show, Suspense } from "solid-js";
+import { cx } from "../../styled-system/css";
+import { button } from "../../styled-system/recipes";
 import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
 import { Dialog } from "../components/ui/dialog";
@@ -93,20 +95,15 @@ function DeleteTodoDialog(props: { title: string; pending: boolean; onConfirm: (
 	const [open, setOpen] = createSignal(false);
 	return (
 		<Dialog.Root open={open()} onOpenChange={(details) => setOpen(details.open)}>
+			{/* Dialog.Trigger is itself an ark.button, so the Panda button recipe is
+			    applied directly (no asChild proxy spread). */}
 			<Dialog.Trigger
-				asChild={(triggerProps) => (
-					<Button
-						{...triggerProps()}
-						type="button"
-						variant="outline"
-						size="sm"
-						class={controlShrink}
-						disabled={props.pending}
-					>
-						Delete
-					</Button>
-				)}
-			/>
+				type="button"
+				disabled={props.pending}
+				class={cx(button({ variant: "outline", size: "sm" }), controlShrink)}
+			>
+				Delete
+			</Dialog.Trigger>
 			<Dialog.Portal>
 				<Dialog.Backdrop />
 				<Dialog.Positioner>
@@ -116,13 +113,9 @@ function DeleteTodoDialog(props: { title: string; pending: boolean; onConfirm: (
 							This permanently deletes “{props.title}”. This action cannot be undone.
 						</Dialog.Description>
 						<Dialog.Actions>
-							<Dialog.CloseTrigger
-								asChild={(closeProps) => (
-									<Button {...closeProps()} type="button" variant="ghost">
-										Cancel
-									</Button>
-								)}
-							/>
+							<Dialog.CloseTrigger type="button" class={button({ variant: "ghost" })}>
+								Cancel
+							</Dialog.CloseTrigger>
 							<Button
 								type="button"
 								variant="dangerSolid"
