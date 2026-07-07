@@ -9,6 +9,7 @@ const ignores = globalIgnores([
 	"**/dist/**",
 	"**/build/**",
 	"packages/rpc/gen/**",
+	"**/styled-system/**",
 ]);
 
 // ─── TypeScript parser + plugin (no rules, needed by solid plugin) ─
