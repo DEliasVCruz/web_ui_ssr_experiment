@@ -18,6 +18,7 @@ import {
 	heading,
 	item,
 	list,
+	srOnly,
 	timestamp,
 	titleCompleted,
 	titleText,
@@ -72,6 +73,9 @@ function AddTodoForm() {
 	return (
 		<form class={addForm} onSubmit={handleSubmit}>
 			<Field.Root>
+				{/* Visually-hidden label gives the input a real accessible name
+				    (input gets aria-labelledby → this label) beyond the placeholder. */}
+				<Field.Label class={srOnly}>New todo</Field.Label>
 				<Field.Input
 					type="text"
 					placeholder="What needs to be done?"
@@ -141,8 +145,9 @@ function TodoList() {
 
 	const update = createMutation(() => ({
 		...updateTodoMutation(transport()),
+		// No success toast on toggle: toggling is frequent and a confirmation
+		// toast each time is noise. Failures still surface (onError below).
 		onSuccess: (_data, vars) => {
-			toast.success("Todo updated");
 			void queryClient().invalidateQueries({
 				queryKey: createConnectQueryKey({
 					schema: listTodos,

@@ -1,10 +1,15 @@
 import { Field as ArkField } from "@ark-ui/solid";
-import { sva } from "../../../styled-system/css";
+import { splitProps } from "solid-js";
+import { cx, sva } from "../../../styled-system/css";
 
 // Ark UI Field (headless, accessible) styled with a Panda slot recipe (sva).
-// Field.Root wires the input to its label/error via generated IDs (Solid
-// createUniqueId → deterministic across SSR/hydrate), and sets aria-invalid +
-// aria-describedby when `invalid` is set, so the error text is announced.
+// Field.Root generates matching IDs (Solid createUniqueId → deterministic across
+// SSR/hydrate) and, for whichever parts are rendered, wires them to the input:
+// a rendered Field.Label gives the input an accessible name via aria-labelledby;
+// a rendered Field.ErrorText together with Root `invalid` sets aria-invalid +
+// aria-describedby so the error is announced. Field.Label accepts a `class`
+// (merged with the slot style) so callers can visually hide it while keeping
+// the accessible name.
 const fieldRecipe = sva({
 	slots: ["root", "input", "label", "errorText"],
 	base: {
@@ -47,7 +52,10 @@ export const Field = {
 	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Root: (props: ArkField.RootProps) => <ArkField.Root {...props} class={styles.root} />,
 	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
-	Label: (props: ArkField.LabelProps) => <ArkField.Label {...props} class={styles.label} />,
+	Label: (props: ArkField.LabelProps) => {
+		const [local, rest] = splitProps(props, ["class"]);
+		return <ArkField.Label {...rest} class={cx(styles.label, local.class)} />;
+	},
 	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Input: (props: ArkField.InputProps) => <ArkField.Input {...props} class={styles.input} />,
 	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name

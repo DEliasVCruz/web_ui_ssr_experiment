@@ -64,3 +64,10 @@ export const addForm = css({
 export const controlShrink = css({
 	flexShrink: 0,
 });
+
+// Visually hidden but present for assistive tech — used for the Add-form
+// Field.Label so the input has a real accessible name (aria-labelledby) while
+// the visible UI is unchanged.
+export const srOnly = css({
+	srOnly: true,
+});
