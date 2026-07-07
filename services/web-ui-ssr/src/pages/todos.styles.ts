@@ -67,51 +67,14 @@ export const addForm = css({
 	marginBlockEnd: "1rem",
 });
 
-export const addInput = css({
-	flex: 1,
-	outline: "none",
-	border: "1px solid {colors.border.input}",
-	borderRadius: "0.375rem",
-	padding: "0.5rem 0.75rem",
-	fontSize: "1rem",
-	_focus: {
-		borderColor: "brand",
-		boxShadow: "0 0 0 2px {colors.brand.focusRing}",
-	},
-});
-
-export const addButton = css({
-	border: "none",
-	borderRadius: "0.375rem",
-	backgroundColor: "brand",
-	cursor: "pointer",
-	padding: "0.5rem 1rem",
-	color: "brand.contrast",
-	fontSize: "1rem",
-	fontWeight: 600,
-	_disabled: {
-		opacity: 0.5,
-		cursor: "default",
-	},
-});
-
 export const errorMessage = css({
 	padding: "0.5rem 0",
 	color: "danger",
 	fontSize: "0.875rem",
 });
 
-export const deleteButton = css({
+// Layout-only helper: keeps a control from shrinking inside the flex row.
+// Merged onto the Ark Button (which supplies its own color/border variant).
+export const controlShrink = css({
 	flexShrink: 0,
-	border: "1px solid {colors.danger}",
-	borderRadius: "0.25rem",
-	backgroundColor: "transparent",
-	cursor: "pointer",
-	padding: "0.25rem 0.5rem",
-	color: "danger",
-	fontSize: "0.75rem",
-	_disabled: {
-		opacity: 0.5,
-		cursor: "default",
-	},
 });

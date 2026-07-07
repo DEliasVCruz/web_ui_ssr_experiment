@@ -3,13 +3,13 @@ import { createMutation, createQuery } from "@tanstack/solid-query";
 import { createFileRoute, Link } from "@tanstack/solid-router";
 import { getTodo, listTodos } from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService_connectquery";
 import { createSignal, For, Show, Suspense } from "solid-js";
+import { Button } from "../components/ui/button";
+import { Field } from "../components/ui/field";
 import { container } from "../pages/shared.styles";
 import {
-	addButton,
 	addForm,
-	addInput,
 	checkbox,
-	deleteButton,
+	controlShrink,
 	emptyState,
 	errorMessage,
 	heading,
@@ -64,20 +64,21 @@ function AddTodoForm() {
 
 	return (
 		<form class={addForm} onSubmit={handleSubmit}>
-			<input
-				class={addInput}
-				type="text"
-				placeholder="What needs to be done?"
-				value={title()}
-				onInput={(e) => setTitle(e.currentTarget.value)}
-				disabled={create.isPending}
-			/>
-			<button class={addButton} type="submit" disabled={create.isPending || !title().trim()}>
+			<Field.Root invalid={create.isError}>
+				<Field.Input
+					type="text"
+					placeholder="What needs to be done?"
+					value={title()}
+					onInput={(e) => setTitle(e.currentTarget.value)}
+					disabled={create.isPending}
+				/>
+				<Show when={create.isError}>
+					<Field.ErrorText>Failed to add todo. Please try again.</Field.ErrorText>
+				</Show>
+			</Field.Root>
+			<Button type="submit" disabled={create.isPending || !title().trim()}>
 				Add
-			</button>
-			<Show when={create.isError}>
-				<p class={errorMessage}>Failed to add todo. Please try again.</p>
-			</Show>
+			</Button>
 		</form>
 	);
 }
@@ -158,16 +159,18 @@ function TodoList() {
 									{todo.title}
 								</Link>
 								<span class={timestamp}>{formatDate(todo.createdAt)}</span>
-								<button
+								<Button
 									type="button"
-									class={deleteButton}
+									variant="outline"
+									size="sm"
+									class={controlShrink}
 									onClick={() => {
 										remove.mutate(todo.id);
 									}}
 									disabled={remove.isPending && remove.variables === todo.id}
 								>
 									Delete
-								</button>
+								</Button>
 							</li>
 						)}
 					</For>
