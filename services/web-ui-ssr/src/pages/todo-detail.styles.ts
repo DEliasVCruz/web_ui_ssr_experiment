@@ -4,7 +4,7 @@ export const backLink = css({
 	display: "inline-block",
 	marginBlockEnd: "1.5rem",
 	textDecoration: "none",
-	color: "#2563eb",
+	color: "brand",
 	fontSize: "0.875rem",
 	_hover: {
 		textDecoration: "underline",
@@ -13,7 +13,7 @@ export const backLink = css({
 
 export const title = css({
 	marginBlockEnd: "0.5rem",
-	color: "#1f2937",
+	color: "fg",
 	fontSize: "1.75rem",
 	fontWeight: 700,
 });
@@ -21,7 +21,7 @@ export const title = css({
 export const titleCompleted = css({
 	marginBlockEnd: "0.5rem",
 	textDecoration: "line-through",
-	color: "#9ca3af",
+	color: "fg.subtle",
 	fontSize: "1.75rem",
 	fontWeight: 700,
 });
@@ -36,13 +36,13 @@ export const statusBadge = css({
 });
 
 export const statusComplete = css({
-	backgroundColor: "#d1fae5",
-	color: "#065f46",
+	backgroundColor: "success.bg",
+	color: "success.fg",
 });
 
 export const statusPending = css({
-	backgroundColor: "#fef3c7",
-	color: "#92400e",
+	backgroundColor: "warning.bg",
+	color: "warning.fg",
 });
 
 export const meta = css({
@@ -50,6 +50,6 @@ export const meta = css({
 	flexDirection: "column",
 	gap: "0.25rem",
 	marginBlockStart: "1rem",
-	color: "#6b7280",
+	color: "fg.muted",
 	fontSize: "0.875rem",
 });

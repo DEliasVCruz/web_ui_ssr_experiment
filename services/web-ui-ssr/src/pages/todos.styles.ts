@@ -2,7 +2,7 @@ import { css } from "../../styled-system/css";
 
 export const heading = css({
 	marginBlockEnd: "1rem",
-	color: "#2563eb",
+	color: "brand",
 	fontSize: "2rem",
 	fontWeight: 700,
 });
@@ -17,7 +17,7 @@ export const item = css({
 	display: "flex",
 	alignItems: "center",
 	gap: "0.75rem",
-	borderBlockEnd: "1px solid #e5e7eb",
+	borderBlockEnd: "1px solid {colors.border}",
 	padding: "0.75rem 1rem",
 	_last: {
 		borderBlockEnd: "none",
@@ -29,36 +29,36 @@ export const checkbox = css({
 	cursor: "default",
 	blockSize: "1.25rem",
 	inlineSize: "1.25rem",
-	accentColor: "#2563eb",
+	accentColor: "brand",
 });
 
 export const titleText = css({
 	flex: 1,
 	textDecoration: "none",
-	color: "#1f2937",
+	color: "fg",
 	fontSize: "1rem",
 	_hover: {
-		color: "#2563eb",
+		color: "brand",
 	},
 });
 
 export const titleCompleted = css({
 	flex: 1,
 	textDecoration: "line-through",
-	color: "#9ca3af",
+	color: "fg.subtle",
 	fontSize: "1rem",
 });
 
 export const timestamp = css({
 	whiteSpace: "nowrap",
-	color: "#9ca3af",
+	color: "fg.subtle",
 	fontSize: "0.75rem",
 });
 
 export const emptyState = css({
 	padding: "2rem",
 	textAlign: "center",
-	color: "#6b7280",
+	color: "fg.muted",
 });
 
 export const addForm = css({
@@ -70,23 +70,23 @@ export const addForm = css({
 export const addInput = css({
 	flex: 1,
 	outline: "none",
-	border: "1px solid #d1d5db",
+	border: "1px solid {colors.border.input}",
 	borderRadius: "0.375rem",
 	padding: "0.5rem 0.75rem",
 	fontSize: "1rem",
 	_focus: {
-		borderColor: "#2563eb",
-		boxShadow: "0 0 0 2px rgba(37,99,235,0.2)",
+		borderColor: "brand",
+		boxShadow: "0 0 0 2px {colors.brand.focusRing}",
 	},
 });
 
 export const addButton = css({
 	border: "none",
 	borderRadius: "0.375rem",
-	backgroundColor: "#2563eb",
+	backgroundColor: "brand",
 	cursor: "pointer",
 	padding: "0.5rem 1rem",
-	color: "#fff",
+	color: "brand.contrast",
 	fontSize: "1rem",
 	fontWeight: 600,
 	_disabled: {
@@ -97,18 +97,18 @@ export const addButton = css({
 
 export const errorMessage = css({
 	padding: "0.5rem 0",
-	color: "#ef4444",
+	color: "danger",
 	fontSize: "0.875rem",
 });
 
 export const deleteButton = css({
 	flexShrink: 0,
-	border: "1px solid #ef4444",
+	border: "1px solid {colors.danger}",
 	borderRadius: "0.25rem",
 	backgroundColor: "transparent",
 	cursor: "pointer",
 	padding: "0.25rem 0.5rem",
-	color: "#ef4444",
+	color: "danger",
 	fontSize: "0.75rem",
 	_disabled: {
 		opacity: 0.5,

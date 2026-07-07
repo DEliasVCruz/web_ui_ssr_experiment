@@ -13,6 +13,7 @@
 		"test:e2e": "playwright test"
 	},
 	"dependencies": {
+		"@ark-ui/solid": "^5",
 		"@connectrpc/connect": "^2.1.1",
 		"@connectrpc/connect-node": "^2.1.1",
 		"@connectrpc/connect-query-core": "^2.0.1",
