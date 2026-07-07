@@ -58,32 +58,22 @@ const styles = dialogRecipe();
 
 // PascalCase keys follow the Ark UI compound-component naming convention.
 export const Dialog = {
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Root: ArkDialog.Root,
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Trigger: ArkDialog.Trigger,
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	CloseTrigger: ArkDialog.CloseTrigger,
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Portal,
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Backdrop: (props: ArkDialog.BackdropProps) => (
 		<ArkDialog.Backdrop {...props} class={styles.backdrop} />
 	),
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Positioner: (props: ArkDialog.PositionerProps) => (
 		<ArkDialog.Positioner {...props} class={styles.positioner} />
 	),
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Content: (props: ArkDialog.ContentProps) => (
 		<ArkDialog.Content {...props} class={styles.content} />
 	),
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Title: (props: ArkDialog.TitleProps) => <ArkDialog.Title {...props} class={styles.title} />,
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Description: (props: ArkDialog.DescriptionProps) => (
 		<ArkDialog.Description {...props} class={styles.description} />
 	),
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Actions: (props: { children: JSX.Element }) => <div class={styles.actions}>{props.children}</div>,
 };

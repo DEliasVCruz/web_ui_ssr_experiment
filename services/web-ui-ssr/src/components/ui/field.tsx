@@ -49,16 +49,12 @@ const styles = fieldRecipe();
 // PascalCase keys are the Ark UI compound-component naming convention
 // (Field.Root, Field.Input, ...), intentionally not camelCase.
 export const Field = {
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Root: (props: ArkField.RootProps) => <ArkField.Root {...props} class={styles.root} />,
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Label: (props: ArkField.LabelProps) => {
 		const [local, rest] = splitProps(props, ["class"]);
 		return <ArkField.Label {...rest} class={cx(styles.label, local.class)} />;
 	},
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	Input: (props: ArkField.InputProps) => <ArkField.Input {...props} class={styles.input} />,
-	// biome-ignore lint/style/useNamingConvention: Ark compound-component part name
 	ErrorText: (props: ArkField.ErrorTextProps) => (
 		<ArkField.ErrorText {...props} class={styles.errorText} />
 	),

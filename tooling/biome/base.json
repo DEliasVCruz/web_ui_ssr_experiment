@@ -169,6 +169,19 @@
 					}
 				}
 			}
+		},
+		{
+			"includes": [
+				"services/web-ui-ssr/src/components/ui/**",
+				"services/web-ui-ssr/panda.config.ts"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"useNamingConvention": "off"
+					}
+				}
+			}
 		}
 	]
 }

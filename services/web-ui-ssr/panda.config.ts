@@ -13,24 +13,20 @@ export default defineConfig({
 			tokens: {
 				colors: {
 					brand: {
-						// biome-ignore lint/style/useNamingConvention: Panda's DEFAULT key maps the value to the token's parent path (e.g. `brand`)
 						DEFAULT: { value: "#2563eb" },
 						contrast: { value: "#ffffff" },
 						// Focus ring uses the brand hue at 20% alpha (was an inline rgba).
 						focusRing: { value: "rgba(37, 99, 235, 0.2)" },
 					},
 					fg: {
-						// biome-ignore lint/style/useNamingConvention: Panda's DEFAULT key maps the value to the token's parent path (e.g. `fg`)
 						DEFAULT: { value: "#1f2937" },
 						muted: { value: "#6b7280" },
 						subtle: { value: "#9ca3af" },
 					},
 					danger: {
-						// biome-ignore lint/style/useNamingConvention: Panda's DEFAULT key maps the value to the token's parent path (e.g. `danger`)
 						DEFAULT: { value: "#ef4444" },
 					},
 					border: {
-						// biome-ignore lint/style/useNamingConvention: Panda's DEFAULT key maps the value to the token's parent path (e.g. `border`)
 						DEFAULT: { value: "#e5e7eb" },
 						input: { value: "#d1d5db" },
 					},
