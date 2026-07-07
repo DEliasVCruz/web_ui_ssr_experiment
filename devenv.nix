@@ -191,6 +191,55 @@ in
       '';
       description = "Run all CI linters (Biome types + ESLint type-checked)";
     };
+    "ci:e2e" = {
+      # Self-orchestrating end-to-end Playwright run for web-ui-ssr.
+      #
+      # PREREQUISITE it cannot auto-start: the business-logic backend must be
+      # reachable on http://localhost:3001 (Connect RPC). Start it separately,
+      # then run this task.
+      #
+      # This task DOES auto-start: the CDP browser container (playwright:up) and
+      # the web-ui-ssr prod server. The browser runs in a container and reaches
+      # the host as host.docker.internal, so the client bundle is built with
+      # PUBLIC_BUSINESS_LOGIC_URL=http://host.docker.internal:3001 and the prod
+      # server (Bun, binds 0.0.0.0:3000) is reached at host.docker.internal:3000.
+      after = [ "playwright:up" ];
+      exec = ''
+        set -euo pipefail
+
+        echo "==> Checking business-logic backend on http://localhost:3001"
+        if ! curl -sf -o /dev/null -X POST http://localhost:3001/todo.v1.TodoService/ListTodos \
+            -H 'Content-Type: application/json' -d '{}'; then
+          echo "ERROR: business-logic backend not reachable on http://localhost:3001." >&2
+          echo "       Start it first (ci:e2e cannot auto-start it), then re-run." >&2
+          exit 1
+        fi
+
+        cd services/web-ui-ssr
+
+        echo "==> Building web-ui-ssr (client -> host.docker.internal:3001)"
+        PUBLIC_BUSINESS_LOGIC_URL=http://host.docker.internal:3001 bun run build
+
+        echo "==> Starting prod server on :3000"
+        BUSINESS_LOGIC_URL=http://localhost:3001 PORT=3000 bun run start &
+        SERVER_PID=$!
+        cleanup() {
+          echo "==> Stopping prod server"
+          kill "$SERVER_PID" 2>/dev/null || true
+        }
+        trap cleanup EXIT
+
+        echo "==> Waiting for prod server"
+        for _ in $(seq 1 30); do
+          if curl -sf -o /dev/null http://localhost:3000/; then break; fi
+          sleep 1
+        done
+
+        echo "==> Running Playwright E2E suite (CDP @ http://localhost:9222)"
+        bunx playwright test
+      '';
+      description = "Build web-ui-ssr, start prod server, run Playwright E2E over CDP, teardown (needs backend on :3001)";
+    };
   };
 
   # Use prek as the git hooks engine (Rust rewrite, devenv 2.0 native)

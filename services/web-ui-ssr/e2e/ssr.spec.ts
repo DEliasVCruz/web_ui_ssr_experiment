@@ -1,0 +1,55 @@
+import { expect } from "@playwright/test";
+import { fetchSsrHtml, listBackendTodos, test } from "./fixtures";
+
+// SSR assertions run against the RAW server response (not the post-hydration DOM),
+// so they prove the server actually renders a full, styled, content-bearing
+// document for each route.
+test.describe("SSR raw HTML", () => {
+	test("/ is a full HTML document with the Home title and CSS link in <head>", async () => {
+		const html = await fetchSsrHtml("/");
+
+		expect(html).toContain("<html");
+		expect(html).toContain("</html>");
+
+		const head = html.slice(html.indexOf("<head"), html.indexOf("</head>"));
+		expect(head).toMatch(/<title[^>]*>Home \| Web UI SSR<\/title>/);
+		expect(head).toMatch(/<link[^>]*rel="stylesheet"[^>]*href="\/static\/css\/[^"]+\.css"/);
+
+		expect(html).toContain("Welcome to the Web UI SSR experiment");
+	});
+
+	test("/todos has the Todos title, CSS link, and server-rendered todo rows", async () => {
+		const html = await fetchSsrHtml("/todos");
+
+		const head = html.slice(html.indexOf("<head"), html.indexOf("</head>"));
+		expect(head).toMatch(/<title[^>]*>Todos \| Web UI SSR<\/title>/);
+		expect(head).toMatch(/rel="stylesheet"/);
+
+		// Real <li> rows in the streamed HTML — not merely the dehydrated data blob.
+		expect(html).toContain('type="checkbox"');
+		expect(html).toMatch(/<a[^>]*href="\/todos\/[0-9a-f-]+"/);
+		expect(html).toContain(">Delete</button>");
+		// The Loading fallback must NOT be what was shipped (data was pre-loaded).
+		expect(html).not.toContain("Loading todos...");
+
+		// At least one actual backend todo title appears as row text in the SSR HTML.
+		const todos = await listBackendTodos();
+		expect(todos.length).toBeGreaterThan(0);
+		expect(html).toContain(todos[0].title);
+	});
+
+	test("/todos/:id renders the todo's dynamic title and status badge", async () => {
+		const todos = await listBackendTodos();
+		expect(todos.length).toBeGreaterThan(0);
+		const todo = todos[0];
+
+		const html = await fetchSsrHtml(`/todos/${todo.id}`);
+
+		const head = html.slice(html.indexOf("<head"), html.indexOf("</head>"));
+		expect(head).toContain(`${todo.title} | Web UI SSR`);
+		expect(head).toMatch(/rel="stylesheet"/);
+
+		expect(html).toContain("Back to Todos");
+		expect(html).toMatch(/Completed|Pending/);
+	});
+});

@@ -21,6 +21,12 @@ packages/rpc/gen/
 # Playwright MCP snapshots
 .playwright-mcp/
 
+# Playwright E2E artifacts
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
 # Temporary files
 dist/
 data/

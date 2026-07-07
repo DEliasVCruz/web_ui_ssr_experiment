@@ -1,0 +1,90 @@
+import { type Browser, test as base, chromium, expect, type Page } from "@playwright/test";
+
+const HTTP_OK = 200;
+
+// The browser is a headless Chromium running in a Colima container, exposing CDP
+// on this endpoint. Playwright connects to it over CDP instead of launching a
+// local browser (see playwright.config.ts / devenv `playwright:up`).
+const CDP_ENDPOINT = process.env.CDP_ENDPOINT ?? "http://localhost:9222";
+
+// URLs reachable from the Playwright *runner* (the host), used for raw HTTP
+// assertions. The in-container browser reaches the app via baseURL
+// (host.docker.internal:3000); the runner on macOS cannot resolve that name, so
+// host-side fetches target localhost instead.
+export const RAW_BASE_URL = process.env.E2E_RAW_BASE_URL ?? "http://localhost:3000";
+export const BACKEND_URL = process.env.E2E_BACKEND_URL ?? "http://localhost:3001";
+
+// The Add-todo input, server-rendered on /todos. Used as the hydration probe:
+// once Solid attaches its delegated `onInput` handler the app is interactive.
+export const ADD_INPUT_SELECTOR = 'input[placeholder="What needs to be done?"]';
+
+interface CdpWorkerFixtures {
+	cdpBrowser: Browser;
+}
+
+export const test = base.extend<object, CdpWorkerFixtures>({
+	cdpBrowser: [
+		// biome-ignore lint/correctness/noEmptyPattern: Playwright requires an empty destructuring pattern to declare a fixture with no dependencies
+		async ({}, use) => {
+			const browser = await chromium.connectOverCDP(CDP_ENDPOINT);
+			await use(browser);
+			await browser.close();
+		},
+		{ scope: "worker" },
+	],
+	// Fresh, isolated context per test from the shared CDP browser.
+	context: async ({ cdpBrowser }, use) => {
+		const ctx = await cdpBrowser.newContext();
+		await use(ctx);
+		await ctx.close();
+	},
+	page: async ({ context }, use) => {
+		const page = await context.newPage();
+		await use(page);
+		await page.close();
+	},
+});
+
+/**
+ * Reads the raw SSR HTML for a route from the host-reachable server. Deliberately
+ * uses `fetch` (not the browser) so assertions run against the exact bytes the
+ * server streams, independent of client hydration.
+ */
+export async function fetchSsrHtml(path: string): Promise<string> {
+	const res = await fetch(`${RAW_BASE_URL}${path}`);
+	expect(res.status).toBe(HTTP_OK);
+	return res.text();
+}
+
+export interface BackendTodo {
+	id: string;
+	title: string;
+	completed?: boolean;
+}
+
+/** Lists todos straight from the business-logic backend (Connect RPC over JSON). */
+export async function listBackendTodos(): Promise<BackendTodo[]> {
+	const res = await fetch(`${BACKEND_URL}/todo.v1.TodoService/ListTodos`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: "{}",
+	});
+	const json = (await res.json()) as { todos?: BackendTodo[] };
+	return json.todos ?? [];
+}
+
+/**
+ * Waits until the client has hydrated: Solid attaches a delegated `onInput`
+ * handler (the `$$input` property) to the Add input. This is the authoritative
+ * "app is interactive" signal — `Object.keys(document).filter(k => k.startsWith('$$'))`
+ * is a false signal in this Solid version and must not be used.
+ */
+export async function waitForHydration(page: Page): Promise<void> {
+	const input = page.locator(ADD_INPUT_SELECTOR);
+	await expect(input).toBeVisible();
+	await expect
+		.poll(() =>
+			input.evaluate((el) => typeof (el as Element & { $$input?: unknown }).$$input === "function"),
+		)
+		.toBe(true);
+}

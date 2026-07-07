@@ -9,7 +9,8 @@
 		"start": "bun dist/server/index.js",
 		"typecheck": "tsc --noEmit",
 		"lint:eslint": "eslint src/",
-		"panda:codegen": "panda codegen --clean"
+		"panda:codegen": "panda codegen --clean",
+		"test:e2e": "playwright test"
 	},
 	"dependencies": {
 		"@connectrpc/connect": "^2.1.1",
@@ -26,6 +27,7 @@
 	"devDependencies": {
 		"@hono/node-server": "^1.13.8",
 		"@pandacss/dev": "^1.10.0",
+		"@playwright/test": "^1.49.1",
 		"@rsbuild/core": "^2.0.1",
 		"@rsbuild/plugin-babel": "^1.1.2",
 		"@rsbuild/plugin-solid": "^1.1.1",
