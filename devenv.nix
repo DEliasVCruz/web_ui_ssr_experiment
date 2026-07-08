@@ -198,29 +198,35 @@ in
       # web-ui-ssr prod server, runs the whole suite, and tears EVERYTHING down
       # (backend + web server + temp DB dir), even on failure.
       #
-      # Backend port: picked dynamically (a free ephemeral port) rather than a
-      # fixed :3001. This is what the ticket "prefers" — it removes the class of
-      # bugs where a stale/foreign process on :3001 gets silently reused (the
-      # original failure mode) and lets repeated runs never collide. The port is
-      # threaded through all three consumers:
+      # Ports: BOTH the backend and the web server bind free ephemeral ports
+      # picked at task start (not fixed :3001/:3000). This removes the class of
+      # bugs where a stale/foreign process on a fixed port gets silently reused
+      # (the original failure mode) or where a developer's own dev server on
+      # :3000/:3001 collides with — or gets killed by — this task. The ports are
+      # threaded through every consumer:
       #   * backend:      PORT=$BACKEND_PORT DATABASE_PATH=<ephemeral> bun src/index.ts
       #   * client build: PUBLIC_BUSINESS_LOGIC_URL=http://host.docker.internal:$BACKEND_PORT
-      #   * prod server:  BUSINESS_LOGIC_URL=http://localhost:$BACKEND_PORT
-      #   * test runner:  E2E_BACKEND_URL=http://localhost:$BACKEND_PORT (fixtures)
+      #   * prod server:  BUSINESS_LOGIC_URL=http://localhost:$BACKEND_PORT PORT=$WEB_PORT
+      #   * test runner:  E2E_BASE_URL / E2E_RAW_BASE_URL (web) + E2E_BACKEND_URL
       #
       # The CDP browser runs in a container and reaches the host as
-      # host.docker.internal, so the client bundle points there; the prod server
-      # (Bun, binds 0.0.0.0:3000) is reached from the container at
-      # host.docker.internal:3000. Auto-started deps: the CDP browser container
-      # (playwright:up) via `after`.
+      # host.docker.internal, so the client bundle and Playwright baseURL point
+      # there; the prod server (Bun, binds 0.0.0.0:$WEB_PORT) is reached from the
+      # container at host.docker.internal:$WEB_PORT. Auto-started deps: the CDP
+      # browser container (playwright:up) via `after`.
       after = [ "playwright:up" ];
       exec = ''
         set -euo pipefail
 
-        WEB_PORT=3000
-
-        # ── Pick a free ephemeral backend port ────────────────────────────
-        BACKEND_PORT=$(node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{const p=s.address().port;s.close(()=>process.stdout.write(String(p)))})')
+        # ── Pick free ephemeral ports (backend + web) ─────────────────────
+        # Both ports are task-owned and random, so nothing foreign can be on
+        # them: local dev servers on the old fixed :3000/:3001 never collide,
+        # and teardown's port-scoped kill can never hit a foreign process.
+        pick_free_port() {
+          node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{const p=s.address().port;s.close(()=>process.stdout.write(String(p)))})'
+        }
+        BACKEND_PORT=$(pick_free_port)
+        WEB_PORT=$(pick_free_port)
         echo "==> Backend port: $BACKEND_PORT | web port: $WEB_PORT"
 
         # ── Ephemeral, isolated, absolute DB path ─────────────────────────
@@ -257,7 +263,9 @@ in
         echo "==> Waiting for backend ListTodos to answer"
         BACKEND_READY=0
         for _ in $(seq 1 30); do
-          if curl -sf -o /dev/null -X POST "http://localhost:$BACKEND_PORT/todo.v1.TodoService/ListTodos" \
+          # --connect-timeout/--max-time keep the 30s retry budget real: a
+          # socket that accepts but never replies must not block curl forever.
+          if curl -sf --connect-timeout 3 --max-time 5 -o /dev/null -X POST "http://localhost:$BACKEND_PORT/todo.v1.TodoService/ListTodos" \
               -H 'Content-Type: application/json' -d '{}'; then
             BACKEND_READY=1
             break
@@ -272,7 +280,7 @@ in
         # ── Seed a deterministic fixture set (3 todos) ────────────────────
         echo "==> Seeding deterministic todos"
         for title in "Buy groceries" "Write the E2E suite" "Ship the release"; do
-          curl -sf -o /dev/null -X POST "http://localhost:$BACKEND_PORT/todo.v1.TodoService/CreateTodo" \
+          curl -sf --connect-timeout 3 --max-time 5 -o /dev/null -X POST "http://localhost:$BACKEND_PORT/todo.v1.TodoService/CreateTodo" \
             -H 'Content-Type: application/json' -d "{\"title\":\"$title\"}"
         done
 
@@ -288,7 +296,7 @@ in
         echo "==> Waiting for prod server"
         SERVER_READY=0
         for _ in $(seq 1 30); do
-          if curl -sf -o /dev/null "http://localhost:$WEB_PORT/"; then
+          if curl -sf --connect-timeout 3 --max-time 5 -o /dev/null "http://localhost:$WEB_PORT/"; then
             SERVER_READY=1
             break
           fi
@@ -299,7 +307,13 @@ in
           exit 1
         fi
 
-        # Point the test fixtures' raw-backend assertions at our dynamic port.
+        # Thread the dynamic ports to the test runner + fixtures:
+        #   * E2E_BASE_URL      → Playwright baseURL (in-container browser, via
+        #                         host.docker.internal) — playwright.config.ts
+        #   * E2E_RAW_BASE_URL  → host-side raw SSR fetches (fixtures.ts)
+        #   * E2E_BACKEND_URL   → host-side raw backend RPCs (fixtures.ts)
+        export E2E_BASE_URL="http://host.docker.internal:$WEB_PORT"
+        export E2E_RAW_BASE_URL="http://localhost:$WEB_PORT"
         export E2E_BACKEND_URL="http://localhost:$BACKEND_PORT"
 
         echo "==> Running Playwright E2E suite (CDP @ http://localhost:9222)"
