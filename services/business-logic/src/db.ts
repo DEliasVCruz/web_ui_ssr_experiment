@@ -1,4 +1,6 @@
 import { Database } from "bun:sqlite";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 
 const DEFAULT_DB_PATH = "./data/todos.db";
 
@@ -8,6 +10,10 @@ export function getDb(): Database {
 	if (db) return db;
 
 	const dbPath = process.env.DATABASE_PATH ?? DEFAULT_DB_PATH;
+	// `new Database(path, { create: true })` creates the DB file but NOT its
+	// parent directory — a missing dir (e.g. a fresh checkout with no `data/`)
+	// makes the open fail and surfaces as 500s on every RPC. Ensure it exists.
+	mkdirSync(dirname(dbPath), { recursive: true });
 	db = new Database(dbPath, { create: true });
 
 	db.run("PRAGMA journal_mode = WAL;");
