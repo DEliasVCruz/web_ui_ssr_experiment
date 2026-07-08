@@ -192,48 +192,115 @@ in
       description = "Run all CI linters (Biome types + ESLint type-checked)";
     };
     "ci:e2e" = {
-      # Self-orchestrating end-to-end Playwright run for web-ui-ssr.
+      # FULLY self-contained end-to-end Playwright run for web-ui-ssr: on a clean
+      # machine with NOTHING pre-running, this task starts its OWN business-logic
+      # backend against a fresh ephemeral seeded SQLite DB, builds + starts the
+      # web-ui-ssr prod server, runs the whole suite, and tears EVERYTHING down
+      # (backend + web server + temp DB dir), even on failure.
       #
-      # PREREQUISITE it cannot auto-start: the business-logic backend must be
-      # reachable on http://localhost:3001 (Connect RPC). Start it separately,
-      # then run this task.
+      # Backend port: picked dynamically (a free ephemeral port) rather than a
+      # fixed :3001. This is what the ticket "prefers" — it removes the class of
+      # bugs where a stale/foreign process on :3001 gets silently reused (the
+      # original failure mode) and lets repeated runs never collide. The port is
+      # threaded through all three consumers:
+      #   * backend:      PORT=$BACKEND_PORT DATABASE_PATH=<ephemeral> bun src/index.ts
+      #   * client build: PUBLIC_BUSINESS_LOGIC_URL=http://host.docker.internal:$BACKEND_PORT
+      #   * prod server:  BUSINESS_LOGIC_URL=http://localhost:$BACKEND_PORT
+      #   * test runner:  E2E_BACKEND_URL=http://localhost:$BACKEND_PORT (fixtures)
       #
-      # This task DOES auto-start: the CDP browser container (playwright:up) and
-      # the web-ui-ssr prod server. The browser runs in a container and reaches
-      # the host as host.docker.internal, so the client bundle is built with
-      # PUBLIC_BUSINESS_LOGIC_URL=http://host.docker.internal:3001 and the prod
-      # server (Bun, binds 0.0.0.0:3000) is reached at host.docker.internal:3000.
+      # The CDP browser runs in a container and reaches the host as
+      # host.docker.internal, so the client bundle points there; the prod server
+      # (Bun, binds 0.0.0.0:3000) is reached from the container at
+      # host.docker.internal:3000. Auto-started deps: the CDP browser container
+      # (playwright:up) via `after`.
       after = [ "playwright:up" ];
       exec = ''
         set -euo pipefail
 
-        echo "==> Checking business-logic backend on http://localhost:3001"
-        if ! curl -sf -o /dev/null -X POST http://localhost:3001/todo.v1.TodoService/ListTodos \
-            -H 'Content-Type: application/json' -d '{}'; then
-          echo "ERROR: business-logic backend not reachable on http://localhost:3001." >&2
-          echo "       Start it first (ci:e2e cannot auto-start it), then re-run." >&2
-          exit 1
-        fi
+        WEB_PORT=3000
 
-        cd services/web-ui-ssr
+        # ── Pick a free ephemeral backend port ────────────────────────────
+        BACKEND_PORT=$(node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{const p=s.address().port;s.close(()=>process.stdout.write(String(p)))})')
+        echo "==> Backend port: $BACKEND_PORT | web port: $WEB_PORT"
 
-        echo "==> Building web-ui-ssr (client -> host.docker.internal:3001)"
-        PUBLIC_BUSINESS_LOGIC_URL=http://host.docker.internal:3001 bun run build
+        # ── Ephemeral, isolated, absolute DB path ─────────────────────────
+        DB_DIR=$(mktemp -d)
+        DB_PATH="$DB_DIR/todos.db"
+        echo "==> Ephemeral DB: $DB_PATH"
 
-        echo "==> Starting prod server on :3000"
-        BUSINESS_LOGIC_URL=http://localhost:3001 PORT=3000 bun run start &
-        SERVER_PID=$!
+        BACKEND_PID=""
+        SERVER_PID=""
+
+        kill_port() {
+          local pids
+          pids=$(lsof -ti "tcp:$1" 2>/dev/null || true)
+          if [ -n "$pids" ]; then kill $pids 2>/dev/null || true; fi
+        }
+
         cleanup() {
-          echo "==> Stopping prod server"
-          kill "$SERVER_PID" 2>/dev/null || true
+          echo "==> Teardown: stopping web server + backend, removing temp DB"
+          if [ -n "$SERVER_PID" ]; then kill "$SERVER_PID" 2>/dev/null || true; fi
+          if [ -n "$BACKEND_PID" ]; then kill "$BACKEND_PID" 2>/dev/null || true; fi
+          # Belt-and-braces: free the ports even if the tracked PIDs were only
+          # wrappers around the real listeners.
+          kill_port "$WEB_PORT"
+          kill_port "$BACKEND_PORT"
+          rm -rf "$DB_DIR" 2>/dev/null || true
         }
         trap cleanup EXIT
 
-        echo "==> Waiting for prod server"
+        # ── Start the business-logic backend ──────────────────────────────
+        echo "==> Starting business-logic backend on :$BACKEND_PORT (fresh ephemeral DB)"
+        ( cd services/business-logic && PORT=$BACKEND_PORT DATABASE_PATH="$DB_PATH" bun run src/index.ts ) &
+        BACKEND_PID=$!
+
+        echo "==> Waiting for backend ListTodos to answer"
+        BACKEND_READY=0
         for _ in $(seq 1 30); do
-          if curl -sf -o /dev/null http://localhost:3000/; then break; fi
+          if curl -sf -o /dev/null -X POST "http://localhost:$BACKEND_PORT/todo.v1.TodoService/ListTodos" \
+              -H 'Content-Type: application/json' -d '{}'; then
+            BACKEND_READY=1
+            break
+          fi
           sleep 1
         done
+        if [ "$BACKEND_READY" -ne 1 ]; then
+          echo "ERROR: business-logic backend never became ready on :$BACKEND_PORT" >&2
+          exit 1
+        fi
+
+        # ── Seed a deterministic fixture set (3 todos) ────────────────────
+        echo "==> Seeding deterministic todos"
+        for title in "Buy groceries" "Write the E2E suite" "Ship the release"; do
+          curl -sf -o /dev/null -X POST "http://localhost:$BACKEND_PORT/todo.v1.TodoService/CreateTodo" \
+            -H 'Content-Type: application/json' -d "{\"title\":\"$title\"}"
+        done
+
+        cd services/web-ui-ssr
+
+        echo "==> Building web-ui-ssr (client -> host.docker.internal:$BACKEND_PORT)"
+        PUBLIC_BUSINESS_LOGIC_URL="http://host.docker.internal:$BACKEND_PORT" bun run build
+
+        echo "==> Starting prod server on :$WEB_PORT"
+        BUSINESS_LOGIC_URL="http://localhost:$BACKEND_PORT" PORT=$WEB_PORT bun run start &
+        SERVER_PID=$!
+
+        echo "==> Waiting for prod server"
+        SERVER_READY=0
+        for _ in $(seq 1 30); do
+          if curl -sf -o /dev/null "http://localhost:$WEB_PORT/"; then
+            SERVER_READY=1
+            break
+          fi
+          sleep 1
+        done
+        if [ "$SERVER_READY" -ne 1 ]; then
+          echo "ERROR: web-ui-ssr prod server never became ready on :$WEB_PORT" >&2
+          exit 1
+        fi
+
+        # Point the test fixtures' raw-backend assertions at our dynamic port.
+        export E2E_BACKEND_URL="http://localhost:$BACKEND_PORT"
 
         echo "==> Running Playwright E2E suite (CDP @ http://localhost:9222)"
         # Capture the suite's exit code without letting `set -e` abort before we
@@ -249,7 +316,7 @@ in
         echo "==> Playwright report (JUnit): $PWD/test-results/junit.xml"
         exit "$PW_EXIT"
       '';
-      description = "Build web-ui-ssr, start prod server, run Playwright E2E over CDP, teardown (needs backend on :3001)";
+      description = "Self-contained E2E: start+seed own backend (ephemeral DB), build+run web server, Playwright over CDP, full teardown";
     };
   };
 

@@ -12,7 +12,10 @@ export default defineConfig({
 	fullyParallel: false,
 	workers: 1,
 	forbidOnly: Boolean(process.env.CI),
-	retries: 0,
+	// The CRUD/dialog/toast write-path tests hit the real backend over the
+	// network and have flaked once on a 30s toBeVisible timeout (passed on
+	// rerun). Retry to absorb transient network/CDP jitter.
+	retries: process.env.CI ? 2 : 1,
 	timeout: 30_000,
 	expect: { timeout: 15_000 },
 	// Persist a report to disk regardless of pass/fail: `devenv tasks run ci:e2e`
