@@ -30,3 +30,6 @@ blob-report/
 # Temporary files
 dist/
 data/
+
+# Wrangler files
+.DS_Store
