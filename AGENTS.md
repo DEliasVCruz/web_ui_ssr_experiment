@@ -97,9 +97,10 @@ Two services orchestrated by Docker Compose:
 1. **web-ui-ssr** — Bun + Hono rendering server. Runs SolidJS SSR via
    `renderToStream`, serves the client bundle, and calls the
    business-logic server via connect-es during SSR. Owns no data.
-2. **business-logic** — Bun + Hono stub of the real backend. Exposes
-   connect-es RPC endpoints. Persists data in SQLite (file mounted as
-   a Docker volume).
+2. **business-logic-java** — Java (Helidon SE) stub of the real backend
+   (compose service name stays `business-logic`). Exposes the Connect
+   RPC endpoints connect-es clients speak. Persists data in SQLite
+   (file mounted as a Docker volume).
 
 The browser, after hydration, talks to the business-logic server
 **directly** via connect-es. The rendering server is not a proxy for
@@ -107,8 +108,8 @@ post-hydration traffic.
 
 ## Stack
 
-- **Runtime**: Bun
-- **HTTP**: Hono
+- **Runtime**: Bun (web-ui-ssr), JVM/JDK 25 (business-logic-java)
+- **HTTP**: Hono (web-ui-ssr), Helidon SE (business-logic-java)
 - **UI framework**: SolidJS (no SolidStart — SSR is wired manually)
 - **Routing**: `@solidjs/router` (isomorphic, `url` prop for SSR)
 - **Head management**: `@solidjs/meta` (`MetaProvider` + `renderTags()`)

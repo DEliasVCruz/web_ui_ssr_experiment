@@ -11,10 +11,10 @@ Proof-of-concept for the web UI SSR layer of a larger platform.
 │   │   ├── src/             # Source code
 │   │   ├── package.json     # Service dependencies
 │   │   └── tsconfig.json    # TypeScript config
-│   └── business-logic/      # Bun + Hono backend stub
-│       ├── src/             # Source code
-│       ├── package.json     # Service dependencies
-│       └── tsconfig.json    # TypeScript config
+│   └── business-logic-java/ # Java (Helidon SE) backend
+│       ├── src/             # Source code (Maven layout)
+│       ├── pom.xml          # Maven build
+│       └── package.json     # TS-side contract-test workspace
 ├── package.json             # Root with workspaces
 ├── tsconfig.json            # Shared TypeScript config
 └── docker-compose.yml       # Service orchestration
@@ -40,10 +40,11 @@ bun run build
 - Framework: Hono + SolidJS SSR
 - Purpose: HTML rendering and client bundle serving
 
-### business-logic
-- Runtime: Bun
-- Framework: Hono
-- Purpose: Backend stub with SQLite and connect-es RPC
+### business-logic-java
+- Runtime: JVM (JDK 25)
+- Framework: Helidon SE (+ in-repo Connect-unary adapter)
+- Purpose: Backend stub with SQLite, serving the same Connect RPC contract
+  the connect-es clients speak (see `services/business-logic-java/README.md`)
 
 ## Development
 

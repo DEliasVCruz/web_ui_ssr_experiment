@@ -5,7 +5,7 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json bun.lock ./
 COPY packages/rpc/package.json packages/rpc/
-COPY services/business-logic/package.json services/business-logic/
+COPY services/business-logic-java/package.json services/business-logic-java/
 COPY services/web-ui-ssr/package.json services/web-ui-ssr/
 RUN bun install --ignore-scripts
 
