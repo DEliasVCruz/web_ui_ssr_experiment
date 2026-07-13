@@ -17,6 +17,13 @@ in
   # Load .env file automatically
   dotenv.enable = true;
 
+  # Java toolchain (services/business-logic-java)
+  languages.java = {
+    enable = true;
+    jdk.package = pkgs.jdk25;
+    maven.enable = true;
+  };
+
   # System packages
   packages = [
     pkgs.bun
@@ -27,6 +34,10 @@ in
     pkgs.colima
     pkgs.docker-client
     dockerfmt
+    # protoc + grpc-java plugin, invoked by buf (buf.gen.yaml) to emit the
+    # Java protobuf/gRPC sources for services/business-logic-java
+    pkgs.protobuf
+    pkgs.protoc-gen-grpc-java
   ];
 
   # Shared, non-secret env vars
