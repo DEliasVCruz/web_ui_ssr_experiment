@@ -48,7 +48,12 @@ import java.util.concurrent.TimeoutException;
  *       call is marked cancelled, the listener is notified, and the response is
  *       {@code deadline_exceeded}. The deadline is <em>not</em> propagated as a
  *       {@code io.grpc.Context} deadline, and a handler that blocks its calling
- *       thread is not interrupted mid-flight.</li>
+ *       thread is not interrupted mid-flight. Without the header the spec
+ *       mandates an infinite timeout, so the outcome wait is unbounded: an
+ *       asynchronous handler that never closes its call pins the request (and
+ *       its virtual thread) forever. Known and acceptable for synchronous
+ *       services; async implementations must guarantee they terminate every
+ *       call.</li>
  *   <li>Unknown method (or a non-unary method): HTTP 404 with a
  *       {@code {"code":"unimplemented"}} body — the spec's HTTP-to-Connect
  *       table maps 404 to {@code unimplemented}, and the explicit body keeps
@@ -171,6 +176,9 @@ final class ConnectUnaryHandler implements Handler {
 
         UnaryCapturingServerCall.Outcome<RespT> outcome;
         try {
+            // No connect-timeout-ms → infinite timeout per spec: this wait is
+            // unbounded, so an async handler that never closes its call pins
+            // this request forever (see class javadoc).
             outcome = timeoutMs == null
                     ? call.outcome().get()
                     : call.outcome().get(timeoutMs, TimeUnit.MILLISECONDS);

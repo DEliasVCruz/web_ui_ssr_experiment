@@ -54,7 +54,7 @@ function describe(value: unknown): string {
 const got = await client.getTodo({ id: "abc" });
 check(
 	"getTodo round-trip",
-	got.todo?.id === "abc" && got.todo?.title === "stub-todo",
+	got.todo?.id === "abc" && got.todo.title === "stub-todo",
 	() => `unexpected response: ${describe(got)}`,
 );
 check(
@@ -66,7 +66,7 @@ check(
 const created = await client.createTodo({ title: "from-connect-es" });
 check(
 	"createTodo round-trip",
-	created.todo?.id === "created-1" && created.todo?.title === "from-connect-es",
+	created.todo?.id === "created-1" && created.todo.title === "from-connect-es",
 	() => `unexpected response: ${describe(created)}`,
 );
 
@@ -75,7 +75,7 @@ const expectedTodoCount = 2;
 check(
 	"listTodos round-trip",
 	listed.todos.length === expectedTodoCount,
-	() => `expected ${expectedTodoCount} todos, got ${listed.todos.length}`,
+	() => `expected ${String(expectedTodoCount)} todos, got ${String(listed.todos.length)}`,
 );
 
 // 2. Error mapping: NOT_FOUND from the service surfaces as a ConnectError
@@ -100,7 +100,7 @@ try {
 
 if (failures > 0) {
 	// biome-ignore lint/suspicious/noConsole: CLI test output
-	console.error(`${failures} contract check(s) failed`);
+	console.error(`${String(failures)} contract check(s) failed`);
 	process.exit(1);
 }
 // biome-ignore lint/suspicious/noConsole: CLI test output
