@@ -1,8 +1,10 @@
-syntax = "proto3";
+edition = "2023";
 
 package todo.v1;
 
 import "google/protobuf/timestamp.proto";
+
+option features.field_presence = IMPLICIT;
 
 // Todo represents a single todo item.
 message Todo {
@@ -56,9 +58,9 @@ message UpdateTodoRequest {
   // The ID of the todo to update.
   string id = 1;
   // The new title, if updating.
-  optional string title = 2;
+  string title = 2 [features.field_presence = EXPLICIT];
   // The new completed status, if updating.
-  optional bool completed = 3;
+  bool completed = 3 [features.field_presence = EXPLICIT];
 }
 
 // UpdateTodoResponse is the response message for UpdateTodo.

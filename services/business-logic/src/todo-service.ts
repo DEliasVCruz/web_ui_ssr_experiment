@@ -1,8 +1,12 @@
-import { create } from "@bufbuild/protobuf";
+import { create, isFieldSet } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { TodoSchema, type TodoService } from "@web-ui-poc/rpc/gen/todo/v1/todo_pb";
+import {
+	TodoSchema,
+	type TodoService,
+	UpdateTodoRequestSchema,
+} from "@web-ui-poc/rpc/gen/todo/v1/todo_pb";
 import {
 	createTodo,
 	deleteTodo,
@@ -42,9 +46,13 @@ export const todoServiceImpl: ServiceImpl<typeof TodoService> = {
 	},
 
 	updateTodo(request) {
+		// With editions 2023, explicit-presence scalar fields read as their default
+		// value when unset; use isFieldSet to distinguish "unset" from "set to default".
 		const row = updateTodo(request.id, {
-			title: request.title,
-			completed: request.completed,
+			title: isFieldSet(request, UpdateTodoRequestSchema.field.title) ? request.title : undefined,
+			completed: isFieldSet(request, UpdateTodoRequestSchema.field.completed)
+				? request.completed
+				: undefined,
 		});
 		if (!row) {
 			throw new ConnectError("todo not found", Code.NotFound);

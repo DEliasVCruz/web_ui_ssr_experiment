@@ -1,10 +1,8 @@
-version: v1
+version: v2
 plugins:
-  - plugin: es
+  - local: protoc-gen-es
     out: packages/rpc/gen
-    opt:
-      - target=ts
-  - plugin: connect-query
+    opt: target=ts
+  - local: protoc-gen-connect-query
     out: packages/rpc/gen
-    opt:
-      - target=ts
+    opt: target=ts
