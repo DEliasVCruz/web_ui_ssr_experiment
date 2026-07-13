@@ -6,3 +6,10 @@ plugins:
   - local: protoc-gen-connect-query
     out: packages/rpc/gen
     opt: target=ts
+  # Java codegen for services/business-logic-java (gitignored output).
+  # Both plugins come from devenv (nixpkgs): protoc (builtin java) and
+  # protoc-gen-grpc-java, so generation is fully offline and reproducible.
+  - protoc_builtin: java
+    out: services/business-logic-java/generated-sources/protobuf
+  - local: protoc-gen-grpc-java
+    out: services/business-logic-java/generated-sources/grpc

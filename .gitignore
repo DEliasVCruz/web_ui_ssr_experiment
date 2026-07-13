@@ -4,6 +4,10 @@ bun.lock
 # Generated protobuf/connect-es code
 packages/rpc/gen/
 
+# Java service: buf-generated sources + Maven build output
+services/business-logic-java/generated-sources/
+services/business-logic-java/target/
+
 # Beads (stealth — all beads data lives locally, not in repo)
 .beads/
 .dolt
