@@ -1,0 +1,22 @@
+{
+	"name": "@web-ui-poc/business-logic-java",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"description": "TS-side contract tests for the Java Connect adapter (the service itself is Maven-built; see README.md)",
+	"scripts": {
+		"contract-test": "bun run scripts/connect-contract-test.ts",
+		"typecheck": "tsc --noEmit",
+		"lint:eslint": "eslint scripts/"
+	},
+	"dependencies": {
+		"@bufbuild/protobuf": "^2.11.0",
+		"@connectrpc/connect": "^2.1.1",
+		"@connectrpc/connect-node": "^2.1.1",
+		"@web-ui-poc/rpc": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.1.14",
+		"typescript": "^5.7.2"
+	}
+}

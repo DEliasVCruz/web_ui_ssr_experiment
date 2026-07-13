@@ -2,10 +2,12 @@
 
 Java (Helidon SE) port of `services/business-logic` (Bun/TS, Connect protocol).
 
-**Status: scaffold only.** The server exposes `GET /health` (same JSON shape as
-the Bun service) and the build compiles the buf-generated protobuf messages and
-TodoService gRPC stubs for `proto/todo/v1/todo.proto`. The TodoService business
-logic lands in a later task.
+**Status: scaffold + Connect adapter.** The server exposes `GET /health` (same
+JSON shape as the Bun service) and the build compiles the buf-generated
+protobuf messages and TodoService gRPC stubs for `proto/todo/v1/todo.proto`.
+The service-agnostic Connect-unary HTTP adapter lives in
+`com.webuipoc.businesslogic.connect` (see below). The TodoService business
+logic (and wiring the adapter into `Main`) lands in a later task.
 
 ## Toolchain (provided by devenv)
 
@@ -63,3 +65,94 @@ Then:
 curl http://localhost:3001/health
 # {"status":"ok"}
 ```
+
+## Connect-unary adapter (`com.webuipoc.businesslogic.connect`)
+
+Helidon has no native Connect support, so the adapter exposes any gRPC
+`ServerServiceDefinition` / `BindableService` over the
+[Connect protocol](https://connectrpc.com/docs/protocol/) for **unary** RPCs —
+the shape the connect-es browser/SSR clients speak. Register it as a Helidon
+routing feature:
+
+```java
+routing.addFeature(ConnectUnaryFeature.create(new MyServiceImpl()));
+```
+
+Dispatch is descriptor-driven (`ServerMethodDefinition` + the handlers built by
+`io.grpc.stub.ServerCalls`, invoked in-process through a capturing
+`ServerCall`), so the adapter references no concrete service type and no
+per-method routes exist. Streaming methods are not exposed (`unimplemented`).
+
+Protocol coverage:
+
+- `POST /{package}.{Service}/{Method}`, bare (un-enveloped) request/response
+  bodies.
+- Codecs: `application/proto` and `application/json` (protobuf-java-util
+  `JsonFormat`); the response mirrors the request codec; anything else → HTTP
+  415.
+- Errors: non-200 + JSON body `{"code": "...", "message": "..."}` (always JSON,
+  whatever the request codec). Code table (`ConnectCode`), transcribed verbatim
+  from the spec:
+
+  | Connect code | HTTP status |
+  | --- | --- |
+  | `canceled` | 499 |
+  | `unknown` | 500 |
+  | `invalid_argument` | 400 |
+  | `deadline_exceeded` | 504 |
+  | `not_found` | 404 |
+  | `already_exists` | 409 |
+  | `permission_denied` | 403 |
+  | `resource_exhausted` | 429 |
+  | `failed_precondition` | 400 |
+  | `aborted` | 409 |
+  | `out_of_range` | 400 |
+  | `unimplemented` | 501 |
+  | `internal` | 500 |
+  | `unavailable` | 503 |
+  | `data_loss` | 500 |
+  | `unauthenticated` | 401 |
+
+- `connect-protocol-version: 1` accepted but not required; a present,
+  unsupported version → `invalid_argument`.
+- `content-encoding`: absent = `identity`; anything else → `unimplemented`
+  listing supported encodings (per spec). No compression is implemented.
+- `connect-timeout-ms`: honored by bounding the wait for the (possibly async)
+  handler outcome; expiry cancels the captured call and responds
+  `deadline_exceeded`. Limitation: the deadline is not propagated as an
+  `io.grpc.Context` deadline, and a handler blocking its calling thread is not
+  interrupted.
+- Unknown method on a registered service → HTTP 404 with
+  `{"code":"unimplemented"}` (the spec's HTTP→Connect table maps 404 to
+  `unimplemented`); an entirely unknown service falls through to Helidon's
+  plain 404.
+- Error `details` are not emitted (`io.grpc.Status` carries none).
+- CORS mirrors the Bun service (hono/cors + `cors` from
+  `@connectrpc/connect`): `OPTIONS` preflight → 204 with
+  `Access-Control-Allow-Origin: *` and the connect-es allow-lists; every
+  response carries `Access-Control-Allow-Origin` +
+  `Access-Control-Expose-Headers` (see `ConnectCors`).
+
+## Cross-client contract test
+
+The proof that real connect-es clients interoperate: a Bun script
+(`scripts/connect-contract-test.ts`, deps in this directory's `package.json` —
+a workspace member for the TS side only) drives the generated
+`@web-ui-poc/rpc` TodoService client over
+`createConnectTransport({ useBinaryFormat: true })` from
+`@connectrpc/connect-node` against the Java adapter serving the
+`StubTodoService` test fixture.
+
+```sh
+# 1. serve the stub through the adapter (foreground; PORT overrides 3911)
+mvn -q -f services/business-logic-java test-compile exec:java \
+    -DmainClass=com.webuipoc.businesslogic.connect.ContractTestServer \
+    -Dexec.classpathScope=test
+
+# 2. in another shell
+bun run --filter @web-ui-poc/business-logic-java contract-test
+```
+
+It asserts round-trips (`getTodo`, `createTodo`, `listTodos`) and that a
+`NOT_FOUND` from the service surfaces as a `ConnectError` with code
+`NotFound` and the original message. CI wiring is a follow-up task.
