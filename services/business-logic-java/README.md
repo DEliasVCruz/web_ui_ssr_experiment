@@ -1,13 +1,15 @@
 # business-logic-java
 
-Java (Helidon SE) port of `services/business-logic` (Bun/TS, Connect protocol).
+The backend service: Java (Helidon SE) port of the retired Bun/TS
+`services/business-logic` service (Connect protocol), with full behavioral
+parity.
 
-**Status: scaffold + Connect adapter.** The server exposes `GET /health` (same
-JSON shape as the Bun service) and the build compiles the buf-generated
-protobuf messages and TodoService gRPC stubs for `proto/todo/v1/todo.proto`.
-The service-agnostic Connect-unary HTTP adapter lives in
-`com.webuipoc.businesslogic.connect` (see below). The TodoService business
-logic (and wiring the adapter into `Main`) lands in a later task.
+`Main` serves `todo.v1.TodoService` (SQLite-backed, `com.webuipoc.businesslogic.todo`)
+over the service-agnostic Connect-unary HTTP adapter
+(`com.webuipoc.businesslogic.connect`, see below), plus `GET /health`. One
+`TodoDb` (one SQLite connection) per process — two connections on the same
+WAL-mode file risk `SQLITE_BUSY`. Env: `PORT` (default 3001) and
+`DATABASE_PATH` (default `./data/todos.db`).
 
 ## Toolchain (provided by devenv)
 
@@ -53,6 +55,18 @@ mvn -q -f services/business-logic-java verify
 
 ## Run
 
+Headless (the runnable jar — `mvn package` emits
+`target/business-logic-java.jar` with a `Class-Path` manifest pointing at
+`target/libs/`, so the jar must stay next to its `libs/` directory):
+
+```sh
+mvn -q -f services/business-logic-java -DskipTests package
+PORT=3001 DATABASE_PATH=./data/todos.db \
+    java -jar services/business-logic-java/target/business-logic-java.jar
+```
+
+Or via Maven during development:
+
 ```sh
 # default port 3001, override with PORT
 mvn -q -f services/business-logic-java compile exec:java
@@ -64,6 +78,26 @@ Then:
 ```sh
 curl http://localhost:3001/health
 # {"status":"ok"}
+curl -X POST http://localhost:3001/todo.v1.TodoService/CreateTodo \
+    -H 'Content-Type: application/json' -d '{"title":"hello"}'
+# {"todo":{"id":"…","title":"hello","createdAt":"…","updatedAt":"…"}}
+```
+
+## Docker
+
+`Dockerfile` (multi-stage, used by the root `docker-compose.yml`):
+
+1. **build** (`maven:3.9.16-eclipse-temurin-25`): fetches `protoc` 4.34.0 and
+   `protoc-gen-grpc-java` 1.80.0 from Maven Central (the same versions devenv
+   pins via nixpkgs, arch-selected via `TARGETARCH`), regenerates the Java
+   sources from `proto/`, then `mvn package`. The build is self-contained:
+   host-generated `generated-sources/` and `target/` are excluded by the root
+   `.dockerignore`, so the image never depends on gitignored host state.
+2. **runtime** (`eclipse-temurin:25-jre`): jar + `libs/`, `ENV PORT=3001`;
+   set `DATABASE_PATH` to put the SQLite file on a volume.
+
+```sh
+docker build -f services/business-logic-java/Dockerfile .
 ```
 
 ## Connect-unary adapter (`com.webuipoc.businesslogic.connect`)

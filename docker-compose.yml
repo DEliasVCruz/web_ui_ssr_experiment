@@ -4,7 +4,7 @@ services:
   business-logic:
     build:
       context: .
-      dockerfile: services/business-logic/Dockerfile
+      dockerfile: services/business-logic-java/Dockerfile
     depends_on: []
     volumes:
       - sqlite-data:/data

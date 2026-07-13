@@ -4,3 +4,7 @@ node_modules
 .git
 *.md
 .beads
+# Java build output + host-generated (gitignored) buf codegen: the Dockerfile
+# regenerates codegen inside its build stage and must never see host copies
+services/business-logic-java/target
+services/business-logic-java/generated-sources
