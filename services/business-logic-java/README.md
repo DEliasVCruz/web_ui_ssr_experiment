@@ -11,7 +11,7 @@ logic lands in a later task.
 
 | Tool | Version | Source |
 | --- | --- | --- |
-| JDK | 25 (Zulu) | `devenv.nix` (`languages.java`) |
+| JDK | 25 (OpenJDK; nixpkgs `jdk25`, vendor varies by platform) | `devenv.nix` (`languages.java`) |
 | Maven | 3.9.x | `devenv.nix` (`languages.java.maven`) |
 | protoc | 34.0 | `devenv.nix` (`pkgs.protobuf`) |
 | protoc-gen-grpc-java | 1.80.0 | `devenv.nix` (`pkgs.protoc-gen-grpc-java`) |

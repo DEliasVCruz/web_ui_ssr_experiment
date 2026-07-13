@@ -29,6 +29,26 @@
 
   <dependencyManagement>
     <dependencies>
+      <!-- BOM ordering matters (first import wins per artifact): grpc-bom and
+           junit-bom must come BEFORE helidon-dependencies, otherwise the
+           Helidon BOM manages io.grpc:* transitives down to 1.73.0 (below the
+           1.80.0 protoc-gen-grpc-java codegen version, and mixing grpc
+           component versions, which grpc upstream does not support) and the
+           junit api/params/engine down to 5.12.2. -->
+      <dependency>
+        <groupId>io.grpc</groupId>
+        <artifactId>grpc-bom</artifactId>
+        <version>${version.grpc}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.junit</groupId>
+        <artifactId>junit-bom</artifactId>
+        <version>${version.junit}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
       <dependency>
         <groupId>io.helidon</groupId>
         <artifactId>helidon-dependencies</artifactId>
