@@ -215,7 +215,7 @@ in
       # (the original failure mode) or where a developer's own dev server on
       # :3000/:3001 collides with — or gets killed by — this task. The ports are
       # threaded through every consumer:
-      #   * backend:      PORT=$BACKEND_PORT DATABASE_PATH=<ephemeral> bun src/index.ts
+      #   * backend:      PORT=$BACKEND_PORT DATABASE_PATH=<ephemeral> java -jar …/business-logic-java.jar
       #   * client build: PUBLIC_BUSINESS_LOGIC_URL=http://host.docker.internal:$BACKEND_PORT
       #   * prod server:  BUSINESS_LOGIC_URL=http://localhost:$BACKEND_PORT PORT=$WEB_PORT
       #   * test runner:  E2E_BASE_URL / E2E_RAW_BASE_URL (web) + E2E_BACKEND_URL
@@ -266,9 +266,13 @@ in
         }
         trap cleanup EXIT
 
-        # ── Start the business-logic backend ──────────────────────────────
-        echo "==> Starting business-logic backend on :$BACKEND_PORT (fresh ephemeral DB)"
-        ( cd services/business-logic && PORT=$BACKEND_PORT DATABASE_PATH="$DB_PATH" bun run src/index.ts ) &
+        # ── Build + start the business-logic-java backend ─────────────────
+        echo "==> Generating protobuf sources (buf) and building business-logic-java"
+        bun run generate
+        mvn -q -f services/business-logic-java package
+
+        echo "==> Starting business-logic-java backend on :$BACKEND_PORT (fresh ephemeral DB)"
+        PORT=$BACKEND_PORT DATABASE_PATH="$DB_PATH" java -jar services/business-logic-java/target/business-logic-java.jar &
         BACKEND_PID=$!
 
         echo "==> Waiting for backend ListTodos to answer"
