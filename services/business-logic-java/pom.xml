@@ -71,6 +71,12 @@
       <artifactId>protobuf-java</artifactId>
       <version>${version.protobuf}</version>
     </dependency>
+    <!-- JsonFormat for the Connect adapter's application/json codec (version-aligned with protobuf-java) -->
+    <dependency>
+      <groupId>com.google.protobuf</groupId>
+      <artifactId>protobuf-java-util</artifactId>
+      <version>${version.protobuf}</version>
+    </dependency>
     <dependency>
       <groupId>io.grpc</groupId>
       <artifactId>grpc-stub</artifactId>
