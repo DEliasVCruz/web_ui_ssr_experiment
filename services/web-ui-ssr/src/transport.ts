@@ -8,6 +8,7 @@ export function createServerTransport() {
 		createNodeTransport({
 			baseUrl: BUSINESS_LOGIC_URL,
 			httpVersion: "1.1",
+			useBinaryFormat: true,
 		}),
 		"app",
 	);

@@ -13,6 +13,7 @@ declare const PUBLIC_BUSINESS_LOGIC_URL: string;
 const clientTransport = addStaticKeyToTransport(
 	createConnectTransport({
 		baseUrl: PUBLIC_BUSINESS_LOGIC_URL,
+		useBinaryFormat: true,
 	}),
 	"app",
 );
