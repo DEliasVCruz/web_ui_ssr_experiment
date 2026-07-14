@@ -3,6 +3,11 @@ plugins:
   - local: protoc-gen-es
     out: packages/rpc/gen
     opt: target=ts
+    # todo.proto imports buf/validate/validate.proto (protovalidate constraints);
+    # the generated todo_pb.ts references its file descriptor, so the dep's
+    # *_pb.ts must be emitted too (well-known types stay excluded and keep
+    # resolving from @bufbuild/protobuf/wkt).
+    include_imports: true
   - local: protoc-gen-connect-query
     out: packages/rpc/gen
     opt: target=ts

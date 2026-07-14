@@ -2,6 +2,7 @@ edition = "2023";
 
 package todo.v1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 
 option features.field_presence = IMPLICIT;
@@ -32,7 +33,7 @@ message ListTodosResponse {
 // GetTodoRequest is the request message for GetTodo.
 message GetTodoRequest {
   // The ID of the todo to retrieve.
-  string id = 1;
+  string id = 1 [(buf.validate.field).string.uuid = true];
 }
 
 // GetTodoResponse is the response message for GetTodo.
@@ -43,8 +44,11 @@ message GetTodoResponse {
 
 // CreateTodoRequest is the request message for CreateTodo.
 message CreateTodoRequest {
-  // The title for the new todo.
-  string title = 1;
+  // The title for the new todo. Must be non-empty and at most 100 characters.
+  string title = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 100
+  }];
 }
 
 // CreateTodoResponse is the response message for CreateTodo.
@@ -56,9 +60,17 @@ message CreateTodoResponse {
 // UpdateTodoRequest is the request message for UpdateTodo.
 message UpdateTodoRequest {
   // The ID of the todo to update.
-  string id = 1;
-  // The new title, if updating.
-  string title = 2 [features.field_presence = EXPLICIT];
+  string id = 1 [(buf.validate.field).string.uuid = true];
+  // The new title, if updating. When set, must be non-empty and at most
+  // 100 characters; the rule is skipped when the field is unset (explicit
+  // presence).
+  string title = 2 [
+    features.field_presence = EXPLICIT,
+    (buf.validate.field).string = {
+      min_len: 1
+      max_len: 100
+    }
+  ];
   // The new completed status, if updating.
   bool completed = 3 [features.field_presence = EXPLICIT];
 }
@@ -72,7 +84,7 @@ message UpdateTodoResponse {
 // DeleteTodoRequest is the request message for DeleteTodo.
 message DeleteTodoRequest {
   // The ID of the todo to delete.
-  string id = 1;
+  string id = 1 [(buf.validate.field).string.uuid = true];
 }
 
 // DeleteTodoResponse is the response message for DeleteTodo.
