@@ -3,9 +3,12 @@ package com.webuipoc.businesslogic;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.webuipoc.businesslogic.mapper.TodoMapperImpl;
 import com.webuipoc.businesslogic.todo.TodoDb;
+import com.webuipoc.businesslogic.todo.TodoGrpcBridge;
 import com.webuipoc.businesslogic.todo.TodoRepository;
-import com.webuipoc.businesslogic.todo.TodoServiceImpl;
+import com.webuipoc.businesslogic.todo.TodoService;
+import io.avaje.validation.Validator;
 import io.helidon.webserver.WebServer;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -22,10 +25,11 @@ class MainTest {
 
     /** Starts a server with the PRODUCTION routing (Main::routing) on an ephemeral port. */
     private WebServer startWiredServer(TodoDb db) {
-        TodoServiceImpl todoService = new TodoServiceImpl(new TodoRepository(db));
+        TodoGrpcBridge bridge = new TodoGrpcBridge(
+                new TodoService(new TodoRepository(db)), new TodoMapperImpl(), Validator.builder().build());
         return WebServer.builder()
                 .port(0)
-                .routing(routing -> Main.routing(routing, todoService))
+                .routing(routing -> Main.routing(routing, bridge))
                 .build()
                 .start();
     }

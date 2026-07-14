@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.protobuf.Timestamp;
+import com.webuipoc.businesslogic.mapper.TodoMapperImpl;
+import io.avaje.validation.Validator;
 import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.Status;
@@ -29,12 +31,14 @@ import todo.v1.TodoOuterClass.UpdateTodoRequest;
 import todo.v1.TodoServiceGrpc;
 
 /**
- * Exercises {@link TodoServiceImpl} through a real in-process gRPC server and
- * the generated blocking stub, against a fresh temp-file SQLite database, and
- * asserts behavioral parity with the Bun service (todo-service.ts /
- * todo-repository.ts).
+ * Exercises {@link TodoGrpcBridge} (bridge -&gt; {@link TodoService} core -&gt;
+ * {@link TodoRepository}) through a real in-process gRPC server and the
+ * generated blocking stub, against a fresh temp-file SQLite database. Asserts
+ * behavioral parity with the Bun service (todo-service.ts / todo-repository.ts),
+ * plus the new domain business rule: a blank title is rejected as
+ * {@code INVALID_ARGUMENT}.
  */
-class TodoServiceImplTest {
+class TodoGrpcBridgeTest {
 
     @TempDir
     Path tempDir;
@@ -49,10 +53,12 @@ class TodoServiceImplTest {
     void setUp() throws Exception {
         db = new TodoDb(tempDir.resolve("todos.db").toString());
         repository = new TodoRepository(db);
+        TodoGrpcBridge bridge = new TodoGrpcBridge(
+                new TodoService(repository), new TodoMapperImpl(), Validator.builder().build());
         String serverName = InProcessServerBuilder.generateName();
         server = InProcessServerBuilder.forName(serverName)
                 .directExecutor()
-                .addService(new TodoServiceImpl(repository))
+                .addService(bridge)
                 .build()
                 .start();
         channel = InProcessChannelBuilder.forName(serverName).directExecutor().build();
@@ -173,15 +179,23 @@ class TodoServiceImplTest {
     }
 
     @Test
-    void explicitEmptyTitleIsApplied() {
+    void explicitEmptyTitleRejectedAsInvalidArgument() {
+        // Behavior change vs the pre-refactor TodoServiceImpl: an explicitly set
+        // but blank title was previously written through to the repository. The
+        // domain business rule (avaje @NullOrNotBlank) now rejects it as
+        // INVALID_ARGUMENT — consistent with the wire (protovalidate min_len 1
+        // already rejects "" over Connect); the bridge extends that to a single
+        // space too (blank-after-trim).
         Todo todo = create("has a title");
 
-        Todo updated = stub.updateTodo(UpdateTodoRequest.newBuilder()
+        StatusRuntimeException e = assertThrows(StatusRuntimeException.class,
+                () -> stub.updateTodo(UpdateTodoRequest.newBuilder()
                         .setId(todo.getId())
                         .setTitle("")
-                        .build())
-                .getTodo();
-        assertEquals("", updated.getTitle(), "explicit empty title must not be treated as unset");
+                        .build()));
+        assertEquals(Status.Code.INVALID_ARGUMENT, e.getStatus().getCode());
+        assertTrue(e.getStatus().getDescription().contains("title"),
+                "description should name the title field: " + e.getStatus().getDescription());
     }
 
     @Test
