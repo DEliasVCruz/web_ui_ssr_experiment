@@ -8,9 +8,12 @@ import com.google.protobuf.Struct;
 import com.google.protobuf.util.JsonFormat;
 import io.helidon.webserver.WebServer;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import org.junit.jupiter.api.AfterAll;
@@ -419,5 +422,184 @@ class ConnectUnaryAdapterTest {
         assertConnectError(response, 400, "invalid_argument");
         String message = parseJson(response.body()).getFieldsOrThrow("message").getStringValue();
         assertTrue(message.contains("id"), "message should name the violated field: " + message);
+    }
+
+    // ---- Connect GET (idempotent RPCs: ListTodos, GetTodo mark NO_SIDE_EFFECTS) ----
+    //
+    // Wire shape per the Connect protocol "Unary-Get-Request":
+    //   GET /{Service}/{Method}?connect=v1&encoding=<proto|json>&message=<payload>[&base64=1][&compression=<x>]
+    // grpc-java sets MethodDescriptor.isSafe() from idempotency_level=NO_SIDE_EFFECTS,
+    // which is how the adapter decides GET is allowed.
+
+    private static final String LIST_TODOS = "/todo.v1.TodoService/ListTodos";
+
+    /** connect-es encodes binary GET payloads as unpadded base64url. */
+    private static String base64Url(byte[] bytes) {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private static String urlEncode(String raw) {
+        return URLEncoder.encode(raw, StandardCharsets.UTF_8);
+    }
+
+    private static HttpResponse<byte[]> get(String pathWithQuery) throws Exception {
+        HttpRequest request = request(pathWithQuery).GET().build();
+        return client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+    }
+
+    @Test
+    void getOverProtoBase64Works() throws Exception {
+        // The connect-es binary GET path: encoding=proto, base64=1, message=base64url(proto).
+        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
+        HttpResponse<byte[]> response = get(GET_TODO
+                + "?connect=v1&encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
+
+        assertEquals(200, response.statusCode());
+        // Response codec mirrors the encoding parameter.
+        assertEquals("application/proto", response.headers().firstValue("content-type").orElse(""));
+        TodoOuterClass.GetTodoResponse parsed = TodoOuterClass.GetTodoResponse.parseFrom(response.body());
+        assertEquals(ECHO_ID, parsed.getTodo().getId());
+        assertEquals("stub-todo", parsed.getTodo().getTitle());
+    }
+
+    @Test
+    void getOverJsonPercentEncodedWorks() throws Exception {
+        // encoding=json without base64: message is the percent-encoded JSON body.
+        HttpResponse<byte[]> response = get(GET_TODO
+                + "?connect=v1&encoding=json&message=" + urlEncode("{\"id\":\"" + ECHO_ID + "\"}"));
+
+        assertEquals(200, response.statusCode());
+        assertEquals("application/json", response.headers().firstValue("content-type").orElse(""));
+        Struct body = parseJson(response.body());
+        assertEquals(ECHO_ID, body.getFieldsOrThrow("todo").getStructValue()
+                .getFieldsOrThrow("id").getStringValue());
+    }
+
+    @Test
+    void getOverJsonBase64Works() throws Exception {
+        // encoding=json WITH base64: message is base64url(JSON).
+        byte[] json = ("{\"id\":\"" + ECHO_ID + "\"}").getBytes(StandardCharsets.UTF_8);
+        HttpResponse<byte[]> response = get(GET_TODO
+                + "?connect=v1&encoding=json&base64=1&message=" + base64Url(json));
+
+        assertEquals(200, response.statusCode());
+        assertEquals("application/json", response.headers().firstValue("content-type").orElse(""));
+        Struct body = parseJson(response.body());
+        assertEquals(ECHO_ID, body.getFieldsOrThrow("todo").getStructValue()
+                .getFieldsOrThrow("id").getStringValue());
+    }
+
+    @Test
+    void getWithEmptyMessageWorks() throws Exception {
+        // ListTodosRequest is empty: connect-es sends message= (empty). Empty
+        // message param must decode to an empty request body.
+        HttpResponse<byte[]> response = get(LIST_TODOS + "?connect=v1&encoding=proto&base64=1&message=");
+
+        assertEquals(200, response.statusCode());
+        TodoOuterClass.ListTodosResponse parsed = TodoOuterClass.ListTodosResponse.parseFrom(response.body());
+        assertEquals(2, parsed.getTodosCount());
+    }
+
+    @Test
+    void getOnNonSafeMethodRespondsMethodNotAllowed() throws Exception {
+        // CreateTodo is a mutation (no idempotency option): GET must be rejected
+        // with HTTP 405 (mirroring connect-es), carrying the adapter's JSON body.
+        HttpResponse<byte[]> response = get(CREATE_TODO + "?connect=v1&encoding=proto&base64=1&message=");
+
+        assertConnectError(response, 405, "unimplemented");
+        assertEquals("POST", response.headers().firstValue("allow").orElse(""));
+    }
+
+    @Test
+    void getMissingConnectVersionIsRejected() throws Exception {
+        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
+        HttpResponse<byte[]> response = get(GET_TODO
+                + "?encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
+
+        assertConnectError(response, 400, "invalid_argument");
+    }
+
+    @Test
+    void getWrongConnectVersionIsRejected() throws Exception {
+        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
+        HttpResponse<byte[]> response = get(GET_TODO
+                + "?connect=v2&encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
+
+        assertConnectError(response, 400, "invalid_argument");
+    }
+
+    @Test
+    void getMissingEncodingRespondsHttp415() throws Exception {
+        HttpResponse<byte[]> response = get(GET_TODO + "?connect=v1&base64=1&message=");
+
+        assertEquals(415, response.statusCode());
+    }
+
+    @Test
+    void getMalformedBase64MessageIsRejected() throws Exception {
+        // '*' is outside the base64url alphabet: decoding must fail as invalid_argument.
+        HttpResponse<byte[]> response = get(GET_TODO + "?connect=v1&encoding=proto&base64=1&message=****");
+
+        assertConnectError(response, 400, "invalid_argument");
+    }
+
+    @Test
+    void getWithProtovalidateViolationIsRejected() throws Exception {
+        // Bad uuid over GET must fail the same protovalidate check as POST.
+        HttpResponse<byte[]> response = get(GET_TODO
+                + "?connect=v1&encoding=json&message=" + urlEncode("{\"id\":\"not-a-uuid\"}"));
+
+        assertConnectError(response, 400, "invalid_argument");
+        String message = parseJson(response.body()).getFieldsOrThrow("message").getStringValue();
+        assertTrue(message.contains("id"), "message should name the violated field: " + message);
+    }
+
+    @Test
+    void getUnsupportedCompressionIsRejected() throws Exception {
+        HttpResponse<byte[]> response = get(GET_TODO
+                + "?connect=v1&encoding=proto&compression=gzip&base64=1&message=");
+
+        assertConnectError(response, 501, "unimplemented");
+    }
+
+    @Test
+    void getErrorFromServiceMapsToConnectError() throws Exception {
+        // A NOT_FOUND from the service over GET maps exactly like POST: 404 + JSON.
+        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder()
+                .setId(StubTodoService.MISSING_ID)
+                .build();
+        HttpResponse<byte[]> response = get(GET_TODO
+                + "?connect=v1&encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
+
+        assertConnectError(response, 404, "not_found");
+    }
+
+    @Test
+    void preflightForGetMethodGetsCorsHeaders() throws Exception {
+        HttpRequest request = request(GET_TODO)
+                .header("Origin", "http://localhost:3000")
+                .header("Access-Control-Request-Method", "GET")
+                .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
+                .build();
+        HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+
+        assertEquals(204, response.statusCode());
+        String allowMethods = response.headers().firstValue("access-control-allow-methods").orElse("");
+        assertTrue(allowMethods.contains("GET"), "allow-methods should contain GET");
+    }
+
+    @Test
+    void getResponsesCarryCorsHeaders() throws Exception {
+        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
+        HttpResponse<byte[]> response = get(GET_TODO
+                + "?connect=v1&encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
+
+        assertEquals("*", response.headers().firstValue("access-control-allow-origin").orElse(""));
+        String exposed = response.headers().firstValue("access-control-expose-headers").orElse("")
+                .toLowerCase(Locale.ROOT);
+        for (String header : ConnectCors.EXPOSED_HEADERS) {
+            assertTrue(exposed.contains(header.toLowerCase(Locale.ROOT)),
+                    "expose-headers should contain " + header);
+        }
     }
 }

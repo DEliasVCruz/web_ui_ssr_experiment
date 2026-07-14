@@ -2,9 +2,13 @@
  * Cross-client contract test for the Java Connect-unary adapter.
  *
  * Uses the real connect-es stack — the generated TodoService client from
- * `@web-ui-poc/rpc` over `createConnectTransport({ useBinaryFormat: true })`
- * from `@connectrpc/connect-node` — against the Java server serving the
- * StubTodoService test fixture.
+ * `@web-ui-poc/rpc` over the fetch-based
+ * `createConnectTransport({ useBinaryFormat: true, useHttpGet: true })` from
+ * `@connectrpc/connect-web` (the same transport web-ui-ssr uses in both the
+ * browser and SSR) — against the Java server serving the StubTodoService test
+ * fixture. A recording `fetch` wrapper captures each request's HTTP method and
+ * URL so the test can assert that idempotent RPCs (ListTodos, GetTodo) go over
+ * GET and mutations stay POST.
  *
  * Start the server first (from the repo root, inside devenv). Install the
  * connect-unary-adapter to the local repo once, then run exec:java on the
@@ -21,7 +25,7 @@
  *   bun run --filter @web-ui-poc/business-logic-java contract-test
  */
 import { Code, ConnectError, createClient } from "@connectrpc/connect";
-import { createConnectTransport } from "@connectrpc/connect-node";
+import { createConnectTransport } from "@connectrpc/connect-web";
 import { TodoService } from "@web-ui-poc/rpc/gen/todo/v1/todo_pb";
 
 const baseUrl = process.env.BASE_URL ?? "http://localhost:3911";
@@ -32,10 +36,45 @@ const ECHO_ID = "8b3e1a1e-6f2a-4b57-9f3e-2d4c5a6b7c8d";
 const MISSING_ID = "00000000-0000-0000-0000-000000000404";
 const TITLE_MAX_LEN = 100;
 
+// Records the HTTP method + URL of every request the transport issues, so the
+// test can prove idempotent RPCs travel over GET and mutations over POST.
+interface RecordedRequest {
+	method: string;
+	url: string;
+}
+const recorded: RecordedRequest[] = [];
+
+function urlOf(input: string | URL | Request): string {
+	if (typeof input === "string") return input;
+	if (input instanceof URL) return input.href;
+	return input.url;
+}
+
+// Mirror the runtime fetch signature exactly (Bun's global fetch carries a
+// `preconnect` property) so it is assignable to connect-web's `fetch` option.
+const recordingFetch = Object.assign(
+	(...args: Parameters<typeof fetch>): Promise<Response> => {
+		const [input, init] = args;
+		const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+		recorded.push({ method, url: urlOf(input) });
+		return fetch(...args);
+	},
+	{ preconnect: fetch.preconnect },
+);
+
+function lastRequest(): RecordedRequest {
+	const request = recorded.at(-1);
+	if (request === undefined) {
+		throw new Error("no request was recorded");
+	}
+	return request;
+}
+
 const transport = createConnectTransport({
 	baseUrl,
-	httpVersion: "1.1",
 	useBinaryFormat: true,
+	useHttpGet: true,
+	fetch: recordingFetch,
 });
 const client = createClient(TodoService, transport);
 
@@ -67,6 +106,25 @@ check(
 	got.todo?.id === ECHO_ID && got.todo.title === "stub-todo",
 	() => `unexpected response: ${describe(got)}`,
 );
+// getTodo is idempotency_level = NO_SIDE_EFFECTS: with useHttpGet it must issue
+// a GET carrying the binary Connect query params (connect=v1, encoding=proto,
+// base64=1, message=...).
+{
+	const request = lastRequest();
+	check(
+		"getTodo issues an HTTP GET",
+		request.method === "GET",
+		() => `expected GET, got ${request.method} ${request.url}`,
+	);
+	check(
+		"getTodo GET carries binary Connect query params",
+		request.url.includes("connect=v1") &&
+			request.url.includes("encoding=proto") &&
+			request.url.includes("base64=1") &&
+			request.url.includes("message="),
+		() => `unexpected GET url: ${request.url}`,
+	);
+}
 check(
 	"getTodo timestamps decode",
 	got.todo?.createdAt !== undefined,
@@ -79,6 +137,12 @@ check(
 	created.todo?.id === "created-1" && created.todo.title === "from-connect-es",
 	() => `unexpected response: ${describe(created)}`,
 );
+// createTodo is a mutation (no idempotency option): it must stay POST.
+check(
+	"createTodo issues an HTTP POST",
+	lastRequest().method === "POST",
+	() => `expected POST, got ${lastRequest().method} ${lastRequest().url}`,
+);
 
 const listed = await client.listTodos({});
 const expectedTodoCount = 2;
@@ -87,6 +151,23 @@ check(
 	listed.todos.length === expectedTodoCount,
 	() => `expected ${String(expectedTodoCount)} todos, got ${String(listed.todos.length)}`,
 );
+// ListTodos is NO_SIDE_EFFECTS with an *empty* request: it must issue a GET with
+// an empty message parameter (message=), proving empty-request GET works.
+{
+	const request = lastRequest();
+	check(
+		"listTodos issues an HTTP GET",
+		request.method === "GET",
+		() => `expected GET, got ${request.method} ${request.url}`,
+	);
+	check(
+		"listTodos GET carries an (empty) message parameter",
+		request.url.includes("connect=v1") &&
+			request.url.includes("encoding=proto") &&
+			/[?&]message=(&|$)/.test(request.url),
+		() => `unexpected GET url: ${request.url}`,
+	);
+}
 
 // 2. Error mapping: NOT_FOUND from the service surfaces as a ConnectError
 //    with code NotFound and the server's message.
@@ -165,6 +246,12 @@ check(
 	"updateTodo without title set passes validation",
 	updatedWithoutTitle.todo?.title === "unchanged",
 	() => `unexpected response: ${describe(updatedWithoutTitle)}`,
+);
+// updateTodo is a mutation: it must stay POST.
+check(
+	"updateTodo issues an HTTP POST",
+	lastRequest().method === "POST",
+	() => `expected POST, got ${lastRequest().method} ${lastRequest().url}`,
 );
 
 await expectInvalidArgument(
