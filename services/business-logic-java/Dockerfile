@@ -10,12 +10,19 @@ WORKDIR /build
 ARG TARGETARCH
 ARG PROTOC_VERSION=4.34.0
 ARG GRPC_JAVA_VERSION=1.80.0
+# Keep in sync with version.protovalidate in pom.xml: the same jar that
+# evaluates the constraints at runtime also ships buf/validate/validate.proto
+# for codegen.
+ARG PROTOVALIDATE_VERSION=1.2.2
 
 # Fetch the codegen plugin binaries for the build platform via Maven
 # (no curl, no extra apt packages; TARGETARCH is amd64/arm64 under BuildKit).
 # The standalone protoc binary does not bundle the well-known-type protos
 # (buf supplies them implicitly on the host), so extract google/protobuf/*.proto
-# from the version-matched protobuf-java jar into an include dir.
+# from the version-matched protobuf-java jar into an include dir. Same for
+# buf/validate/validate.proto (imported by todo.proto for its protovalidate
+# constraints; buf resolves it from the BSR dep on the host): extract it from
+# the build.buf:protovalidate jar.
 RUN case "${TARGETARCH}" in \
     amd64) PROTO_ARCH="linux-x86_64" ;; \
     arm64) PROTO_ARCH="linux-aarch_64" ;; \
@@ -30,7 +37,11 @@ RUN case "${TARGETARCH}" in \
     mvn -q org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy \
     -Dartifact="com.google.protobuf:protobuf-java:${PROTOC_VERSION}" \
     -DoutputDirectory=/opt/protoc -Dmdep.stripVersion=true && \
+    mvn -q org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy \
+    -Dartifact="build.buf:protovalidate:${PROTOVALIDATE_VERSION}" \
+    -DoutputDirectory=/opt/protoc -Dmdep.stripVersion=true && \
     jar --extract --file /opt/protoc/protobuf-java.jar --dir /opt/protoc/include google/protobuf && \
+    jar --extract --file /opt/protoc/protovalidate.jar --dir /opt/protoc/include buf/validate && \
     chmod +x /opt/protoc/protoc.exe /opt/protoc/protoc-gen-grpc-java.exe
 
 # Regenerate the Java sources buf emits on the host (buf.gen.yaml: protoc's
