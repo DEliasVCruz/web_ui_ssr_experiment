@@ -14,14 +14,17 @@ import io.grpc.ServerCall;
 import io.grpc.ServerMethodDefinition;
 import io.grpc.ServerServiceDefinition;
 import io.grpc.Status;
+import io.helidon.common.uri.UriQuery;
 import io.helidon.http.HeaderName;
 import io.helidon.http.HeaderNames;
+import io.helidon.http.Method;
 import io.helidon.webserver.http.Handler;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -31,11 +34,24 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Handles Connect-unary HTTP requests ({@code POST /{package}.{Service}/{Method}})
- * for one registered {@link ServerServiceDefinition}, per the Connect protocol
- * (https://connectrpc.com/docs/protocol/):
+ * Handles Connect-unary HTTP requests
+ * ({@code POST /{package}.{Service}/{Method}}, and {@code GET} for idempotent
+ * RPCs) for one registered {@link ServerServiceDefinition}, per the Connect
+ * protocol (https://connectrpc.com/docs/protocol/):
  *
  * <ul>
+ *   <li><b>GET (idempotent RPCs)</b>: a method whose descriptor is
+ *       {@link MethodDescriptor#isSafe() safe} (grpc-java sets this from
+ *       {@code idempotency_level = NO_SIDE_EFFECTS} in the proto) may be called
+ *       with {@code GET /{Service}/{Method}?connect=v1&encoding=<proto|json>&message=<payload>[&base64=1][&compression=identity]}.
+ *       The request codec comes from the {@code encoding} parameter (not a
+ *       Content-Type header); {@code connect=v1} is required (GET carries no
+ *       {@code connect-protocol-version} header); the {@code message} parameter
+ *       is base64url-decoded when {@code base64=1}, otherwise taken as the
+ *       already percent-decoded UTF-8 payload; an empty/absent {@code message}
+ *       is an empty request body. Validation, dispatch, response-codec mirroring
+ *       and error mapping are identical to POST. A GET to a non-safe method is
+ *       rejected with HTTP 405 (mirroring connect-es).</li>
  *   <li>Request/response bodies are bare serialized messages (no envelope).</li>
  *   <li>Codecs: {@code application/proto} (binary) and {@code application/json}
  *       (protobuf-java-util {@link JsonFormat}); the response mirrors the
@@ -82,6 +98,7 @@ final class ConnectUnaryHandler implements Handler {
     private static final HeaderName CONTENT_ENCODING = HeaderNames.create("Content-Encoding");
     private static final HeaderName CONNECT_PROTOCOL_VERSION = HeaderNames.create("Connect-Protocol-Version");
     private static final HeaderName CONNECT_TIMEOUT_MS = HeaderNames.create("Connect-Timeout-Ms");
+    private static final HeaderName ALLOW = HeaderNames.create("Allow");
 
     private static final String CONTENT_TYPE_PROTO = "application/proto";
     private static final String CONTENT_TYPE_JSON = "application/json";
@@ -89,6 +106,17 @@ final class ConnectUnaryHandler implements Handler {
     private static final String TRAILER_PREFIX = "trailer-";
     /** Spec: "the value of the Timeout portion ... is one to ten digits". */
     private static final int MAX_TIMEOUT_DIGITS = 10;
+
+    // Connect GET query parameters (Connect protocol "Unary-Get-Request").
+    private static final String PARAM_CONNECT = "connect";
+    private static final String PARAM_ENCODING = "encoding";
+    private static final String PARAM_MESSAGE = "message";
+    private static final String PARAM_BASE64 = "base64";
+    private static final String PARAM_COMPRESSION = "compression";
+    /** GET carries the protocol version as {@code connect=v1} (no header). */
+    private static final String CONNECT_VERSION_VALUE = "v" + SUPPORTED_PROTOCOL_VERSION;
+    private static final String ENCODING_PROTO = "proto";
+    private static final String ENCODING_JSON = "json";
 
     private enum Codec {
         PROTO,
@@ -119,6 +147,90 @@ final class ConnectUnaryHandler implements Handler {
             return;
         }
 
+        if (req.prologue().method() == Method.GET) {
+            handleGet(req, res, method, path);
+        } else {
+            handlePost(req, res, method);
+        }
+    }
+
+    /**
+     * Handles a Connect GET request (idempotent RPCs). The codec and payload
+     * come from query parameters instead of the Content-Type header and body;
+     * everything downstream (validation, dispatch, response, errors) is shared
+     * with POST via {@link #invokeUnary}.
+     */
+    private void handleGet(ServerRequest req, ServerResponse res, ServerMethodDefinition<?, ?> method, String path) {
+        // GET is only valid for side-effect-free RPCs (idempotency_level =
+        // NO_SIDE_EFFECTS, which grpc-java surfaces as MethodDescriptor.isSafe()).
+        // connect-es returns a bare HTTP 405 here; we mirror the 405 status and
+        // add the adapter's standard JSON error body plus an Allow header.
+        if (!method.getMethodDescriptor().isSafe()) {
+            res.header(ALLOW, "POST");
+            sendError(res, 405, ConnectCode.UNIMPLEMENTED,
+                    "GET is not supported for " + path
+                            + "; only NO_SIDE_EFFECTS methods may be called with GET",
+                    null);
+            return;
+        }
+
+        UriQuery query = req.query();
+
+        // connect=v1 is required: GET carries no connect-protocol-version header,
+        // so this parameter both selects the protocol and its version.
+        if (query.first(PARAM_CONNECT).isEmpty()) {
+            sendError(res, ConnectCode.INVALID_ARGUMENT,
+                    "missing required parameter: set connect to \"" + CONNECT_VERSION_VALUE + "\"", null);
+            return;
+        }
+        String connect = query.first(PARAM_CONNECT).get();
+        if (!CONNECT_VERSION_VALUE.equals(connect.trim())) {
+            sendError(res, ConnectCode.INVALID_ARGUMENT,
+                    "connect must be \"" + CONNECT_VERSION_VALUE + "\": got \"" + connect + "\"", null);
+            return;
+        }
+
+        // compression defaults to identity; only identity is supported.
+        String compression = query.first(PARAM_COMPRESSION).map(String::trim).orElse("identity");
+        if (!"identity".equalsIgnoreCase(compression)) {
+            sendError(res, ConnectCode.UNIMPLEMENTED,
+                    "unsupported compression \"" + compression + "\"; supported compressions are: identity", null);
+            return;
+        }
+
+        Codec codec = codecForEncoding(query.first(PARAM_ENCODING).orElse(null), method);
+        if (codec == null) {
+            // Spec: an unsupported/missing encoding → HTTP 415 (connect-es maps a
+            // missing encoding query param to the same "unsupported media type").
+            res.status(io.helidon.http.Status.UNSUPPORTED_MEDIA_TYPE_415).send();
+            return;
+        }
+
+        Long timeoutMs;
+        try {
+            // connect-es keeps the connect-timeout-ms header on GET requests.
+            timeoutMs = parseTimeoutMs(req.headers().first(CONNECT_TIMEOUT_MS));
+        } catch (IllegalArgumentException e) {
+            sendError(res, ConnectCode.INVALID_ARGUMENT, e.getMessage(), null);
+            return;
+        }
+
+        boolean base64 = "1".equals(query.first(PARAM_BASE64).map(String::trim).orElse(null));
+        byte[] body;
+        try {
+            body = decodeMessageParam(query, base64);
+        } catch (IllegalArgumentException e) {
+            sendError(res, ConnectCode.INVALID_ARGUMENT,
+                    "failed to decode base64 message parameter: " + e.getMessage(), null);
+            return;
+        }
+
+        invokeUnary(method, codec, body, req, res, timeoutMs);
+    }
+
+    /** Handles a Connect POST request (any unary RPC). */
+    private void handlePost(ServerRequest req, ServerResponse res, ServerMethodDefinition<?, ?> method)
+            throws Exception {
         Optional<String> protocolVersion = req.headers().first(CONNECT_PROTOCOL_VERSION);
         if (protocolVersion.isPresent() && !SUPPORTED_PROTOCOL_VERSION.equals(protocolVersion.get().trim())) {
             sendError(res, ConnectCode.INVALID_ARGUMENT,
@@ -283,6 +395,50 @@ final class ConnectUnaryHandler implements Handler {
             return supportsJson(method.getMethodDescriptor()) ? Codec.JSON : null;
         }
         return null;
+    }
+
+    /**
+     * Returns the codec for a Connect GET {@code encoding} query parameter, or
+     * {@code null} if unsupported/missing (→ 415). Mirrors
+     * {@link #negotiateCodec}'s JSON-support check for the JSON codec.
+     */
+    private static Codec codecForEncoding(String encoding, ServerMethodDefinition<?, ?> method) {
+        if (ENCODING_PROTO.equals(encoding)) {
+            return Codec.PROTO;
+        }
+        if (ENCODING_JSON.equals(encoding)) {
+            return supportsJson(method.getMethodDescriptor()) ? Codec.JSON : null;
+        }
+        return null;
+    }
+
+    /**
+     * Decodes the Connect GET {@code message} query parameter into the raw
+     * request bytes. When {@code base64} is set the value is base64url-decoded
+     * (connect-es emits unpadded base64url; padded input is also accepted);
+     * otherwise it is the already percent-decoded UTF-8 payload. An absent or
+     * empty {@code message} yields an empty body (e.g. for empty request types
+     * like {@code ListTodosRequest}).
+     */
+    private static byte[] decodeMessageParam(UriQuery query, boolean base64) {
+        String message = query.first(PARAM_MESSAGE).orElse("");
+        if (!base64) {
+            return message.getBytes(StandardCharsets.UTF_8);
+        }
+        return decodeBase64Url(message);
+    }
+
+    /** Decodes url-safe base64, tolerating both padded and unpadded input. */
+    private static byte[] decodeBase64Url(String value) {
+        String core = value;
+        while (core.endsWith("=")) {
+            core = core.substring(0, core.length() - 1);
+        }
+        int remainder = core.length() % 4;
+        if (remainder > 0) {
+            core += "=".repeat(4 - remainder);
+        }
+        return Base64.getUrlDecoder().decode(core);
     }
 
     private static boolean supportsJson(MethodDescriptor<?, ?> descriptor) {

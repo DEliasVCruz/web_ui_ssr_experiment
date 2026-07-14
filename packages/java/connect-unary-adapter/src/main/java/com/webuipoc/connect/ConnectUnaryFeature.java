@@ -69,7 +69,13 @@ public final class ConnectUnaryFeature implements HttpFeature {
         routing.options("/*", ConnectCors.preflightHandler());
         for (ServerServiceDefinition service : services) {
             String serviceName = service.getServiceDescriptor().getName();
-            routing.post("/" + serviceName + "/*", new ConnectUnaryHandler(service, validator));
+            ConnectUnaryHandler handler = new ConnectUnaryHandler(service, validator);
+            // POST serves every unary method; GET serves only NO_SIDE_EFFECTS
+            // methods (the handler rejects GET to a non-safe method with 405).
+            // The connect-es client issues GET for idempotency_level =
+            // NO_SIDE_EFFECTS RPCs when useHttpGet is enabled.
+            routing.post("/" + serviceName + "/*", handler);
+            routing.get("/" + serviceName + "/*", handler);
         }
     }
 }
