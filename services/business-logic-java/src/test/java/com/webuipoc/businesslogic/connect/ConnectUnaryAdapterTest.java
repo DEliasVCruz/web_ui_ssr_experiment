@@ -27,6 +27,11 @@ import todo.v1.TodoOuterClass;
 class ConnectUnaryAdapterTest {
 
     private static final String GET_TODO = "/todo.v1.TodoService/GetTodo";
+    private static final String CREATE_TODO = "/todo.v1.TodoService/CreateTodo";
+    private static final String UPDATE_TODO = "/todo.v1.TodoService/UpdateTodo";
+    /** Any syntactically valid UUID: the stub echoes it back as the todo id. */
+    private static final String ECHO_ID = "8b3e1a1e-6f2a-4b57-9f3e-2d4c5a6b7c8d";
+    private static final int TITLE_MAX_LEN = 100;
 
     private static WebServer server;
     private static HttpClient client;
@@ -79,7 +84,7 @@ class ConnectUnaryAdapterTest {
     @Test
     void happyPathBinary() throws Exception {
         TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder()
-                .setId("abc")
+                .setId(ECHO_ID)
                 .build();
         HttpResponse<byte[]> response = postProto(GET_TODO, request);
 
@@ -87,7 +92,7 @@ class ConnectUnaryAdapterTest {
         assertEquals("application/proto", response.headers().firstValue("content-type").orElse(""));
         // The body is the bare serialized message — no envelope framing.
         TodoOuterClass.GetTodoResponse parsed = TodoOuterClass.GetTodoResponse.parseFrom(response.body());
-        assertEquals("abc", parsed.getTodo().getId());
+        assertEquals(ECHO_ID, parsed.getTodo().getId());
         assertEquals("stub-todo", parsed.getTodo().getTitle());
     }
 
@@ -96,7 +101,7 @@ class ConnectUnaryAdapterTest {
         HttpRequest request = request(GET_TODO)
                 .header("Content-Type", "application/json")
                 // no connect-protocol-version header: it must not be required
-                .POST(HttpRequest.BodyPublishers.ofString("{\"id\":\"abc\"}"))
+                .POST(HttpRequest.BodyPublishers.ofString("{\"id\":\"" + ECHO_ID + "\"}"))
                 .build();
         HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
 
@@ -104,20 +109,21 @@ class ConnectUnaryAdapterTest {
         // The response codec mirrors the request codec.
         assertEquals("application/json", response.headers().firstValue("content-type").orElse(""));
         Struct body = parseJson(response.body());
-        assertEquals("abc", body.getFieldsOrThrow("todo").getStructValue()
+        assertEquals(ECHO_ID, body.getFieldsOrThrow("todo").getStructValue()
                 .getFieldsOrThrow("id").getStringValue());
     }
 
     @Test
     void notFoundErrorMapsTo404WithJsonBody() throws Exception {
         TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder()
-                .setId("missing")
+                .setId(StubTodoService.MISSING_ID)
                 .build();
         HttpResponse<byte[]> response = postProto(GET_TODO, request);
 
         assertConnectError(response, 404, "not_found");
         Struct body = parseJson(response.body());
-        assertEquals("todo \"missing\" not found", body.getFieldsOrThrow("message").getStringValue());
+        assertEquals("todo \"" + StubTodoService.MISSING_ID + "\" not found",
+                body.getFieldsOrThrow("message").getStringValue());
     }
 
     /**
@@ -151,7 +157,7 @@ class ConnectUnaryAdapterTest {
 
         for (Row row : table) {
             TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder()
-                    .setId("error:" + row.grpcCode())
+                    .setId(StubTodoService.errorId(io.grpc.Status.Code.valueOf(row.grpcCode())))
                     .build();
             HttpResponse<byte[]> response = postProto(GET_TODO, request);
             assertConnectError(response, row.httpStatus(), row.connectCode());
@@ -161,7 +167,7 @@ class ConnectUnaryAdapterTest {
     @Test
     void statusRuntimeExceptionThrownSynchronouslyIsMapped() throws Exception {
         TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder()
-                .setId("throw")
+                .setId(StubTodoService.THROW_ID)
                 .build();
         HttpResponse<byte[]> response = postProto(GET_TODO, request);
 
@@ -248,7 +254,8 @@ class ConnectUnaryAdapterTest {
                 .header("Content-Type", "application/proto")
                 .header("Connect-Timeout-Ms", "50")
                 .POST(HttpRequest.BodyPublishers.ofByteArray(
-                        TodoOuterClass.GetTodoRequest.newBuilder().setId("slow").build().toByteArray()))
+                        TodoOuterClass.GetTodoRequest.newBuilder().setId(StubTodoService.SLOW_ID).build()
+                                .toByteArray()))
                 .build();
         HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
 
@@ -296,7 +303,7 @@ class ConnectUnaryAdapterTest {
     @Test
     void actualResponsesCarryCorsHeaders() throws Exception {
         TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder()
-                .setId("abc")
+                .setId(ECHO_ID)
                 .build();
         HttpResponse<byte[]> response = postProto(GET_TODO, request);
 
@@ -318,5 +325,99 @@ class ConnectUnaryAdapterTest {
         TodoOuterClass.ListTodosResponse parsed = TodoOuterClass.ListTodosResponse.parseFrom(response.body());
         assertEquals(2, parsed.getTodosCount());
         assertNotNull(parsed.getTodos(0).getCreatedAt());
+    }
+
+    // ---- protovalidate enforcement (buf.validate.* constraints in todo.proto) ----
+
+    @Test
+    void createTodoWithEmptyTitleIsRejectedBinary() throws Exception {
+        TodoOuterClass.CreateTodoRequest request = TodoOuterClass.CreateTodoRequest.newBuilder()
+                .setTitle("")
+                .build();
+        HttpResponse<byte[]> response = postProto(CREATE_TODO, request);
+
+        assertConnectError(response, 400, "invalid_argument");
+        String message = parseJson(response.body()).getFieldsOrThrow("message").getStringValue();
+        assertTrue(message.contains("title"), "message should name the violated field: " + message);
+    }
+
+    @Test
+    void createTodoWithEmptyTitleIsRejectedJson() throws Exception {
+        HttpRequest request = request(CREATE_TODO)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"title\":\"\"}"))
+                .build();
+        HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+
+        // Violations map to invalid_argument with the (always-JSON) error body,
+        // for the JSON request codec too.
+        assertConnectError(response, 400, "invalid_argument");
+        String message = parseJson(response.body()).getFieldsOrThrow("message").getStringValue();
+        assertTrue(message.contains("title"), "message should name the violated field: " + message);
+    }
+
+    @Test
+    void createTodoWithOverlongTitleIsRejected() throws Exception {
+        TodoOuterClass.CreateTodoRequest request = TodoOuterClass.CreateTodoRequest.newBuilder()
+                .setTitle("x".repeat(TITLE_MAX_LEN + 1))
+                .build();
+        HttpResponse<byte[]> response = postProto(CREATE_TODO, request);
+
+        assertConnectError(response, 400, "invalid_argument");
+        String message = parseJson(response.body()).getFieldsOrThrow("message").getStringValue();
+        assertTrue(message.contains("title"), "message should name the violated field: " + message);
+    }
+
+    @Test
+    void createTodoWithMaxLengthTitleIsAccepted() throws Exception {
+        String title = "x".repeat(TITLE_MAX_LEN);
+        TodoOuterClass.CreateTodoRequest request = TodoOuterClass.CreateTodoRequest.newBuilder()
+                .setTitle(title)
+                .build();
+        HttpResponse<byte[]> response = postProto(CREATE_TODO, request);
+
+        assertEquals(200, response.statusCode());
+        TodoOuterClass.CreateTodoResponse parsed = TodoOuterClass.CreateTodoResponse.parseFrom(response.body());
+        assertEquals(title, parsed.getTodo().getTitle());
+    }
+
+    @Test
+    void updateTodoWithoutTitleSetIsAccepted() throws Exception {
+        // UpdateTodoRequest.title has explicit presence: the min_len rule must
+        // only apply when the field is set.
+        TodoOuterClass.UpdateTodoRequest request = TodoOuterClass.UpdateTodoRequest.newBuilder()
+                .setId(ECHO_ID)
+                .setCompleted(true)
+                .build();
+        HttpResponse<byte[]> response = postProto(UPDATE_TODO, request);
+
+        assertEquals(200, response.statusCode());
+        TodoOuterClass.UpdateTodoResponse parsed = TodoOuterClass.UpdateTodoResponse.parseFrom(response.body());
+        assertEquals("unchanged", parsed.getTodo().getTitle());
+    }
+
+    @Test
+    void updateTodoWithEmptyTitleSetIsRejected() throws Exception {
+        TodoOuterClass.UpdateTodoRequest request = TodoOuterClass.UpdateTodoRequest.newBuilder()
+                .setId(ECHO_ID)
+                .setTitle("")
+                .build();
+        HttpResponse<byte[]> response = postProto(UPDATE_TODO, request);
+
+        assertConnectError(response, 400, "invalid_argument");
+        String message = parseJson(response.body()).getFieldsOrThrow("message").getStringValue();
+        assertTrue(message.contains("title"), "message should name the violated field: " + message);
+    }
+
+    @Test
+    void getTodoWithNonUuidIdIsRejected() throws Exception {
+        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder()
+                .setId("not-a-uuid")
+                .build();
+        HttpResponse<byte[]> response = postProto(GET_TODO, request);
+
+        assertConnectError(response, 400, "invalid_argument");
+        String message = parseJson(response.body()).getFieldsOrThrow("message").getStringValue();
+        assertTrue(message.contains("id"), "message should name the violated field: " + message);
     }
 }

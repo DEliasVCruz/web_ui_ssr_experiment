@@ -14,21 +14,38 @@ import todo.v1.TodoServiceGrpc;
  * descriptor. The adapter under test never sees this type — it is registered as
  * a plain {@link io.grpc.BindableService}.
  *
- * <p>{@code GetTodo} drives the error scenarios via the requested id:
+ * <p>{@code GetTodo} drives the error scenarios via the requested id. The magic
+ * ids are syntactically valid UUIDs (all outside the UUIDv7 space the real
+ * service generates) so they pass the protovalidate {@code string.uuid}
+ * constraint on {@code GetTodoRequest.id} and reach the stub:
  *
  * <ul>
- *   <li>{@code missing} → {@code onError(NOT_FOUND)}</li>
- *   <li>{@code error:<GRPC_CODE_NAME>} → {@code onError(<code>)}, e.g.
- *       {@code error:DATA_LOSS}</li>
- *   <li>{@code throw} → throws {@link io.grpc.StatusRuntimeException}
+ *   <li>{@link #MISSING_ID} → {@code onError(NOT_FOUND)}</li>
+ *   <li>{@link #errorId}(code) → {@code onError(<code>)}, e.g.
+ *       {@code errorId(Status.Code.DATA_LOSS)}</li>
+ *   <li>{@link #THROW_ID} → throws {@link io.grpc.StatusRuntimeException}
  *       synchronously (PERMISSION_DENIED) instead of using the observer</li>
- *   <li>{@code slow} → responds asynchronously after 300ms (deadline tests)</li>
+ *   <li>{@link #SLOW_ID} → responds asynchronously after 300ms (deadline tests)</li>
  *   <li>anything else → fixed todo echoing the id</li>
  * </ul>
  */
 final class StubTodoService extends TodoServiceGrpc.TodoServiceImplBase {
 
     static final long SLOW_RESPONSE_MS = 300;
+
+    /** GetTodo with this id responds NOT_FOUND ({@code todo "<id>" not found}). */
+    static final String MISSING_ID = "00000000-0000-0000-0000-000000000404";
+    /** GetTodo with this id throws StatusRuntimeException(PERMISSION_DENIED) synchronously. */
+    static final String THROW_ID = "00000000-0000-0000-0000-000000000403";
+    /** GetTodo with this id responds asynchronously after {@link #SLOW_RESPONSE_MS}. */
+    static final String SLOW_ID = "00000000-0000-0000-0000-000000000504";
+    /** Last-group prefix for {@link #errorId}: the final two digits carry the gRPC code value. */
+    private static final String ERROR_ID_PREFIX = "00000000-0000-0000-0000-0000000000";
+
+    /** The magic GetTodo id that makes the stub respond onError with the given code. */
+    static String errorId(Status.Code code) {
+        return String.format(Locale.ROOT, "%s%02d", ERROR_ID_PREFIX, code.value());
+    }
 
     private static final Timestamp FIXED_TIME = Timestamp.newBuilder().setSeconds(1_700_000_000L).build();
 
@@ -56,25 +73,26 @@ final class StubTodoService extends TodoServiceGrpc.TodoServiceImplBase {
     public void getTodo(TodoOuterClass.GetTodoRequest request,
                         StreamObserver<TodoOuterClass.GetTodoResponse> responseObserver) {
         String id = request.getId();
-        if ("missing".equals(id)) {
+        if (MISSING_ID.equals(id)) {
             responseObserver.onError(Status.NOT_FOUND
-                    .withDescription("todo \"missing\" not found")
+                    .withDescription("todo \"" + id + "\" not found")
                     .asRuntimeException());
             return;
         }
-        if (id.startsWith("error:")) {
-            Status.Code code = Status.Code.valueOf(id.substring("error:".length()).toUpperCase(Locale.ROOT));
+        if (id.startsWith(ERROR_ID_PREFIX)) {
+            Status.Code code = Status.fromCodeValue(
+                    Integer.parseInt(id.substring(ERROR_ID_PREFIX.length()))).getCode();
             responseObserver.onError(code.toStatus()
                     .withDescription("stub failure with code " + code.name())
                     .asRuntimeException());
             return;
         }
-        if ("throw".equals(id)) {
+        if (THROW_ID.equals(id)) {
             throw Status.PERMISSION_DENIED
                     .withDescription("thrown synchronously from the implementation")
                     .asRuntimeException();
         }
-        if ("slow".equals(id)) {
+        if (SLOW_ID.equals(id)) {
             CompletableFuture.delayedExecutor(SLOW_RESPONSE_MS, TimeUnit.MILLISECONDS).execute(() -> {
                 responseObserver.onNext(TodoOuterClass.GetTodoResponse.newBuilder()
                         .setTodo(todo(id, "slow-todo"))

@@ -22,6 +22,12 @@ import { TodoService } from "@web-ui-poc/rpc/gen/todo/v1/todo_pb";
 
 const baseUrl = process.env.BASE_URL ?? "http://localhost:3911";
 
+// Magic StubTodoService ids (see StubTodoService.java). Syntactically valid
+// UUIDs so they pass the protovalidate string.uuid constraint on GetTodoRequest.id.
+const ECHO_ID = "8b3e1a1e-6f2a-4b57-9f3e-2d4c5a6b7c8d";
+const MISSING_ID = "00000000-0000-0000-0000-000000000404";
+const TITLE_MAX_LEN = 100;
+
 const transport = createConnectTransport({
 	baseUrl,
 	httpVersion: "1.1",
@@ -51,10 +57,10 @@ function describe(value: unknown): string {
 }
 
 // 1. Round trip: binary unary request/response through the generated client.
-const got = await client.getTodo({ id: "abc" });
+const got = await client.getTodo({ id: ECHO_ID });
 check(
 	"getTodo round-trip",
-	got.todo?.id === "abc" && got.todo.title === "stub-todo",
+	got.todo?.id === ECHO_ID && got.todo.title === "stub-todo",
 	() => `unexpected response: ${describe(got)}`,
 );
 check(
@@ -81,7 +87,7 @@ check(
 // 2. Error mapping: NOT_FOUND from the service surfaces as a ConnectError
 //    with code NotFound and the server's message.
 try {
-	await client.getTodo({ id: "missing" });
+	await client.getTodo({ id: MISSING_ID });
 	check("getTodo NOT_FOUND surfaces as ConnectError", false, () => "no error was thrown");
 } catch (error) {
 	const isConnectError = error instanceof ConnectError;
@@ -93,10 +99,75 @@ try {
 	);
 	check(
 		"NOT_FOUND message is preserved",
-		connectError.rawMessage === 'todo "missing" not found',
+		connectError.rawMessage === `todo "${MISSING_ID}" not found`,
 		() => `unexpected message: ${connectError.rawMessage}`,
 	);
 }
+
+// 3. protovalidate enforcement: constraint violations surface as ConnectError
+//    with code InvalidArgument naming the violated field.
+async function expectInvalidArgument(
+	name: string,
+	call: () => Promise<unknown>,
+	expectedFieldInMessage: string,
+): Promise<void> {
+	try {
+		await call();
+		check(name, false, () => "no error was thrown");
+	} catch (error) {
+		const isConnectError = error instanceof ConnectError;
+		const connectError = ConnectError.from(error);
+		check(
+			name,
+			isConnectError &&
+				connectError.code === Code.InvalidArgument &&
+				connectError.rawMessage.includes(expectedFieldInMessage),
+			() =>
+				`expected ConnectError(InvalidArgument) mentioning "${expectedFieldInMessage}", got: ${String(error)}`,
+		);
+	}
+}
+
+await expectInvalidArgument(
+	"createTodo with empty title is rejected",
+	() => client.createTodo({ title: "" }),
+	"title",
+);
+
+await expectInvalidArgument(
+	"createTodo with a 101-char title is rejected",
+	() => client.createTodo({ title: "x".repeat(TITLE_MAX_LEN + 1) }),
+	"title",
+);
+
+const maxTitle = "y".repeat(TITLE_MAX_LEN);
+const maxTitleCreated = await client.createTodo({ title: maxTitle });
+check(
+	"createTodo with a 100-char title is accepted",
+	maxTitleCreated.todo?.title === maxTitle,
+	() => `unexpected response: ${describe(maxTitleCreated)}`,
+);
+
+await expectInvalidArgument(
+	"getTodo with a non-UUID id is rejected",
+	() => client.getTodo({ id: "not-a-uuid" }),
+	"id",
+);
+
+// UpdateTodoRequest.title has explicit presence: the min_len rule applies only
+// when the field is set, so an update without a title must pass validation.
+const updatedWithoutTitle = await client.updateTodo({ id: ECHO_ID, completed: true });
+check(
+	"updateTodo without title set passes validation",
+	updatedWithoutTitle.todo?.title === "unchanged",
+	() => `unexpected response: ${describe(updatedWithoutTitle)}`,
+);
+
+await expectInvalidArgument(
+	"updateTodo with empty title set is rejected",
+	() => client.updateTodo({ id: ECHO_ID, title: "" }),
+	"title",
+);
 
 if (failures > 0) {
 	// biome-ignore lint/suspicious/noConsole: CLI test output
