@@ -55,10 +55,16 @@ RUN mkdir -p services/business-logic-java/generated-sources/protobuf \
         --grpc-java_out=services/business-logic-java/generated-sources/grpc \
         proto/todo/v1/todo.proto
 
-# Build the runnable jar + target/libs/ (tests run in CI, not in image builds)
+# Build the runnable jar + target/libs/ (tests run in CI, not in image builds).
+# The Connect-unary adapter is a separate reactor module, so build from the root
+# aggregator pom: Maven builds packages/java/connect-unary-adapter first, then
+# business-logic-java against it, and copy-dependencies drops the adapter jar
+# into target/libs/ (referenced by the runnable jar's Class-Path manifest).
+COPY pom.xml pom.xml
+COPY packages/java packages/java
 COPY services/business-logic-java/pom.xml services/business-logic-java/pom.xml
 COPY services/business-logic-java/src services/business-logic-java/src
-RUN mvn -q -f services/business-logic-java/pom.xml -DskipTests package
+RUN mvn -q -f pom.xml -DskipTests package
 
 # Runtime stage: JRE only
 FROM eclipse-temurin:25-jre AS runtime

@@ -9,7 +9,7 @@
  * Start the server first (from the repo root, inside devenv):
  *
  *   mvn -q -f services/business-logic-java test-compile exec:java \
- *       -DmainClass=com.webuipoc.businesslogic.connect.ContractTestServer \
+ *       -DmainClass=com.webuipoc.connect.ContractTestServer \
  *       -Dexec.classpathScope=test
  *
  * Then run this script (BASE_URL overrides the default http://localhost:3911):

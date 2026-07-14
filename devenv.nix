@@ -299,9 +299,9 @@ in
         trap cleanup EXIT
 
         # ── Build + start the business-logic-java backend ─────────────────
-        echo "==> Generating protobuf sources (buf) and building business-logic-java"
+        echo "==> Generating protobuf sources (buf) and building the Java reactor (connect-unary-adapter + business-logic-java)"
         bun run generate
-        mvn -q -f services/business-logic-java package
+        mvn -q -f pom.xml package
 
         echo "==> Starting business-logic-java backend on :$BACKEND_PORT (fresh ephemeral DB)"
         PORT=$BACKEND_PORT DATABASE_PATH="$DB_PATH" java -jar services/business-logic-java/target/business-logic-java.jar &
