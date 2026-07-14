@@ -17,7 +17,6 @@
 		"@ark-ui/solid": "^5",
 		"@ark/json-schema": "0.0.7",
 		"@connectrpc/connect": "^2.1.1",
-		"@connectrpc/connect-node": "^2.1.1",
 		"@connectrpc/connect-query-core": "^2.0.1",
 		"@connectrpc/connect-web": "^2.1.1",
 		"@tanstack/solid-form": "^1.33.0",

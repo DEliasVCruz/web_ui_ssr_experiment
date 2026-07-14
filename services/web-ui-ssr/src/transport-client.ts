@@ -14,6 +14,9 @@ const clientTransport = addStaticKeyToTransport(
 	createConnectTransport({
 		baseUrl: PUBLIC_BUSINESS_LOGIC_URL,
 		useBinaryFormat: true,
+		// Idempotent RPCs (idempotency_level = NO_SIDE_EFFECTS: ListTodos, GetTodo)
+		// go over HTTP GET; mutations stay POST. Payload stays binary protobuf.
+		useHttpGet: true,
 	}),
 	"app",
 );
