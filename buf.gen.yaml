@@ -1,16 +1,22 @@
 version: v2
 plugins:
+  # The TS plugins exclude buf.validate: protovalidate constraints are enforced
+  # server-side only (business-logic-java), and excluding the extension strips
+  # the buf.validate.* options AND the buf/validate/validate.proto import from
+  # the descriptors fed to these plugins. Without this, todo_pb.ts gains a
+  # runtime (non-tree-shakeable) import of the ~71 kB validate.proto descriptor,
+  # which measurably bloated the web-ui-ssr browser entry chunk
+  # (27.1 kB -> 98.5 kB raw, 10.7 kB -> 23.6 kB gzip).
   - local: protoc-gen-es
     out: packages/rpc/gen
     opt: target=ts
-    # todo.proto imports buf/validate/validate.proto (protovalidate constraints);
-    # the generated todo_pb.ts references its file descriptor, so the dep's
-    # *_pb.ts must be emitted too (well-known types stay excluded and keep
-    # resolving from @bufbuild/protobuf/wkt).
-    include_imports: true
+    exclude_types:
+      - buf.validate
   - local: protoc-gen-connect-query
     out: packages/rpc/gen
     opt: target=ts
+    exclude_types:
+      - buf.validate
   # Java codegen for services/business-logic-java (gitignored output).
   # Both plugins come from devenv (nixpkgs): protoc (builtin java) and
   # protoc-gen-grpc-java, so generation is fully offline and reproducible.
