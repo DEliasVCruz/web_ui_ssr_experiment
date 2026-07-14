@@ -1,5 +1,6 @@
 package com.webuipoc.businesslogic.todo;
 
+import jakarta.inject.Singleton;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -21,6 +22,7 @@ import java.util.Optional;
  * matching the Bun service where one {@code bun:sqlite} Database is used from
  * a single-threaded event loop.
  */
+@Singleton
 public final class TodoRepository {
 
     /** One row of the todos table; completed stays an INTEGER as in the TS TodoRow. */
