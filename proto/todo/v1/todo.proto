@@ -94,10 +94,16 @@ message DeleteTodoResponse {}
 
 // TodoService provides CRUD operations for todo items.
 service TodoService {
-  // ListTodos returns all todos.
-  rpc ListTodos(ListTodosRequest) returns (ListTodosResponse);
-  // GetTodo returns a single todo by ID.
-  rpc GetTodo(GetTodoRequest) returns (GetTodoResponse);
+  // ListTodos returns all todos. Read-only: marked NO_SIDE_EFFECTS so Connect
+  // clients may issue it as an idempotent HTTP GET (cacheable, side-effect-free).
+  rpc ListTodos(ListTodosRequest) returns (ListTodosResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // GetTodo returns a single todo by ID. Read-only: marked NO_SIDE_EFFECTS so
+  // Connect clients may issue it as an idempotent HTTP GET.
+  rpc GetTodo(GetTodoRequest) returns (GetTodoResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
   // CreateTodo creates a new todo.
   rpc CreateTodo(CreateTodoRequest) returns (CreateTodoResponse);
   // UpdateTodo updates an existing todo.
