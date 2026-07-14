@@ -1,6 +1,6 @@
 package com.webuipoc.businesslogic;
 
-import com.webuipoc.businesslogic.connect.ConnectUnaryFeature;
+import com.webuipoc.connect.ConnectUnaryFeature;
 import com.webuipoc.businesslogic.todo.TodoDb;
 import com.webuipoc.businesslogic.todo.TodoGrpcBridge;
 import io.avaje.inject.BeanScope;

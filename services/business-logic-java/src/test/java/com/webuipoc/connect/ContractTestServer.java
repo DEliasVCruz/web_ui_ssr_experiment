@@ -1,4 +1,4 @@
-package com.webuipoc.businesslogic.connect;
+package com.webuipoc.connect;
 
 import io.helidon.webserver.WebServer;
 
@@ -7,11 +7,15 @@ import io.helidon.webserver.WebServer;
  * ({@code scripts/connect-contract-test.ts}): serves {@link StubTodoService}
  * through the Connect adapter so a real connect-es client can call it.
  *
- * <p>Run from the repo root (inside devenv):
+ * <p>Run from the repo root (inside devenv). Install the connect-unary-adapter
+ * to the local repo first, then run exec:java on this service module alone (a
+ * reactor invocation would also run exec on the aggregator, which has no main
+ * class):
  *
  * <pre>
+ * mvn -q install -DskipTests
  * mvn -q -f services/business-logic-java test-compile exec:java \
- *     -DmainClass=com.webuipoc.businesslogic.connect.ContractTestServer \
+ *     -DmainClass=com.webuipoc.connect.ContractTestServer \
  *     -Dexec.classpathScope=test
  * </pre>
  *

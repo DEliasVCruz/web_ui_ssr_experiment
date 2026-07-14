@@ -8,6 +8,9 @@ packages/rpc/gen/
 services/business-logic-java/generated-sources/
 services/business-logic-java/target/
 
+# Java reactor modules: Maven build output
+packages/java/*/target/
+
 # Beads (stealth — all beads data lives locally, not in repo)
 .beads/
 .dolt

@@ -1,4 +1,4 @@
-package com.webuipoc.businesslogic.connect;
+package com.webuipoc.connect;
 
 import io.grpc.Status;
 import java.util.EnumMap;

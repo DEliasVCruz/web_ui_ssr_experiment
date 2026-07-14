@@ -1,4 +1,4 @@
-package com.webuipoc.businesslogic.connect;
+package com.webuipoc.connect;
 
 import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;

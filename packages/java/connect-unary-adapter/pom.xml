@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.webuipoc</groupId>
+    <artifactId>web-ui-ssr-experiment-parent</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <relativePath>../../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>connect-unary-adapter</artifactId>
+  <packaging>jar</packaging>
+
+  <name>connect-unary-adapter</name>
+  <description>Service-agnostic adapter exposing any gRPC ServerServiceDefinition over the Connect protocol (unary RPCs) as a Helidon SE routing feature, with protovalidate enforcement.</description>
+
+  <dependencies>
+    <!-- Helidon SE routing: the adapter is an HttpFeature installing handlers,
+         a CORS filter and an OPTIONS preflight handler. -->
+    <dependency>
+      <groupId>io.helidon.webserver</groupId>
+      <artifactId>helidon-webserver</artifactId>
+    </dependency>
+
+    <!-- protobuf-java: parse/serialize request/response Messages. Pinned via
+         parent dependencyManagement (>= the protoc gencode version). -->
+    <dependency>
+      <groupId>com.google.protobuf</groupId>
+      <artifactId>protobuf-java</artifactId>
+    </dependency>
+    <!-- JsonFormat for the application/json codec. -->
+    <dependency>
+      <groupId>com.google.protobuf</groupId>
+      <artifactId>protobuf-java-util</artifactId>
+    </dependency>
+
+    <!-- gRPC: descriptor-driven dispatch (ServerServiceDefinition / MethodDescriptor
+         / the handlers built by io.grpc.stub.ServerCalls), invoked in-process. -->
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-stub</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-protobuf</artifactId>
+      <exclusions>
+        <!-- protobuf-java is pinned via parent dependencyManagement -->
+        <exclusion>
+          <groupId>com.google.protobuf</groupId>
+          <artifactId>protobuf-java</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <!-- protovalidate runtime: evaluates buf.validate.* constraints on every
+         parsed request before dispatch. The jar also bundles the
+         build.buf.validate gencode the adapter references (FieldPath etc.). -->
+    <dependency>
+      <groupId>build.buf</groupId>
+      <artifactId>protovalidate</artifactId>
+      <exclusions>
+        <!-- protobuf-java is pinned via parent dependencyManagement -->
+        <exclusion>
+          <groupId>com.google.protobuf</groupId>
+          <artifactId>protobuf-java</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <!-- Pure unit test of the Connect error-code table (no generated service
+         types required); descriptor-driven adapter integration tests live in
+         services/business-logic-java, exercised through a real service. -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

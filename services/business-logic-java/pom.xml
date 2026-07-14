@@ -4,98 +4,56 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>com.webuipoc</groupId>
+  <parent>
+    <groupId>com.webuipoc</groupId>
+    <artifactId>web-ui-ssr-experiment-parent</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
   <artifactId>business-logic-java</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <name>business-logic-java</name>
-  <description>Java (Helidon SE) port of the business-logic Connect service — scaffold</description>
+  <description>Java (Helidon SE) port of the business-logic Connect service</description>
 
   <properties>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.release>25</maven.compiler.release>
     <mainClass>com.webuipoc.businesslogic.Main</mainClass>
-
-    <!-- Runtime versions. Constraints (see README):
-         - protobuf-java must be >= the protoc gencode version (4.34.0 from
-           nixpkgs protoc 34.0, enforced by RuntimeVersion.validateProtobufGencodeVersion)
-         - grpc-java must be >= the protoc-gen-grpc-java plugin version (1.80.0 from nixpkgs) -->
-    <version.helidon>4.4.1</version.helidon>
-    <version.protobuf>4.35.1</version.protobuf>
-    <version.grpc>1.82.2</version.grpc>
-    <version.protovalidate>1.2.2</version.protovalidate>
-    <version.junit>5.14.4</version.junit>
-
-    <!-- Compile-time DI, domain mapping and business-rule validation.
-         These are standalone (not managed by any imported BOM), so their
-         versions are pinned here directly. Latest stable releases. -->
-    <version.avaje.inject>11.4</version.avaje.inject>
-    <version.avaje.validator>2.9</version.avaje.validator>
-    <version.mapstruct>1.6.3</version.mapstruct>
   </properties>
 
-  <dependencyManagement>
-    <dependencies>
-      <!-- BOM ordering matters (first import wins per artifact): grpc-bom and
-           junit-bom must come BEFORE helidon-dependencies, otherwise the
-           Helidon BOM manages io.grpc:* transitives down to 1.73.0 (below the
-           1.80.0 protoc-gen-grpc-java codegen version, and mixing grpc
-           component versions, which grpc upstream does not support) and the
-           junit api/params/engine down to 5.12.2. -->
-      <dependency>
-        <groupId>io.grpc</groupId>
-        <artifactId>grpc-bom</artifactId>
-        <version>${version.grpc}</version>
-        <type>pom</type>
-        <scope>import</scope>
-      </dependency>
-      <dependency>
-        <groupId>org.junit</groupId>
-        <artifactId>junit-bom</artifactId>
-        <version>${version.junit}</version>
-        <type>pom</type>
-        <scope>import</scope>
-      </dependency>
-      <dependency>
-        <groupId>io.helidon</groupId>
-        <artifactId>helidon-dependencies</artifactId>
-        <version>${version.helidon}</version>
-        <type>pom</type>
-        <scope>import</scope>
-      </dependency>
-    </dependencies>
-  </dependencyManagement>
+  <!-- Shared versions, BOM imports (load-bearing order) and plugin versions are
+       managed by the root parent pom (../../pom.xml). This module only declares
+       what it directly uses; the Connect-unary adapter (com.webuipoc:connect-unary-adapter)
+       carries the Connect/protovalidate machinery and its transitive deps
+       (protobuf-java-util, protovalidate, ...). -->
 
   <dependencies>
+    <!-- The service-agnostic Connect-unary HTTP adapter (reactor module). -->
+    <dependency>
+      <groupId>com.webuipoc</groupId>
+      <artifactId>connect-unary-adapter</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>io.helidon.webserver</groupId>
       <artifactId>helidon-webserver</artifactId>
     </dependency>
 
-    <!-- Generated protobuf messages + gRPC stubs (generated-sources/, emitted by `buf generate`) -->
+    <!-- Generated protobuf messages + gRPC stubs (generated-sources/, emitted by
+         `buf generate`); used directly by the mapper and the gRPC bridge. -->
     <dependency>
       <groupId>com.google.protobuf</groupId>
       <artifactId>protobuf-java</artifactId>
-      <version>${version.protobuf}</version>
-    </dependency>
-    <!-- JsonFormat for the Connect adapter's application/json codec (version-aligned with protobuf-java) -->
-    <dependency>
-      <groupId>com.google.protobuf</groupId>
-      <artifactId>protobuf-java-util</artifactId>
-      <version>${version.protobuf}</version>
     </dependency>
     <dependency>
       <groupId>io.grpc</groupId>
       <artifactId>grpc-stub</artifactId>
-      <version>${version.grpc}</version>
     </dependency>
     <dependency>
       <groupId>io.grpc</groupId>
       <artifactId>grpc-protobuf</artifactId>
-      <version>${version.grpc}</version>
       <exclusions>
-        <!-- We pin protobuf-java explicitly above -->
+        <!-- protobuf-java is pinned via the parent's dependencyManagement -->
         <exclusion>
           <groupId>com.google.protobuf</groupId>
           <artifactId>protobuf-java</artifactId>
@@ -103,29 +61,12 @@
       </exclusions>
     </dependency>
 
-    <!-- protovalidate runtime: evaluates the buf.validate.* constraints that
-         proto/todo/v1/todo.proto declares (the generated TodoOuterClass also
-         references the bundled build.buf.validate gencode). Validation runs
-         generically in ConnectUnaryHandler; no codegen-based validation. -->
-    <dependency>
-      <groupId>build.buf</groupId>
-      <artifactId>protovalidate</artifactId>
-      <version>${version.protovalidate}</version>
-      <exclusions>
-        <!-- We pin protobuf-java explicitly above -->
-        <exclusion>
-          <groupId>com.google.protobuf</groupId>
-          <artifactId>protobuf-java</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-
-    <!-- SQLite storage for the TodoService port (same engine as the Bun
+    <!-- SQLite storage for the TodoService port (same engine as the retired Bun
          service's bun:sqlite; see src/main/java/com/webuipoc/businesslogic/todo) -->
     <dependency>
       <groupId>org.xerial</groupId>
       <artifactId>sqlite-jdbc</artifactId>
-      <version>3.53.2.0</version>
+      <version>${version.sqlite}</version>
     </dependency>
 
     <!-- Compile-time dependency injection (no runtime reflection/proxies): the
@@ -164,7 +105,6 @@
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
-      <version>${version.junit}</version>
       <scope>test</scope>
     </dependency>
     <!-- In-process gRPC transport for exercising TodoGrpcBridge through real
@@ -172,7 +112,6 @@
     <dependency>
       <groupId>io.grpc</groupId>
       <artifactId>grpc-inprocess</artifactId>
-      <version>${version.grpc}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -184,7 +123,6 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.14.1</version>
         <configuration>
           <!-- Once ANY annotation processor is declared here, javac stops
                auto-discovering processors from the compile classpath, so every
@@ -217,7 +155,6 @@
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>build-helper-maven-plugin</artifactId>
-        <version>3.6.1</version>
         <executions>
           <execution>
             <id>add-buf-generated-sources</id>
@@ -238,7 +175,6 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.5.6</version>
       </plugin>
 
       <!-- Runnable jar: Main-Class + Class-Path manifest pointing at libs/,
@@ -248,7 +184,6 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
-        <version>3.4.2</version>
         <configuration>
           <archive>
             <manifest>
@@ -261,11 +196,12 @@
       </plugin>
 
       <!-- Copy the runtime dependency jars next to the app jar (target/libs/)
-           so the manifest Class-Path above resolves -->
+           so the manifest Class-Path above resolves. includeScope=runtime pulls
+           reactor-internal deps too (connect-unary-adapter.jar), so the runnable
+           jar is self-contained. -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-dependency-plugin</artifactId>
-        <version>3.8.1</version>
         <executions>
           <execution>
             <id>copy-runtime-dependencies</id>
@@ -285,7 +221,6 @@
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
-        <version>3.6.3</version>
         <configuration>
           <mainClass>${mainClass}</mainClass>
         </configuration>

@@ -1,4 +1,4 @@
-package com.webuipoc.businesslogic.connect;
+package com.webuipoc.connect;
 
 import build.buf.protovalidate.Validator;
 import build.buf.protovalidate.ValidatorFactory;

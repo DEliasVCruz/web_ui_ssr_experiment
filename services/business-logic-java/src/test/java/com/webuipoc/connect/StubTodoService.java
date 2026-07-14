@@ -1,4 +1,4 @@
-package com.webuipoc.businesslogic.connect;
+package com.webuipoc.connect;
 
 import com.google.protobuf.Timestamp;
 import io.grpc.Status;

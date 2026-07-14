@@ -1,4 +1,4 @@
-package com.webuipoc.businesslogic.connect;
+package com.webuipoc.connect;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 

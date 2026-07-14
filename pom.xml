@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.webuipoc</groupId>
+  <artifactId>web-ui-ssr-experiment-parent</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>web-ui-ssr-experiment (Maven reactor)</name>
+  <description>Aggregator + parent for the repo's Java modules.</description>
+
+  <!--
+    LAYOUT (Phase 4d — Connect-unary adapter extraction)
+    ====================================================
+    This is a single root pom that is BOTH the reactor aggregator (<modules>)
+    and the shared parent (<parent> of each module). One command from here
+    (`mvn -q -f pom.xml verify`) builds the reactor in dependency order:
+
+        1. packages/java/connect-unary-adapter  (com.webuipoc:connect-unary-adapter)
+        2. services/business-logic-java          (depends on the adapter artifact)
+
+    Reactor ordering is derived from the inter-module dependency, not the
+    <modules> listing, so the service always builds against a freshly built
+    adapter jar — no version drift is possible because every shared version
+    lives once, here, in <properties> + <dependencyManagement> + <pluginManagement>.
+
+    BOM IMPORT ORDER IS LOAD-BEARING (first import wins, per artifact):
+    grpc-bom and junit-bom MUST be imported BEFORE helidon-dependencies.
+    Otherwise the Helidon BOM manages io.grpc:* transitives down to its own
+    (older) line — below the protoc-gen-grpc-java codegen version and mixing
+    grpc component versions, which grpc upstream does not support — and pulls
+    junit down to Helidon's pinned line. This ordering was validated in the
+    original single-module service pom and is preserved verbatim below.
+  -->
+
+  <modules>
+    <module>packages/java/connect-unary-adapter</module>
+    <module>services/business-logic-java</module>
+  </modules>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>25</maven.compiler.release>
+
+    <!-- Runtime versions shared across modules. Constraints (see
+         services/business-logic-java/README.md):
+         - protobuf-java must be >= the protoc gencode version (4.34.0 from
+           nixpkgs protoc 34.0, enforced by RuntimeVersion.validateProtobufGencodeVersion)
+         - grpc-java must be >= the protoc-gen-grpc-java plugin version (1.80.0 from nixpkgs) -->
+    <version.helidon>4.4.1</version.helidon>
+    <version.protobuf>4.35.1</version.protobuf>
+    <version.grpc>1.82.2</version.grpc>
+    <version.protovalidate>1.2.2</version.protovalidate>
+    <version.junit>5.14.4</version.junit>
+
+    <!-- Compile-time DI, domain mapping and business-rule validation. Standalone
+         (not managed by any imported BOM); used only by business-logic-java, but
+         centralized here so all module versions live in one place. -->
+    <version.avaje.inject>11.4</version.avaje.inject>
+    <version.avaje.validator>2.9</version.avaje.validator>
+    <version.mapstruct>1.6.3</version.mapstruct>
+    <version.sqlite>3.53.2.0</version.sqlite>
+
+    <!-- Build plugin versions (shared) -->
+    <version.plugin.compiler>3.14.1</version.plugin.compiler>
+    <version.plugin.surefire>3.5.6</version.plugin.surefire>
+    <version.plugin.buildhelper>3.6.1</version.plugin.buildhelper>
+    <version.plugin.jar>3.4.2</version.plugin.jar>
+    <version.plugin.dependency>3.8.1</version.plugin.dependency>
+    <version.plugin.exec>3.6.3</version.plugin.exec>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- BOM ordering matters (first import wins per artifact): grpc-bom and
+           junit-bom BEFORE helidon-dependencies. See the LAYOUT note above. -->
+      <dependency>
+        <groupId>io.grpc</groupId>
+        <artifactId>grpc-bom</artifactId>
+        <version>${version.grpc}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.junit</groupId>
+        <artifactId>junit-bom</artifactId>
+        <version>${version.junit}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.helidon</groupId>
+        <artifactId>helidon-dependencies</artifactId>
+        <version>${version.helidon}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+
+      <!-- Standalone (BOM-unmanaged) pins. protobuf-java is pinned above the
+           versions grpc-bom / helidon would otherwise supply; managing it here
+           forces the same line for direct and transitive uses in both modules. -->
+      <dependency>
+        <groupId>com.google.protobuf</groupId>
+        <artifactId>protobuf-java</artifactId>
+        <version>${version.protobuf}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.protobuf</groupId>
+        <artifactId>protobuf-java-util</artifactId>
+        <version>${version.protobuf}</version>
+      </dependency>
+      <dependency>
+        <groupId>build.buf</groupId>
+        <artifactId>protovalidate</artifactId>
+        <version>${version.protovalidate}</version>
+      </dependency>
+
+      <!-- Reactor-internal: lets business-logic-java depend on the adapter
+           without repeating the version. -->
+      <dependency>
+        <groupId>com.webuipoc</groupId>
+        <artifactId>connect-unary-adapter</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>${version.plugin.compiler}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${version.plugin.surefire}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>build-helper-maven-plugin</artifactId>
+          <version>${version.plugin.buildhelper}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>${version.plugin.jar}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-dependency-plugin</artifactId>
+          <version>${version.plugin.dependency}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>exec-maven-plugin</artifactId>
+          <version>${version.plugin.exec}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

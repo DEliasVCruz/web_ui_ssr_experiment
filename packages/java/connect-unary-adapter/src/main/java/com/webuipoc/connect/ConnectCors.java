@@ -1,4 +1,4 @@
-package com.webuipoc.businesslogic.connect;
+package com.webuipoc.connect;
 
 import io.helidon.http.HeaderName;
 import io.helidon.http.HeaderNames;
