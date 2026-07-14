@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect } from "@playwright/test";
 import { fetchSsrHtml, listBackendTodos, test } from "./fixtures";
 
@@ -36,6 +37,28 @@ test.describe("SSR raw HTML", () => {
 		const todos = await listBackendTodos();
 		expect(todos.length).toBeGreaterThan(0);
 		expect(html).toContain(todos[0].title);
+	});
+
+	test("/todos preloads every async chunk from the build manifest in <head>", async () => {
+		// The async (code-split) chunks — the todos route chunk and the arktype
+		// validation chunk it depends on — must be preload-hinted from the SSR
+		// head, or they are only discovered after the entry executes (a request
+		// waterfall on the hydration critical path). Assert against the build
+		// manifest (the runner cwd is services/web-ui-ssr; ci:e2e builds right
+		// before running) so the expectation tracks the real hashed filenames.
+		const manifest = JSON.parse(readFileSync("dist/web/manifest.json", "utf-8")) as {
+			entries: { index: { async?: { js?: string[] } } };
+		};
+		const asyncChunks = manifest.entries.index.async?.js ?? [];
+		expect(asyncChunks.length).toBeGreaterThan(0);
+
+		const html = await fetchSsrHtml("/todos");
+		const head = html.slice(html.indexOf("<head"), html.indexOf("</head>"));
+		for (const href of asyncChunks) {
+			expect(head).toMatch(
+				new RegExp(`<link[^>]*rel="preload"[^>]*as="script"[^>]*href="${href}"`),
+			);
+		}
 	});
 
 	test("/todos/:id renders the todo's dynamic title and status badge", async () => {

@@ -30,10 +30,22 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 			{ charset: "utf-8" },
 			{ name: "viewport", content: "width=device-width, initial-scale=1.0" },
 		],
-		links: (match.context.ssr?.cssUrls ?? []).map((href: string) => ({
-			rel: "stylesheet",
-			href,
-		})),
+		links: [
+			...(match.context.ssr?.cssUrls ?? []).map((href: string) => ({
+				rel: "stylesheet",
+				href,
+			})),
+			// Preload hints for the async (code-split) chunks so the route chunk
+			// and its deps (e.g. the arktype validation chunk on /todos) download
+			// in parallel with the entry instead of after it executes — killing
+			// the request waterfall on the hydration critical path. Classic
+			// scripts, so rel=preload (not modulepreload). See SsrContext.
+			...(match.context.ssr?.preloadScriptUrls ?? []).map((href: string) => ({
+				rel: "preload",
+				as: "script",
+				href,
+			})),
+		],
 	}),
 	scripts: ({ match }) =>
 		(match.context.ssr?.scriptUrls ?? []).map((src: string) => ({

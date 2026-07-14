@@ -33,7 +33,7 @@ if (isDev) {
 	// capture the web entry's CSS/JS URLs from the compilation stats so they
 	// can be injected into the root route's <head> (FOUC prevention).
 	let cachedRender: RenderFn | null = null;
-	let ssrContext: SsrContext = { cssUrls: [], scriptUrls: [] };
+	let ssrContext: SsrContext = { cssUrls: [], scriptUrls: [], preloadScriptUrls: [] };
 
 	rsbuild.onAfterDevCompile(({ stats }) => {
 		cachedRender = null;
@@ -112,7 +112,7 @@ async function handleSsr(c: Context): Promise<Response> {
 function extractSsrContextFromStats(
 	stats: Rspack.Stats | Rspack.MultiStats | undefined,
 ): SsrContext {
-	const empty: SsrContext = { cssUrls: [], scriptUrls: [] };
+	const empty: SsrContext = { cssUrls: [], scriptUrls: [], preloadScriptUrls: [] };
 	if (!stats) return empty;
 
 	const json = stats.toJson({
@@ -129,6 +129,9 @@ function extractSsrContextFromStats(
 	return {
 		cssUrls: assets.filter((name) => name.endsWith(".css")).map((name) => `/${name}`),
 		scriptUrls: assets.filter((name) => name.endsWith(".js")).map((name) => `/${name}`),
+		// Dev serves unhashed chunks over the dev server with HMR; preload hints
+		// are a prod-only optimization (see loadManifestSsrContext).
+		preloadScriptUrls: [],
 	};
 }
 
@@ -140,11 +143,16 @@ function extractSsrContextFromStats(
  */
 function loadManifestSsrContext(): SsrContext {
 	let initial: { js?: string[]; css?: string[] } | undefined;
+	let async: { js?: string[] } | undefined;
 	try {
 		const manifest = JSON.parse(readFileSync("dist/web/manifest.json", "utf-8")) as {
-			entries?: Record<string, { initial?: { js?: string[]; css?: string[] } }>;
+			entries?: Record<
+				string,
+				{ initial?: { js?: string[]; css?: string[] }; async?: { js?: string[] } }
+			>;
 		};
 		initial = manifest.entries?.index.initial;
+		async = manifest.entries?.index.async;
 	} catch (error) {
 		throw new Error(
 			`Failed to load SSR context from dist/web/manifest.json (missing, malformed, or entries.index absent): ${String(error)}`,
@@ -156,5 +164,16 @@ function loadManifestSsrContext(): SsrContext {
 			"SSR context has no client entry scripts (dist/web/manifest.json entries.index.initial.js is empty) — the page would render without hydration. Did the web build run?",
 		);
 	}
-	return { cssUrls: initial?.css ?? [], scriptUrls };
+	return {
+		cssUrls: initial?.css ?? [],
+		scriptUrls,
+		// All of the entry's async (code-split) chunks, preload-hinted from the
+		// SSR head so they download in parallel with the entry instead of being
+		// discovered after it executes (request waterfall on hydration). The
+		// manifest only maps entry -> async chunks (chunk ids are anonymous), so
+		// this warms every route's async chunk rather than per-route subsets —
+		// acceptable at this app's size and keeps the wiring manifest-driven
+		// rather than hardcoding hashed filenames or routes.
+		preloadScriptUrls: async?.js ?? [],
+	};
 }

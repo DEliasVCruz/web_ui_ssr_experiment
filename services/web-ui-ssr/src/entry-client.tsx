@@ -14,10 +14,19 @@ const cssUrls = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel=
 	.map((link) => link.getAttribute("href"))
 	.filter((href): href is string => href !== null);
 
+// Same recovery for the async-chunk preload hints (rel=preload as=script) the
+// server injected — otherwise HeadContent would reconcile them away. Harmless
+// resource-wise (already fetched) but keeps server/client head output identical.
+const preloadScriptUrls = Array.from(
+	document.querySelectorAll<HTMLLinkElement>('link[rel="preload"][as="script"]'),
+)
+	.map((link) => link.getAttribute("href"))
+	.filter((href): href is string => href !== null);
+
 const router = createRouter({
 	transport: getClientTransport(),
 	queryClient: createQueryClient(),
-	ssrContext: { cssUrls, scriptUrls: [] },
+	ssrContext: { cssUrls, scriptUrls: [], preloadScriptUrls },
 });
 
 // Hydrate <body>, not document: RouterServer emits the <html>/<head> shell inside a

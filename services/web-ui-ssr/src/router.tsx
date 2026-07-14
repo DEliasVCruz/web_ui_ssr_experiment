@@ -10,6 +10,12 @@ export interface SsrContext {
 	// referenced for hydration because splitChunks emits them as separate initial
 	// chunks — the rspack runtime does not auto-load sibling initial chunks.
 	scriptUrls: string[];
+	// Async (code-split) chunks to warm via <link rel="preload" as="script">.
+	// Without these hints the route chunk and its deps (e.g. the arktype
+	// validation chunk on /todos) are only discovered after the entry executes,
+	// putting a request waterfall on the hydration critical path. Classic
+	// scripts (not ES modules), hence preload rather than modulepreload.
+	preloadScriptUrls: string[];
 }
 
 export function createRouter(opts: {
