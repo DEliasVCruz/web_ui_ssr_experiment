@@ -1,5 +1,11 @@
 package com.webuipoc.businesslogic.connect;
 
+import build.buf.protovalidate.ValidationResult;
+import build.buf.protovalidate.Validator;
+import build.buf.protovalidate.Violation;
+import build.buf.protovalidate.exceptions.ValidationException;
+import build.buf.validate.FieldPath;
+import build.buf.validate.FieldPathElement;
 import com.google.protobuf.Message;
 import com.google.protobuf.util.JsonFormat;
 import io.grpc.Metadata;
@@ -37,6 +43,12 @@ import java.util.concurrent.TimeoutException;
  *   <li>Errors: non-200 status per the spec's code table ({@link ConnectCode})
  *       with an {@code application/json} body {@code {"code": ..., "message": ...}},
  *       regardless of the request codec.</li>
+ *   <li>protovalidate: every successfully parsed request message is checked
+ *       against its {@code buf.validate.*} constraints before the call is
+ *       dispatched. Violations map to {@code invalid_argument} (HTTP 400) with
+ *       the violated field paths and rule messages in the error message; a
+ *       {@link ValidationException} (validator infrastructure failure, not a
+ *       violation) maps to {@code internal}.</li>
  *   <li>{@code connect-protocol-version}: accepted but not required (connect-es
  *       always sends {@code 1}); a present-but-unsupported version is rejected
  *       with {@code invalid_argument}.</li>
@@ -84,8 +96,10 @@ final class ConnectUnaryHandler implements Handler {
     }
 
     private final Map<String, ServerMethodDefinition<?, ?>> unaryMethods = new HashMap<>();
+    private final Validator validator;
 
-    ConnectUnaryHandler(ServerServiceDefinition service) {
+    ConnectUnaryHandler(ServerServiceDefinition service, Validator validator) {
+        this.validator = validator;
         for (ServerMethodDefinition<?, ?> method : service.getMethods()) {
             if (method.getMethodDescriptor().getType() == MethodDescriptor.MethodType.UNARY) {
                 unaryMethods.put("/" + method.getMethodDescriptor().getFullMethodName(), method);
@@ -162,6 +176,22 @@ final class ConnectUnaryHandler implements Handler {
                             + e.getMessage(),
                     null);
             return;
+        }
+
+        if (request instanceof Message message) {
+            ValidationResult validation;
+            try {
+                validation = validator.validate(message);
+            } catch (ValidationException e) {
+                // Validator infrastructure failure (rule compilation/evaluation),
+                // not a constraint violation: the request may well be fine.
+                sendError(res, ConnectCode.INTERNAL, "request validation failed: " + e.getMessage(), null);
+                return;
+            }
+            if (!validation.isSuccess()) {
+                sendError(res, ConnectCode.INVALID_ARGUMENT, describeViolations(validation), null);
+                return;
+            }
         }
 
         UnaryCapturingServerCall<ReqT, RespT> call = new UnaryCapturingServerCall<>(descriptor);
@@ -289,6 +319,42 @@ final class ConnectUnaryHandler implements Handler {
         }
         String json = JsonFormat.printer().omittingInsignificantWhitespace().print((Message) message);
         return json.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Renders protovalidate violations as one human-readable line per violation:
+     * {@code invalid request: <field path>: <rule message> [<rule id>]}, joined
+     * with {@code "; "}.
+     */
+    private static String describeViolations(ValidationResult result) {
+        StringBuilder out = new StringBuilder("invalid request");
+        String separator = ": ";
+        for (Violation violation : result.getViolations()) {
+            build.buf.validate.Violation proto = violation.toProto();
+            out.append(separator);
+            separator = "; ";
+            String path = fieldPathString(proto.getField());
+            if (!path.isEmpty()) {
+                out.append(path).append(": ");
+            }
+            out.append(proto.getMessage());
+            if (!proto.getRuleId().isEmpty()) {
+                out.append(" [").append(proto.getRuleId()).append(']');
+            }
+        }
+        return out.toString();
+    }
+
+    /** Joins a violation's field path elements with dots (e.g. {@code todo.title}). */
+    private static String fieldPathString(FieldPath path) {
+        StringBuilder out = new StringBuilder();
+        for (FieldPathElement element : path.getElementsList()) {
+            if (!out.isEmpty()) {
+                out.append('.');
+            }
+            out.append(element.getFieldName());
+        }
+        return out.toString();
     }
 
     /**

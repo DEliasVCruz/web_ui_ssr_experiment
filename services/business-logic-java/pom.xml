@@ -24,6 +24,7 @@
     <version.helidon>4.4.1</version.helidon>
     <version.protobuf>4.35.1</version.protobuf>
     <version.grpc>1.82.2</version.grpc>
+    <version.protovalidate>1.2.2</version.protovalidate>
     <version.junit>5.14.4</version.junit>
   </properties>
 
@@ -86,6 +87,23 @@
       <groupId>io.grpc</groupId>
       <artifactId>grpc-protobuf</artifactId>
       <version>${version.grpc}</version>
+      <exclusions>
+        <!-- We pin protobuf-java explicitly above -->
+        <exclusion>
+          <groupId>com.google.protobuf</groupId>
+          <artifactId>protobuf-java</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <!-- protovalidate runtime: evaluates the buf.validate.* constraints that
+         proto/todo/v1/todo.proto declares (the generated TodoOuterClass also
+         references the bundled build.buf.validate gencode). Validation runs
+         generically in ConnectUnaryHandler; no codegen-based validation. -->
+    <dependency>
+      <groupId>build.buf</groupId>
+      <artifactId>protovalidate</artifactId>
+      <version>${version.protovalidate}</version>
       <exclusions>
         <!-- We pin protobuf-java explicitly above -->
         <exclusion>

@@ -1,5 +1,7 @@
 package com.webuipoc.businesslogic.connect;
 
+import build.buf.protovalidate.Validator;
+import build.buf.protovalidate.ValidatorFactory;
 import io.grpc.BindableService;
 import io.grpc.ServerServiceDefinition;
 import io.helidon.webserver.http.HttpFeature;
@@ -23,6 +25,12 @@ import java.util.List;
  * the Bun service): an {@code OPTIONS} preflight handler and response headers
  * on every route, per {@link ConnectCors}.
  *
+ * <p>Every parsed request message is checked against its protovalidate
+ * constraints ({@code buf.validate.*} options in the proto) before dispatch;
+ * violations yield a Connect {@code invalid_argument} error. The
+ * {@link Validator} is built once here — it is thread-safe and caches
+ * compiled rules per message type — and shared by all handlers.
+ *
  * <pre>{@code
  * WebServer.builder()
  *         .routing(routing -> routing
@@ -35,6 +43,7 @@ import java.util.List;
 public final class ConnectUnaryFeature implements HttpFeature {
 
     private final List<ServerServiceDefinition> services;
+    private final Validator validator = ValidatorFactory.newBuilder().build();
 
     private ConnectUnaryFeature(List<ServerServiceDefinition> services) {
         this.services = services;
@@ -60,7 +69,7 @@ public final class ConnectUnaryFeature implements HttpFeature {
         routing.options("/*", ConnectCors.preflightHandler());
         for (ServerServiceDefinition service : services) {
             String serviceName = service.getServiceDescriptor().getName();
-            routing.post("/" + serviceName + "/*", new ConnectUnaryHandler(service));
+            routing.post("/" + serviceName + "/*", new ConnectUnaryHandler(service, validator));
         }
     }
 }
