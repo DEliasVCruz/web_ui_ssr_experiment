@@ -30,6 +30,7 @@ import {
 	todosQueryOptions,
 	updateTodoMutation,
 } from "../queries/todos";
+import { validateTitle } from "../validation/todo";
 
 const MS_PER_SECOND = 1000;
 
@@ -68,9 +69,11 @@ function AddTodoForm() {
 	const form = createForm(() => ({
 		defaultValues: { title: "" },
 		onSubmit: ({ value }) => {
-			const title = value.title.trim();
-			if (title) {
-				create.mutate(title);
+			// Guard with the proto-derived validator so an invalid title (empty,
+			// whitespace-only, or over max length) never issues a CreateTodo RPC —
+			// even if the button were somehow clicked while invalid.
+			if (validateTitle(value.title) === undefined) {
+				create.mutate(value.title.trim());
 			}
 		},
 	}));
@@ -84,32 +87,43 @@ function AddTodoForm() {
 				void form.handleSubmit();
 			}}
 		>
-			<Field.Root>
-				{/* Visually-hidden label gives the input a real accessible name
-				    (input gets aria-labelledby → this label) beyond the placeholder. */}
-				<Field.Label class={srOnly}>New todo</Field.Label>
-				<form.Field
-					name="title"
-					validators={{
-						onChange: ({ value }) => (value.trim() ? undefined : "Title is required"),
-					}}
-				>
-					{(field) => (
-						<Field.Input
-							type="text"
-							placeholder="What needs to be done?"
-							value={field().state.value}
-							onInput={(e) => {
-								field().handleChange(e.currentTarget.value);
-							}}
-							onBlur={() => {
-								field().handleBlur();
-							}}
-							disabled={create.isPending}
-						/>
-					)}
-				</form.Field>
-			</Field.Root>
+			<form.Field
+				name="title"
+				validators={{
+					// Human-readable messages derived from the proto constraints:
+					// "Title is required" for empty/whitespace, a max-length message
+					// past the proto's max_len. See src/validation/todo.ts.
+					onChange: ({ value }) => validateTitle(value),
+				}}
+			>
+				{(field) => {
+					const error = () => field().state.meta.errors[0];
+					return (
+						// `invalid` wires Ark's aria-invalid + aria-describedby so the
+						// error is announced and rendered by Field.ErrorText.
+						<Field.Root invalid={Boolean(error())}>
+							{/* Visually-hidden label gives the input a real accessible name
+							    (input gets aria-labelledby → this label) beyond the placeholder. */}
+							<Field.Label class={srOnly}>New todo</Field.Label>
+							<Field.Input
+								type="text"
+								placeholder="What needs to be done?"
+								value={field().state.value}
+								onInput={(e) => {
+									field().handleChange(e.currentTarget.value);
+								}}
+								onBlur={() => {
+									field().handleBlur();
+								}}
+								disabled={create.isPending}
+							/>
+							<Show when={error()}>
+								{(message) => <Field.ErrorText>{message()}</Field.ErrorText>}
+							</Show>
+						</Field.Root>
+					);
+				}}
+			</form.Field>
 			{/* Button disabled state is derived reactively from form state (the
 			    current title value) plus the mutation's pending flag — this is what
 			    the hydration guard relies on: typing must reactively enable Add. */}
