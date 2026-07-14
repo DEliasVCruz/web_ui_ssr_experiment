@@ -39,8 +39,18 @@ const header = [
 ].join("\n");
 
 const modules = MESSAGES.map(({ proto, constName }) => {
-	const json = readFileSync(join(genDir, `${proto}.jsonschema.json`), "utf8").trimEnd();
-	return `export const ${constName} = ${json} as const;`;
+	const file = join(genDir, `${proto}.jsonschema.json`);
+	// Parse, then re-serialize: malformed plugin output must fail loudly HERE
+	// (at generate time) instead of being inlined verbatim into a TS module that
+	// explodes later at typecheck/build. Re-serializing also normalizes the
+	// formatting, keeping re-runs byte-identical regardless of plugin whitespace.
+	let schema: unknown;
+	try {
+		schema = JSON.parse(readFileSync(file, "utf8"));
+	} catch (error) {
+		throw new Error(`wrap-jsonschema: invalid JSON in ${file}: ${String(error)}`);
+	}
+	return `export const ${constName} = ${JSON.stringify(schema, null, 2)} as const;`;
 });
 
 writeFileSync(join(genDir, "schemas.ts"), `${header}${modules.join("\n\n")}\n`);
