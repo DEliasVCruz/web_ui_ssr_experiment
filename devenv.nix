@@ -12,6 +12,32 @@ let
     };
     vendorHash = "sha256-r8vmbZ4oyplqIU6R/6hhcyjoR3E/mOFrB69TrfPYxRI=";
   };
+
+  # bufbuild's own protoc-gen-jsonschema (from protoschema-plugins). Invoked by
+  # buf (buf.gen.yaml) to emit JSON Schema from the proto — including buf.validate
+  # constraints (min_len/max_len -> minLength/maxLength) — which the frontend form
+  # validator is derived from. Built from source so generation is fully offline
+  # and reproducible (same idiom as dockerfmt above), never a buf remote plugin.
+  protoc-gen-jsonschema = pkgs.buildGoModule rec {
+    pname = "protoc-gen-jsonschema";
+    # Pinned to v0.5.0 (not the newer v0.6.0): v0.6.0's go.mod requires
+    # `go 1.25.6`, one patch ahead of this nixpkgs' go 1.25.2, and no 1.25.6
+    # toolchain is available to build hermetically offline. v0.5.0 requires only
+    # `go 1.23.0` and still ships protobuf v1.36.6 + protovalidate, so it fully
+    # supports editions-2023 and the buf.validate string min_len/max_len rules
+    # this repo uses.
+    version = "0.5.0";
+    src = pkgs.fetchFromGitHub {
+      owner = "bufbuild";
+      repo = "protoschema-plugins";
+      rev = "v${version}";
+      hash = "sha256-LEp7RfPfdfRmZ+Jr7HSrFe9KkfM3CEVt98xPQALwdnM=";
+    };
+    vendorHash = "sha256-PcVn6Lsd6yNkqA2mt0dAgd2ez+/RMLFViI6zlyMGB4o=";
+    subPackages = [ "cmd/protoc-gen-jsonschema" ];
+    # Force a local toolchain so a sandboxed build never tries to fetch one.
+    env.GOTOOLCHAIN = "local";
+  };
 in
 {
   # Load .env file automatically
@@ -38,6 +64,8 @@ in
     # Java protobuf/gRPC sources for services/business-logic-java
     pkgs.protobuf
     pkgs.protoc-gen-grpc-java
+    # JSON Schema codegen for the frontend form validator (see derivation above).
+    protoc-gen-jsonschema
   ];
 
   # Shared, non-secret env vars
@@ -85,8 +113,12 @@ in
       description = "Run TypeScript type checking across all workspaces";
     };
     "buf:generate" = {
-      exec = "buf generate";
-      description = "Generate TypeScript code from protobuf definitions";
+      # `bun run generate` = `buf generate && bun run scripts/wrap-jsonschema.ts`;
+      # bun puts node_modules/.bin on PATH so buf resolves the node-based TS
+      # plugins, and the wrapper turns the proto-derived JSON Schema into the
+      # typed `as const` modules the frontend form validator is built from.
+      exec = "bun run generate";
+      description = "Generate TypeScript + JSON Schema code from protobuf definitions";
     };
     "buf:format" = {
       exec = "buf format -w";

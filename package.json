@@ -8,7 +8,7 @@
 	],
 	"scripts": {
 		"dev": "bun run --filter '*' dev",
-		"generate": "buf generate",
+		"generate": "buf generate && bun run scripts/wrap-jsonschema.ts",
 		"build": "bun run --filter '*' build",
 		"test": "bun run --filter '*' test",
 		"check": "biome check .",
