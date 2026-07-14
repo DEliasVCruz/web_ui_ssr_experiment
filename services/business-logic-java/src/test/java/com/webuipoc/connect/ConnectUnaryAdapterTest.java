@@ -535,6 +535,60 @@ class ConnectUnaryAdapterTest {
         assertEquals(415, response.statusCode());
     }
 
+    /**
+     * A GetTodoRequest for {@link #ECHO_ID} plus an unknown length-delimited
+     * field (nr 2) with high-bit content chosen so the payload's base64url
+     * encoding contains BOTH url-alphabet chars {@code -} (index 62) and
+     * {@code _} (index 63). Pure-ASCII payloads (like a bare uuid) can never
+     * produce those indices, so without this payload the url-safe and standard
+     * base64 alphabets are indistinguishable. Unknown fields are retained by
+     * the proto parser and ignored by protovalidate, so the request still
+     * dispatches normally.
+     */
+    private static byte[] base64AlphabetProbePayload() {
+        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
+        byte[] core = request.toByteArray();
+        byte[] unknownField = {0x12, 0x03, (byte) 0x80, (byte) 0xbe, (byte) 0xfc};
+        byte[] payload = new byte[core.length + unknownField.length];
+        System.arraycopy(core, 0, payload, 0, core.length);
+        System.arraycopy(unknownField, 0, payload, core.length, unknownField.length);
+        return payload;
+    }
+
+    @Test
+    void getBase64UrlAlphabetCharsDecodeCorrectly() throws Exception {
+        // Locks the decoder to the base64url alphabet: a standard-alphabet
+        // decoder would reject '-'/'_' and turn this 200 into a 400.
+        byte[] payload = base64AlphabetProbePayload();
+        String encoded = base64Url(payload);
+        // Guard the test's own premise: the probe must actually exercise the
+        // url-alphabet code points.
+        assertTrue(encoded.contains("-") && encoded.contains("_"),
+                "probe payload must encode with both '-' and '_': " + encoded);
+
+        HttpResponse<byte[]> response = get(GET_TODO + "?connect=v1&encoding=proto&base64=1&message=" + encoded);
+
+        assertEquals(200, response.statusCode());
+        TodoOuterClass.GetTodoResponse parsed = TodoOuterClass.GetTodoResponse.parseFrom(response.body());
+        assertEquals(ECHO_ID, parsed.getTodo().getId());
+    }
+
+    @Test
+    void getStandardBase64AlphabetIsRejected() throws Exception {
+        // The same payload in the STANDARD base64 alphabet ('+' and '/',
+        // percent-encoded so they survive URL decoding) must be rejected as
+        // invalid_argument — a standard-alphabet decoder would silently accept
+        // it (and 200), so this test also pins the alphabet.
+        String std = Base64.getEncoder().withoutPadding().encodeToString(base64AlphabetProbePayload());
+        assertTrue(std.contains("+") && std.contains("/"),
+                "probe payload must std-encode with both '+' and '/': " + std);
+
+        HttpResponse<byte[]> response = get(GET_TODO
+                + "?connect=v1&encoding=proto&base64=1&message=" + urlEncode(std));
+
+        assertConnectError(response, 400, "invalid_argument");
+    }
+
     @Test
     void getMalformedBase64MessageIsRejected() throws Exception {
         // '*' is outside the base64url alphabet: decoding must fail as invalid_argument.
