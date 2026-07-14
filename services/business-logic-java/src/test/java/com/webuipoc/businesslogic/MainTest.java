@@ -90,6 +90,34 @@ class MainTest {
     }
 
     @Test
+    void uppercaseUuidPassesValidationAndMissesAtTheRepoLayer() throws Exception {
+        // protovalidate's string.uuid rule is case-insensitive: an uppercase
+        // UUID is NOT rejected as invalid_argument. Server-generated ids are
+        // lowercase UUIDv7, so the lookup then misses with not_found from the
+        // repository layer. This pins the boundary between the two layers.
+        try (TodoDb db = new TodoDb(tempDir.resolve("todos.db").toString())) {
+            WebServer server = startWiredServer(db);
+            try (HttpClient client = HttpClient.newHttpClient()) {
+                HttpResponse<String> response = client.send(
+                        HttpRequest.newBuilder()
+                                .uri(URI.create("http://localhost:" + server.port()
+                                        + "/todo.v1.TodoService/GetTodo"))
+                                .header("Content-Type", "application/json")
+                                .POST(HttpRequest.BodyPublishers.ofString(
+                                        "{\"id\":\"0197ABCD-EF12-7ABC-8DEF-0123456789AB\"}"))
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+
+                assertEquals(404, response.statusCode());
+                assertTrue(response.body().contains("\"code\":\"not_found\""),
+                        "body was: " + response.body());
+            } finally {
+                server.stop();
+            }
+        }
+    }
+
+    @Test
     void portResolutionMirrorsBunService() {
         assertEquals(3001, Main.resolvePort(null));
         assertEquals(3001, Main.resolvePort(""));

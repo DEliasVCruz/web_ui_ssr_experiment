@@ -32,7 +32,9 @@ message ListTodosResponse {
 
 // GetTodoRequest is the request message for GetTodo.
 message GetTodoRequest {
-  // The ID of the todo to retrieve.
+  // The ID of the todo to retrieve. Note: string.uuid accepts uppercase hex
+  // too (case-insensitive); server-generated ids are lowercase UUIDv7, so an
+  // uppercase id passes validation but misses at lookup (not_found).
   string id = 1 [(buf.validate.field).string.uuid = true];
 }
 
