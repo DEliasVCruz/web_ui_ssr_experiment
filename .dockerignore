@@ -8,3 +8,4 @@ node_modules
 # regenerates codegen inside its build stage and must never see host copies
 services/business-logic-java/target
 services/business-logic-java/generated-sources
+packages/java/*/target

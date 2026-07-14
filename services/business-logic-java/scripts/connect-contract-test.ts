@@ -6,8 +6,12 @@
  * from `@connectrpc/connect-node` — against the Java server serving the
  * StubTodoService test fixture.
  *
- * Start the server first (from the repo root, inside devenv):
+ * Start the server first (from the repo root, inside devenv). Install the
+ * connect-unary-adapter to the local repo once, then run exec:java on the
+ * service module alone (a reactor invocation would also run exec on the
+ * aggregator, which has no main class):
  *
+ *   mvn -q install -DskipTests
  *   mvn -q -f services/business-logic-java test-compile exec:java \
  *       -DmainClass=com.webuipoc.connect.ContractTestServer \
  *       -Dexec.classpathScope=test

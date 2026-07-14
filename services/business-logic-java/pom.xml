@@ -114,6 +114,19 @@
       <artifactId>grpc-inprocess</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- JsonFormat in the adapter integration tests (ConnectUnaryAdapterTest):
+         declared explicitly rather than leaning on the transitive copy the
+         connect-unary-adapter dependency happens to bring in. Deliberately
+         default (compile) scope, NOT test scope: a direct test-scope
+         declaration wins dependency mediation over the adapter's transitive
+         compile-scope dep and silently drops the jar from target/libs — which
+         breaks the adapter's application/json codec at runtime (verified: with
+         test scope, copy-dependencies omits it). Version from the parent's
+         dependencyManagement. -->
+    <dependency>
+      <groupId>com.google.protobuf</groupId>
+      <artifactId>protobuf-java-util</artifactId>
+    </dependency>
   </dependencies>
 
   <build>
