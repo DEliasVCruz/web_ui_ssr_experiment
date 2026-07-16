@@ -40,3 +40,7 @@ data/
 
 # Wrangler files
 .DS_Store
+
+services/**/.classpath
+services/**/.project
+services/**/.settings/
