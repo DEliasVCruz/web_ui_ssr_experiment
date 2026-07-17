@@ -80,6 +80,12 @@ test.describe("RPC wire format", () => {
 				expect(rpc.url, `GET url for ${rpc.rpc}`).toContain("connect=v1");
 				expect(rpc.url, `GET url for ${rpc.rpc}`).toContain("encoding=proto");
 				expect(rpc.url, `GET url for ${rpc.rpc}`).toContain("base64=1");
+				expect(rpc.url, `GET url for ${rpc.rpc}`).toContain("message=");
+				if (rpc.rpc === "ListTodos") {
+					// ListTodosRequest is empty: connect-es must still send the message
+					// param, as an EMPTY message= (proves empty-request GET works).
+					expect(rpc.url, `empty message param for ${rpc.rpc}`).toMatch(/[?&]message=(&|$)/);
+				}
 			} else if (WRITE_RPCS.has(rpc.rpc)) {
 				// Mutations: binary POST with a protobuf request body.
 				expect(rpc.method, `method for ${rpc.rpc}`).toBe("POST");
