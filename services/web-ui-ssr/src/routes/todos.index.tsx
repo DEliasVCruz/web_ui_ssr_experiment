@@ -31,19 +31,9 @@ import {
 	updateTodoMutation,
 } from "../queries/todos";
 import { validateTitle } from "../validation/todo";
-import { withViewTransition } from "../view-transition";
+import { viewTransitionName, withViewTransition } from "../view-transition";
 
 const MS_PER_SECOND = 1000;
-
-// A stable, per-todo View Transitions identity so list mutations animate: the
-// browser matches old/new snapshots by name, fading a removed row out, a new
-// row in, and morphing surviving rows to their new positions. Prefixed so the
-// value is a valid CSS <custom-ident> (a bare UUIDv7 id can start with a digit).
-// Set via a plain DOM `style` attribute (below), which is outside Panda's scope,
-// so strictTokens does not apply to this non-token identifier value.
-function viewTransitionName(id: string): string {
-	return `todo-${id}`;
-}
 
 function formatDate(ts: { seconds: number } | undefined): string {
 	if (!ts) return "";

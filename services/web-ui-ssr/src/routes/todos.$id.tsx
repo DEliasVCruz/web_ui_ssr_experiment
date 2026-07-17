@@ -25,19 +25,9 @@ import {
 } from "../pages/todo-detail.styles";
 import { todoQueryOptions, updateTodoMutation } from "../queries/todos";
 import { validateDetails } from "../validation/todo";
+import { viewTransitionName } from "../view-transition";
 
 const MS_PER_SECOND = 1000;
-
-// Same stable per-todo View Transitions identity the list row carries (see
-// routes/todos.index.tsx): giving the detail-page title the same
-// `view-transition-name` upgrades the route cross-fade into a shared-element
-// morph — the list row's title flows into the detail heading. Prefixed so the
-// value is a valid CSS <custom-ident> (a bare UUIDv7 can start with a digit).
-// Set via a plain DOM `style` attribute (outside Panda's scope, so strictTokens
-// does not apply to this non-token identifier value).
-function viewTransitionName(id: string): string {
-	return `todo-${id}`;
-}
 
 function formatDate(ts: { seconds: number } | undefined): string {
 	if (!ts) return "";
@@ -52,7 +42,13 @@ function formatDate(ts: { seconds: number } | undefined): string {
 // deliberate CLEAR and any text is a set — title/completed are left untouched.
 // Mounted fresh each time editing opens, so `defaultValues` always reflect the
 // latest loaded details.
-function DetailsEditor(props: { id: string; initial: string; onDone: () => void }) {
+//
+// `initial` is `string | undefined`, honest about the post-spread reality: the
+// generated type says `details: string`, but the `{...todo}` spread in
+// todoQueryOptions drops the unset explicit-presence field entirely, so a
+// never-set todo reads `undefined` at runtime. Normalised to "" for the form
+// (display-equivalent: both mean "no details").
+function DetailsEditor(props: { id: string; initial: string | undefined; onDone: () => void }) {
 	// transport/queryClient come from the TanStack router context (which crosses
 	// the code-split/streaming boundary), not Solid context — see __root.tsx.
 	const transport = Route.useRouteContext({ select: (c) => c.transport });
@@ -80,7 +76,10 @@ function DetailsEditor(props: { id: string; initial: string; onDone: () => void 
 	}));
 
 	const form = createForm(() => ({
-		defaultValues: { details: props.initial },
+		// `?? ""` handles the never-set case (see the prop note above): the form
+		// always works on a string, so Save on an untouched empty editor is a
+		// clean details:"" write, never a spurious validation failure.
+		defaultValues: { details: props.initial ?? "" },
 		onSubmit: ({ value }) => {
 			// Guard with the proto-derived validator so over-length details never
 			// issue an UpdateTodo RPC. `value.details` is passed as-is: "" clears,

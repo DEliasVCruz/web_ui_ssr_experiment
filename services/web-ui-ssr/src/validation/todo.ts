@@ -77,9 +77,15 @@ export const detailsBounds = jsonSchemaToType(detailsSchema);
  * the empty string is always valid (it is the clear mechanism); only the proto's
  * maxLength can fail. Returns the message string on failure, or `undefined` when
  * valid — the shape @tanstack/solid-form's field validators expect.
+ *
+ * Accepts `undefined` and treats it as "" (valid): the `{...todo}` spread in the
+ * query layer drops an unset explicit-presence details field, so a never-set
+ * todo reads `undefined` at runtime despite the generated `string` type. The
+ * editor normalises to "" at its boundary, but the validator is defensive too —
+ * an undefined value must never surface a nonsense over-length message.
  */
-export function validateDetails(value: string): string | undefined {
-	const result = detailsBounds(value);
+export function validateDetails(value: string | undefined): string | undefined {
+	const result = detailsBounds(value ?? "");
 	if (result instanceof type.errors) {
 		return `Details must be at most ${String(MAX_DETAILS_LENGTH)} characters`;
 	}

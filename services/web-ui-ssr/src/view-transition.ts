@@ -15,6 +15,19 @@
  */
 
 /**
+ * The stable, per-todo View Transitions identity shared by the list row (so
+ * list mutations animate: the browser matches old/new snapshots by name) and
+ * the detail-page title (so the route cross-fade upgrades to a shared-element
+ * morph between the two). Prefixed so the value is a valid CSS <custom-ident>
+ * (a bare UUIDv7 id can start with a digit). Pure string derivation — SSR-safe.
+ * Consumers set it via a plain DOM `style` attribute, which is outside Panda's
+ * scope, so strictTokens does not apply to this non-token identifier value.
+ */
+export function viewTransitionName(id: string): string {
+	return `todo-${id}`;
+}
+
+/**
  * True only in a browser that supports View Transitions AND whose user has not
  * requested reduced motion. False during SSR (no `window`/`document`), in
  * non-supporting engines, and under `prefers-reduced-motion: reduce`.

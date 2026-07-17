@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import { MAX_DETAILS_LENGTH } from "../src/validation/todo";
 import {
 	createBackendTodo,
 	deleteBackendTodo,
@@ -13,10 +14,10 @@ import {
 // (the app-level clear mechanism — this is what pins field-guide #2's explicit
 // presence); and the proto-derived max-length gates the write client-side.
 
-// One past the proto's details max_len (1000); the exact number is asserted
-// loosely below so the spec survives a constraint change.
-const OVER_MAX_DETAILS_LENGTH = 1001;
-const OVER_MAX_DETAILS = "d".repeat(OVER_MAX_DETAILS_LENGTH);
+// One past the proto's details max_len, derived from the generated-schema bound
+// (currently 1000) so the fixture — like the loose message assertion below —
+// stays meaningful under any proto constraint change.
+const OVER_MAX_DETAILS = "d".repeat(MAX_DETAILS_LENGTH + 1);
 // Give a wrongly-fired RPC time to appear on the wire before asserting none did.
 const SETTLE_MS = 500;
 
@@ -70,9 +71,23 @@ test.describe("todo details view/edit", () => {
 			await page.getByRole("button", { name: "Edit details" }).click();
 			const textarea = page.getByRole("textbox", { name: "Details" });
 			await expect(textarea).toBeVisible();
-			// Seeded from the current (empty) details.
+			// Seeded from the current (never-set) details: the {...todo} spread drops
+			// the unset field, so the runtime value is undefined — the editor must
+			// normalize it to "" (F1).
 			await expect(textarea).toHaveValue("");
 
+			// Saving the untouched empty editor on a NEVER-SET todo must be a clean
+			// save (details:""), never a spurious over-length error under an empty
+			// textarea (the validateDetails(undefined) regression).
+			await page.getByRole("button", { name: "Save", exact: true }).click();
+			await expect(page.getByText(/Details must be at most/i)).toHaveCount(0);
+			// The save succeeded: the editor closed and the empty state remains.
+			await expect(page.getByRole("textbox", { name: "Details" })).toHaveCount(0);
+			await expect(page.getByText("No details yet.")).toBeVisible();
+
+			// Reopen and do the real edit.
+			await page.getByRole("button", { name: "Edit details" }).click();
+			await expect(textarea).toBeVisible();
 			await textarea.fill(newDetails);
 			await page.getByRole("button", { name: "Save", exact: true }).click();
 

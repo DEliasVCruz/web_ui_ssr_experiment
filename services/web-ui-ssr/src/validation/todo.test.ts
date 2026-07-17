@@ -100,4 +100,12 @@ describe("details validation is derived from the proto constraints", () => {
 		expect(validateDetails("Some notes")).toBeUndefined();
 		expect(validateDetails(detailsAtMax)).toBeUndefined();
 	});
+
+	test("validateDetails treats undefined as empty (never-set todo)", () => {
+		// The query layer's {...todo} spread drops an UNSET explicit-presence
+		// details field, so a never-set todo reads `undefined` at runtime despite
+		// the generated `string` type. That must validate like "" — never surface
+		// a nonsense over-length message under an empty editor.
+		expect(validateDetails(undefined)).toBeUndefined();
+	});
 });
