@@ -2,16 +2,20 @@
 
 The local container runtime for this repo is [podman](https://podman.io/) driving
 a lightweight Linux VM (Fedora CoreOS) via Apple's virtualization framework. It is
-used for two things:
+used for three things:
 
 1. Running `docker-compose.yml` locally (`podman compose`).
 2. Backing [Testcontainers](https://testcontainers.com/) integration tests
    (the Java service, wired via env — see below).
+3. The headless Chromium E2E browser container (`devenv tasks run playwright:up`,
+   used by `ci:e2e`).
 
-podman is installed **alongside** any existing Docker Desktop / colima install —
-it does not replace them. The `docker` CLI, Docker Desktop, and colima are all
-left untouched; inside the devenv shell the `docker` client is simply pointed at
-the podman socket (see [DOCKER_HOST](#env-vars-and-where-they-live)).
+podman is installed **alongside** any existing Docker Desktop install — it does
+not replace it. The `docker` CLI and Docker Desktop are left untouched; inside
+the devenv shell the `docker` client is simply pointed at the podman socket (see
+[DOCKER_HOST](#env-vars-and-where-they-live)). colima, which previously ran the
+E2E browser container, was **removed** from devenv in this migration — podman is
+the only project-managed runtime now.
 
 > Decided 2026-07-16. `nerdctl` was considered and deferred to the nix epic.
 
@@ -59,9 +63,9 @@ All wiring lives in `devenv.nix`, so every `devenv shell` gets it automatically:
 `podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}'` and
 exports `unix://<that path>` — but only if the socket actually exists. If the
 podman machine is not running (or not created), `DOCKER_HOST` is left untouched
-so `docker` keeps talking to whatever context is otherwise active (e.g. colima).
-Outside the devenv shell, `DOCKER_HOST` is never set by this repo, so Docker
-Desktop / colima are unaffected.
+so `docker` keeps talking to whatever context is otherwise active. Outside the
+devenv shell, `DOCKER_HOST` is never set by this repo, so Docker Desktop is
+unaffected.
 
 Testcontainers reads these three variables to find and use podman. That is the
 entire integration — there is **no** `~/.testcontainers.properties` file on the
@@ -105,6 +109,11 @@ then remove `TESTCONTAINERS_RYUK_DISABLED` from `devenv.nix`. Rootful + privileg
 Ryuk lets the reaper run. We avoided this because rootful is a heavier, harder-to-
 reverse change to the developer's machine.
 
+> **Revisit in wdt.5** (the task that adds real Testcontainers tests): choose
+> between rootful + privileged Ryuk and a scheduled/`prune` cleanup task, and
+> re-check whether the machine's default 2 GiB RAM is enough for the test
+> containers it will run.
+
 ## Running docker-compose under podman
 
 From the repo root, inside the devenv shell:
@@ -115,11 +124,14 @@ podman compose -f docker-compose.yml up --build -d   # builds both Dockerfiles v
 podman compose -f docker-compose.yml down
 ```
 
-`podman compose` shells out to an **external compose provider**. It prefers a
-`docker-compose` binary on `PATH` if one exists (that provider is just a client —
-it talks to the podman socket via `DOCKER_HOST`, it does **not** touch the Docker
-Desktop daemon), and otherwise falls back to `podman-compose` (provided by devenv
-from nixpkgs, so a machine with no Docker install still works).
+`podman compose` shells out to an **external compose provider**. It looks for a
+`docker-compose` binary on `PATH` **and** in Docker's CLI-plugin locations
+(`~/.docker/cli-plugins/docker-compose` etc.), preferring those over
+`podman-compose`. On any machine with Docker Desktop installed, that means
+Docker's `docker-compose` is effectively always the provider and the
+`podman-compose` fallback (kept in devenv for Docker-free machines) is
+unreachable. Either provider is just a client — it talks to the podman socket
+via `DOCKER_HOST` and does **not** touch the Docker Desktop daemon.
 
 The image builds run under **buildah** and honour the Dockerfiles' BuildKit
 `TARGETARCH` arg. `docker-compose.yml` has no healthchecks and only plain
@@ -127,17 +139,39 @@ The image builds run under **buildah** and honour the Dockerfiles' BuildKit
 
 ## Known rough edges
 
-- **`podman compose` provider selection.** Which provider is used depends on what
-  is on `PATH`. On a machine with Docker Desktop's `docker-compose` installed,
-  that binary wins over `podman-compose`. Both work against the podman socket; if
-  you see a `>>>> Executing external compose provider "…docker-compose" <<<<`
-  banner, that is expected.
-- **colima / `playwright:up`.** The repo's `playwright:up` devenv task starts
-  colima and runs a Chromium container with `docker`. Because `DOCKER_HOST` in the
-  devenv shell now points at podman, `docker` in that task will target podman, not
-  colima. That task was **not** modified by the podman migration and may need a
-  follow-up if the E2E flow should keep running on colima (or be moved to podman).
+- **Connection refused while the machine claims to be running.** If podman
+  commands fail with `connection refused` (or the socket vanishes) while
+  `podman machine list` says the machine is running — e.g. after a gvproxy
+  crash or a host sleep/wake — restart the machine:
+  `podman machine stop && podman machine start`.
+- **`podman compose` provider selection.** See above — on Docker Desktop
+  machines the provider is Docker's own `docker-compose`. If you see a
+  `>>>> Executing external compose provider "…docker-compose" <<<<` banner,
+  that is expected.
+- **E2E browser (`playwright:up`) needs the machine up.** The task runs the
+  Chromium container through `docker` → podman socket, so `podman machine start`
+  must have happened first. The task polls `localhost:9222/json/version` before
+  returning, so the first-run image pull (~1 min through gvproxy) doesn't race
+  the test suite.
 - **Ryuk disabled** ⇒ hard-crashed runs can leak containers (see above).
 - **Rootless port binding.** The machine is rootless, so containers can only bind
   host ports ≥ 1024. `docker-compose.yml` uses 3000/3001, so this is fine; switch
   to `--rootful` if you ever need privileged ports.
+
+## Uninstalling / reversal
+
+To remove everything this migration put on a machine:
+
+```bash
+# 1. Delete the podman machine (VM + its disk under
+#    ~/.local/share/containers/podman/machine and ~/.config/containers/…)
+podman machine stop
+podman machine rm podman-machine-default
+
+# 2. Remove the packages: delete pkgs.podman / pkgs.podman-compose from
+#    devenv.nix (and the DOCKER_HOST/TESTCONTAINERS_* wiring); the nix store
+#    paths are garbage-collected by `nix store gc` eventually.
+```
+
+No files outside those directories are created; there is no
+`~/.testcontainers.properties` and nothing is installed via brew.

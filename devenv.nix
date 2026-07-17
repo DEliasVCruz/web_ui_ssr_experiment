@@ -57,13 +57,15 @@ in
     pkgs.buf
     pkgs.git
     pkgs.hadolint
-    pkgs.colima
+    # docker-client is the plain docker CLI (no daemon); inside the devenv
+    # shell it talks to the podman machine via DOCKER_HOST (see enterShell).
     pkgs.docker-client
     # Local container runtime (task wdt.2): podman drives a lightweight
     # Fedora CoreOS VM via Apple's virtualization framework (applehv + vfkit,
-    # both bundled by the nixpkgs podman wrapper on darwin). Installed ALONGSIDE
-    # colima/docker-client — neither is removed. `podman-compose` is the compose
-    # provider `podman compose` shells out to.
+    # both bundled by the nixpkgs podman wrapper on darwin). colima was removed
+    # in the same migration — everything container-shaped (compose, e2e browser,
+    # testcontainers) now runs on the podman machine. `podman-compose` is a
+    # fallback compose provider for `podman compose`.
     pkgs.podman
     pkgs.podman-compose
     dockerfmt
@@ -106,8 +108,8 @@ in
     # than hardcoded, so it is correct regardless of machine name/provider and
     # never breaks a checkout on another host. If no podman machine socket is
     # available (podman not started, or machine absent), DOCKER_HOST is left
-    # untouched so `docker` keeps talking to whatever context is active
-    # (e.g. colima) — this shell does not force podman on when it is down.
+    # untouched so `docker` keeps talking to whatever context is otherwise
+    # active — this shell does not force podman on when it is down.
     if command -v podman >/dev/null 2>&1; then
       _podman_sock=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null | head -1)
       if [ -n "$_podman_sock" ] && [ -S "$_podman_sock" ]; then
@@ -232,12 +234,10 @@ in
       description = "Auto-fix docker-compose lint issues";
     };
     "playwright:up" = {
+      # Runs on podman: the devenv shell's DOCKER_HOST points the docker CLI at
+      # the podman machine socket (see enterShell), so this requires
+      # `podman machine start` to have been run (docs/podman.md).
       exec = ''
-        # Start Colima if not running
-        if ! colima status 2>/dev/null | grep -q "Running"; then
-          echo "Starting Colima..."
-          colima start
-        fi
         # Run headless Chromium container with CDP endpoint
         if docker ps --format '{{.Names}}' | grep -q '^playwright-browser$'; then
           echo "Playwright browser already running on http://localhost:9222"
@@ -246,10 +246,27 @@ in
           echo "Starting headless Chromium container..."
           docker run -d --name playwright-browser --shm-size=2g -p 9222:9222 \
             chromedp/headless-shell:latest
-          echo "Playwright browser running on http://localhost:9222"
         fi
+        # Readiness poll: the first run pulls the image through gvproxy
+        # (~1 min), and Chrome itself needs a moment to open the CDP port —
+        # don't return (and let ci:e2e race ahead) until CDP answers.
+        echo "Waiting for CDP endpoint on http://localhost:9222 ..."
+        ready=0
+        for _ in $(seq 1 60); do
+          if curl -sf --connect-timeout 2 --max-time 4 -o /dev/null "http://localhost:9222/json/version"; then
+            ready=1
+            break
+          fi
+          sleep 2
+        done
+        if [ "$ready" -ne 1 ]; then
+          echo "ERROR: CDP endpoint never became ready on :9222" >&2
+          docker logs playwright-browser 2>&1 | tail -20 >&2 || true
+          exit 1
+        fi
+        echo "Playwright browser running on http://localhost:9222"
       '';
-      description = "Start Colima and headless Chromium container with CDP on port 9222";
+      description = "Start headless Chromium container (podman) with CDP on port 9222";
     };
     "playwright:down" = {
       exec = ''

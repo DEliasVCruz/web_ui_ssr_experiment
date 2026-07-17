@@ -2,7 +2,7 @@ import { type Browser, test as base, chromium, expect, type Page } from "@playwr
 
 const HTTP_OK = 200;
 
-// The browser is a headless Chromium running in a Colima container, exposing CDP
+// The browser is a headless Chromium running in a podman container, exposing CDP
 // on this endpoint. Playwright connects to it over CDP instead of launching a
 // local browser (see playwright.config.ts / devenv `playwright:up`).
 // Destructured with defaults: dot access on process.env is barred by
