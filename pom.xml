@@ -470,6 +470,17 @@
             <printFailingErrors>true</printFailingErrors>
             <failOnViolation>true</failOnViolation>
             <minimumTokens>100</minimumTokens>
+            <!-- The check/cpd-check goals fork the pmd/cpd REPORT mojos, which by
+                 default render standalone HTML pages plus the full fluido site skin
+                 (target/reports/{pmd,cpd}.html + js/css/fonts) even on a clean run.
+                 skipEmptyReport=true skips that rendering when there are no
+                 violations — the green path emits only the pmd.xml/cpd.xml the check
+                 goals consume, keeping site-skin junk (which trips repo-wide JS
+                 tooling) out of target/. On a FAILING run the HTML is still rendered,
+                 which is exactly when a human wants it. linkXRef=false drops the
+                 cross-reference links (we don't generate an xref site). -->
+            <skipEmptyReport>true</skipEmptyReport>
+            <linkXRef>false</linkXRef>
             <rulesets>
               <ruleset>${maven.multiModuleProjectDirectory}/tooling/pmd/ruleset.xml</ruleset>
             </rulesets>

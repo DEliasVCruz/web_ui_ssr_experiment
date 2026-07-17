@@ -11,6 +11,11 @@ const ignores = globalIgnores([
 	"**/node_modules/**",
 	"**/dist/**",
 	"**/build/**",
+	// Maven build output (Java modules). The pmd/cpd verify-phase checks fork
+	// report goals that render standalone HTML pages plus site-skin JS
+	// (target/reports/js/apache-maven-fluido-*.min.js) — generated artifacts
+	// that must never be linted, like any other build output.
+	"**/target/**",
 	"packages/rpc/gen/**",
 	"**/styled-system/**",
 	// Leading-dot config file: TypeScript's implicit `**/*` include glob skips
