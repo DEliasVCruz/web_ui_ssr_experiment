@@ -468,6 +468,22 @@ class TodoServiceContractIT {
     }
 
     @Test
+    void createWithExplicitEmptyIdIsRejected() throws Exception {
+        // The riskiest proto-default/explicit-presence edge: an EXPLICITLY SET
+        // empty-string id is "present" on the wire (has_id == true) — it must NOT
+        // be treated as "absent, mint one" and must NOT reach the repository.
+        // protovalidate's string.uuid rule has a dedicated uuid_empty violation
+        // for exactly this value, so it 400s like any other malformed id.
+        HttpResponse<byte[]> response = postProto(
+                CREATE_TODO,
+                TodoOuterClass.CreateTodoRequest.newBuilder()
+                        .setTitle("empty-id")
+                        .setId("")
+                        .build());
+        assertInvalidArgumentNaming(response, "id");
+    }
+
+    @Test
     void createWithInvalidIdIsRejected() throws Exception {
         // TEETH: goes red if the id uuid protovalidate rule is removed — a
         // non-uuid client id would then pass the edge and reach the repository

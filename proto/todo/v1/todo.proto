@@ -72,6 +72,12 @@ message CreateTodoRequest {
   // supplied id verbatim. The same uuid rule GetTodoRequest.id uses validates
   // it (case-insensitive; server-minted ids are lowercase — see GetTodoRequest).
   //
+  // Case sensitivity: the uuid rule accepts uppercase hex, but storage is
+  // case-sensitive text — so case-variant spellings of the same uuid create
+  // DISTINCT rows and do NOT dedupe against each other. The idempotency
+  // contract is BYTE-IDENTICAL replay (the offline queue re-sends the exact
+  // stored entry, so its id bytes never vary); clients should mint lowercase.
+  //
   // Idempotency contract — FIRST-WRITE-WINS, never an upsert: this id is the
   // replay key for the offline mutation queue (web_ui_ssr_experiment-1w9). If a
   // create arrives whose id already exists (a queue entry re-sent after a crash

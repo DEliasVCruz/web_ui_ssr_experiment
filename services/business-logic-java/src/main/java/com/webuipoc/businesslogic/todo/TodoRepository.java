@@ -40,9 +40,12 @@ import org.jspecify.annotations.Nullable;
  * COALESCE}) is first-class in the POSTGRES dialect.
  *
  * <p>Error contract: jOOQ wraps every {@code SQLException} in its unchecked
- * {@code org.jooq.exception.DataAccessException} — the same "DB failure
- * surfaces as an unchecked exception, mapped to INTERNAL at the gRPC edge"
- * contract the previous IllegalStateException wrapping provided.
+ * {@code org.jooq.exception.DataAccessException} — the same "DB failure surfaces
+ * as an unchecked exception" contract the previous IllegalStateException
+ * wrapping provided. The gRPC bridge only catches the domain exceptions
+ * (ConstraintViolation/NotFound); any other RuntimeException reaches the Connect
+ * adapter's {@code Status.fromThrowable} and surfaces as Connect {@code unknown}
+ * (HTTP 500) — loud, never silent.
  *
  * <p>Dialect/semantics notes preserved from the JDBC port:
  * <ul>
@@ -86,8 +89,10 @@ public final class TodoRepository {
 
     public List<TodoRow> listTodos() {
         // id DESC tiebreaker: created_at is millisecond-truncated, so same-ms ties
-        // are realistic; UUIDv7 ids are time-ordered, making id DESC the natural
-        // (and deterministic) newest-first order within a tied millisecond.
+        // are realistic. SERVER-minted UUIDv7 ids are time-ordered, making id DESC
+        // the natural newest-first order within a tied millisecond; CLIENT-supplied
+        // ids (idempotent create) carry no such guarantee, so for them the same-ms
+        // order is arbitrary — but still deterministic, which is what matters.
         return dsl.selectFrom(TODOS)
                 .orderBy(TODOS.CREATED_AT.desc(), TODOS.ID.desc())
                 .fetch(TodoRepository::toTodoRow);
@@ -120,8 +125,10 @@ public final class TodoRepository {
      * else read the row that conflicted us" is not split across two pooled
      * connections. A concurrent DELETE of the just-conflicted row between the two
      * statements is out of scope (single-user experiment; documented in
-     * todo.proto), and would surface as an {@link IllegalStateException} mapped to
-     * INTERNAL rather than a silent wrong answer.
+     * todo.proto), and would surface as an {@link IllegalStateException} — which
+     * the bridge does not catch, so it reaches the Connect adapter's
+     * {@code Status.fromThrowable} and surfaces as Connect {@code unknown}
+     * (HTTP 500) — loud, never a silent wrong answer.
      */
     public TodoRow createTodo(@Nullable String id, String title, @Nullable String details) {
         OffsetDateTime now = nowMillis();

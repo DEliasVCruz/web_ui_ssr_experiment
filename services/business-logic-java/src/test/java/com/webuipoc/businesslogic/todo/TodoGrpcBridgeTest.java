@@ -177,6 +177,31 @@ class TodoGrpcBridgeTest {
         assertEquals("original title", get(CLIENT_ID).getTitle(), "the stored row must remain the first write");
     }
 
+    @Test
+    void duplicateClientIdWithDivergentDetailsIsIgnored() {
+        // First-write-wins covers EVERY payload field, not just title: a replay
+        // carrying different (or newly added) DETAILS must not write them either —
+        // the stored row comes back byte-for-byte as first written.
+        Todo first = stub.createTodo(CreateTodoRequest.newBuilder()
+                        .setId(CLIENT_ID)
+                        .setTitle("original title")
+                        .setDetails("original notes")
+                        .build())
+                .getTodo();
+
+        Todo replay = stub.createTodo(CreateTodoRequest.newBuilder()
+                        .setId(CLIENT_ID)
+                        .setTitle("original title")
+                        .setDetails("REPLAYED different notes")
+                        .build())
+                .getTodo();
+
+        assertEquals("original notes", replay.getDetails(), "first-write-wins: replay details must be ignored");
+        assertEquals(first, replay, "the whole row must be identical to the first write");
+        assertEquals("original notes", get(CLIENT_ID).getDetails(), "the stored details must remain the first write");
+        assertEquals(1, list().size(), "an idempotent replay must not create a second row");
+    }
+
     // --- ListTodos ordering ----------------------------------------------------
 
     @Test
