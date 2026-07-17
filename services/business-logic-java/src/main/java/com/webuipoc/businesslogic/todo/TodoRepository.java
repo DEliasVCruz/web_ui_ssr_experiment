@@ -6,40 +6,51 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * Todo persistence, a port of the Bun service's {@code src/todo-repository.ts}:
- * same SQL (including {@code ORDER BY created_at DESC}), same UUIDv7 ids, and
- * the same timestamp string format ({@code new Date().toISOString()} —
- * ISO-8601 UTC with millisecond precision and a {@code Z} suffix).
+ * Todo persistence over PostgreSQL, a port of the retired Bun service's
+ * {@code src/todo-repository.ts}: same {@code ORDER BY created_at DESC}, same
+ * UUIDv7 ids, same "update always bumps updated_at" semantics.
  *
- * <p>Methods are synchronized because a single SQLite connection is shared,
- * matching the Bun service where one {@code bun:sqlite} Database is used from
- * a single-threaded event loop.
+ * <p>Unlike the SQLite original (a single shared connection guarded by
+ * {@code synchronized}), each method borrows a connection from the HikariCP pool
+ * for the duration of the call and returns it — the pool provides the
+ * concurrency isolation, so no method-level locking is needed.
+ *
+ * <p>Dialect notes vs the SQLite port:
+ * <ul>
+ *   <li>{@code completed} is a real {@code boolean} column (was INTEGER 0/1).</li>
+ *   <li>Timestamps are {@code timestamptz}; the app writes millisecond-truncated
+ *       instants (preserving Bun's {@code new Date().toISOString()} granularity)
+ *       and reads them back as {@link Instant}.</li>
+ *   <li>INSERT/UPDATE use {@code RETURNING *} to read the persisted row back in
+ *       one round trip (no follow-up SELECT).</li>
+ * </ul>
  */
 @Singleton
 public final class TodoRepository {
 
-    /** One row of the todos table; completed stays an INTEGER as in the TS TodoRow. */
-    public record TodoRow(String id, String title, int completed, String createdAt, String updatedAt) {}
+    private static final String COLUMNS = "id, title, completed, created_at, updated_at";
 
-    /** Formats like JS {@code new Date().toISOString()}: always exactly 3 fractional digits. */
-    private static final DateTimeFormatter ISO_MILLIS =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
+    /** One row of the todos table: boolean completed, Instant timestamps (native Postgres types). */
+    public record TodoRow(String id, String title, boolean completed, Instant createdAt, Instant updatedAt) {}
 
-    private final Connection connection;
+    private final TodoDb db;
 
     public TodoRepository(TodoDb db) {
-        this.connection = db.connection();
+        this.db = db;
     }
 
-    public synchronized List<TodoRow> listTodos() {
-        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM todos ORDER BY created_at DESC");
+    public List<TodoRow> listTodos() {
+        try (Connection connection = db.getConnection();
+                PreparedStatement statement =
+                        connection.prepareStatement("SELECT " + COLUMNS + " FROM todos ORDER BY created_at DESC");
                 ResultSet rs = statement.executeQuery()) {
             List<TodoRow> rows = new ArrayList<>();
             while (rs.next()) {
@@ -51,8 +62,10 @@ public final class TodoRepository {
         }
     }
 
-    public synchronized Optional<TodoRow> getTodo(String id) {
-        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM todos WHERE id = ?")) {
+    public Optional<TodoRow> getTodo(String id) {
+        try (Connection connection = db.getConnection();
+                PreparedStatement statement =
+                        connection.prepareStatement("SELECT " + COLUMNS + " FROM todos WHERE id = ?")) {
             statement.setString(1, id);
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() ? Optional.of(toTodoRow(rs)) : Optional.empty();
@@ -62,20 +75,23 @@ public final class TodoRepository {
         }
     }
 
-    public synchronized TodoRow createTodo(String title) {
+    public TodoRow createTodo(String title) {
         String id = UuidV7.randomUuidV7();
-        String now = nowIsoString();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO todos (id, title, completed, created_at, updated_at) VALUES (?, ?, 0, ?, ?)")) {
+        OffsetDateTime now = nowMillis();
+        try (Connection connection = db.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "INSERT INTO todos (" + COLUMNS + ") VALUES (?, ?, false, ?, ?) RETURNING " + COLUMNS)) {
             statement.setString(1, id);
             statement.setString(2, title);
-            statement.setString(3, now);
-            statement.setString(4, now);
-            statement.executeUpdate();
+            statement.setObject(3, now);
+            statement.setObject(4, now);
+            try (ResultSet rs = statement.executeQuery()) {
+                rs.next();
+                return toTodoRow(rs);
+            }
         } catch (SQLException e) {
             throw new IllegalStateException("createTodo failed", e);
         }
-        return getTodo(id).orElseThrow();
     }
 
     /**
@@ -84,7 +100,7 @@ public final class TodoRepository {
      * fallbacks). Like the Bun code, the UPDATE — and therefore the
      * {@code updated_at} bump — happens even when neither field is provided.
      */
-    public synchronized Optional<TodoRow> updateTodo(String id, String title, Boolean completed) {
+    public Optional<TodoRow> updateTodo(String id, String title, Boolean completed) {
         Optional<TodoRow> existingRow = getTodo(id);
         if (existingRow.isEmpty()) {
             return Optional.empty();
@@ -92,24 +108,27 @@ public final class TodoRepository {
         TodoRow existing = existingRow.get();
 
         String newTitle = title != null ? title : existing.title();
-        int newCompleted = completed == null ? existing.completed() : (completed ? 1 : 0);
-        String now = nowIsoString();
+        boolean newCompleted = completed == null ? existing.completed() : completed;
+        OffsetDateTime now = nowMillis();
 
-        try (PreparedStatement statement =
-                connection.prepareStatement("UPDATE todos SET title = ?, completed = ?, updated_at = ? WHERE id = ?")) {
+        try (Connection connection = db.getConnection();
+                PreparedStatement statement = connection.prepareStatement("UPDATE todos SET title = ?, completed = ?, "
+                        + "updated_at = ? WHERE id = ? RETURNING " + COLUMNS)) {
             statement.setString(1, newTitle);
-            statement.setInt(2, newCompleted);
-            statement.setString(3, now);
+            statement.setBoolean(2, newCompleted);
+            statement.setObject(3, now);
             statement.setString(4, id);
-            statement.executeUpdate();
+            try (ResultSet rs = statement.executeQuery()) {
+                return rs.next() ? Optional.of(toTodoRow(rs)) : Optional.empty();
+            }
         } catch (SQLException e) {
             throw new IllegalStateException("updateTodo failed", e);
         }
-        return getTodo(id);
     }
 
-    public synchronized boolean deleteTodo(String id) {
-        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM todos WHERE id = ?")) {
+    public boolean deleteTodo(String id) {
+        try (Connection connection = db.getConnection();
+                PreparedStatement statement = connection.prepareStatement("DELETE FROM todos WHERE id = ?")) {
             statement.setString(1, id);
             return statement.executeUpdate() > 0;
         } catch (SQLException e) {
@@ -117,16 +136,22 @@ public final class TodoRepository {
         }
     }
 
-    private static String nowIsoString() {
-        return ISO_MILLIS.format(Instant.now());
+    /**
+     * {@code now()} truncated to milliseconds, at UTC. Truncation preserves the
+     * retired Bun service's {@code new Date().toISOString()} millisecond
+     * granularity (Postgres timestamptz would otherwise keep microseconds), so a
+     * fresh create still reports {@code created_at == updated_at}.
+     */
+    private static OffsetDateTime nowMillis() {
+        return Instant.now().truncatedTo(ChronoUnit.MILLIS).atOffset(ZoneOffset.UTC);
     }
 
     private static TodoRow toTodoRow(ResultSet rs) throws SQLException {
         return new TodoRow(
                 rs.getString("id"),
                 rs.getString("title"),
-                rs.getInt("completed"),
-                rs.getString("created_at"),
-                rs.getString("updated_at"));
+                rs.getBoolean("completed"),
+                rs.getObject("created_at", OffsetDateTime.class).toInstant(),
+                rs.getObject("updated_at", OffsetDateTime.class).toInstant());
     }
 }

@@ -75,8 +75,8 @@ class ArchitectureTest {
             .because("only the Main composition root wires the Helidon WebServer; the business core stays "
                     + "framework-free");
 
-    // AGENTS.md: "The business-logic server must be the only SQLite client." Within the server, raw JDBC / SQLite
-    // access is confined to the persistence classes (TodoDb owns the connection + schema, TodoRepository owns the SQL).
+    // AGENTS.md: "The business-logic server must be the only database client." Within the server, raw JDBC access is
+    // confined to the persistence classes (TodoDb owns the DataSource + migrations, TodoRepository owns the SQL).
     @ArchTest
     static final ArchRule jdbc_is_confined_to_the_persistence_classes = noClasses()
             .that()
@@ -86,8 +86,8 @@ class ArchitectureTest {
             .and(DescribedPredicate.not(GENERATED_CODE))
             .should()
             .dependOnClassesThat()
-            .resideInAnyPackage("java.sql..", "org.sqlite..")
-            .because("JDBC/SQLite access lives only in TodoDb (connection + schema) and TodoRepository (SQL); "
+            .resideInAnyPackage("java.sql..")
+            .because("JDBC access lives only in TodoDb (DataSource + migrations) and TodoRepository (SQL); "
                     + "the rest of the service talks to the domain, not the database");
 
     // AGENTS.md layering: StreamObserver is the gRPC unary edge. Only TodoGrpcBridge translates domain calls into the

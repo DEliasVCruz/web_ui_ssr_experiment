@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.webuipoc.businesslogic.mapper.TodoMapperImpl;
-import com.webuipoc.businesslogic.todo.TodoDb;
+import com.webuipoc.businesslogic.todo.PostgresSupport;
 import com.webuipoc.businesslogic.todo.TodoGrpcBridge;
 import com.webuipoc.businesslogic.todo.TodoRepository;
 import com.webuipoc.businesslogic.todo.TodoService;
@@ -14,11 +14,10 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.file.Path;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /**
  * End-to-end (through the real Connect adapter + production routing) proof that
@@ -29,14 +28,16 @@ import org.junit.jupiter.api.io.TempDir;
  */
 class TodoBusinessValidationTest {
 
-    @TempDir
-    Path tempDir;
-
     private static final Pattern ID = Pattern.compile("\"id\":\"([^\"]+)\"");
 
-    private WebServer startServer(TodoDb db) {
+    @BeforeEach
+    void reset() {
+        PostgresSupport.reset();
+    }
+
+    private WebServer startServer() {
         TodoGrpcBridge bridge = new TodoGrpcBridge(
-                new TodoService(new TodoRepository(db)),
+                new TodoService(new TodoRepository(PostgresSupport.todoDb())),
                 new TodoMapperImpl(),
                 Validator.builder().build());
         return WebServer.builder()
@@ -59,44 +60,39 @@ class TodoBusinessValidationTest {
 
     @Test
     void whitespaceOnlyTitleRejectedOnCreate() throws Exception {
-        try (TodoDb db = new TodoDb(tempDir.resolve("todos.db").toString())) {
-            WebServer server = startServer(db);
-            try (HttpClient client = HttpClient.newHttpClient()) {
-                // A single space passes protovalidate (min_len 1) but is blank.
-                HttpResponse<String> response =
-                        post(client, "http://localhost:" + server.port(), "CreateTodo", "{\"title\":\" \"}");
-                assertEquals(400, response.statusCode(), "body: " + response.body());
-                assertTrue(response.body().contains("\"code\":\"invalid_argument\""), "body: " + response.body());
-                assertTrue(response.body().contains("title"), "body should name the field: " + response.body());
-            } finally {
-                server.stop();
-            }
+        WebServer server = startServer();
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            // A single space passes protovalidate (min_len 1) but is blank.
+            HttpResponse<String> response =
+                    post(client, "http://localhost:" + server.port(), "CreateTodo", "{\"title\":\" \"}");
+            assertEquals(400, response.statusCode(), "body: " + response.body());
+            assertTrue(response.body().contains("\"code\":\"invalid_argument\""), "body: " + response.body());
+            assertTrue(response.body().contains("title"), "body should name the field: " + response.body());
+        } finally {
+            server.stop();
         }
     }
 
     @Test
     void whitespaceOnlyTitleRejectedOnUpdate() throws Exception {
-        try (TodoDb db = new TodoDb(tempDir.resolve("todos.db").toString())) {
-            WebServer server = startServer(db);
-            try (HttpClient client = HttpClient.newHttpClient()) {
-                String base = "http://localhost:" + server.port();
+        WebServer server = startServer();
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            String base = "http://localhost:" + server.port();
 
-                // Create a valid todo, then grab its (UUIDv7, so protovalidate-valid) id.
-                HttpResponse<String> created = post(client, base, "CreateTodo", "{\"title\":\"real title\"}");
-                assertEquals(200, created.statusCode(), "body: " + created.body());
-                Matcher m = ID.matcher(created.body());
-                assertTrue(m.find(), "no id in create response: " + created.body());
-                String id = m.group(1);
+            // Create a valid todo, then grab its (UUIDv7, so protovalidate-valid) id.
+            HttpResponse<String> created = post(client, base, "CreateTodo", "{\"title\":\"real title\"}");
+            assertEquals(200, created.statusCode(), "body: " + created.body());
+            Matcher m = ID.matcher(created.body());
+            assertTrue(m.find(), "no id in create response: " + created.body());
+            String id = m.group(1);
 
-                // Updating that todo with a single-space title must be rejected.
-                HttpResponse<String> response =
-                        post(client, base, "UpdateTodo", "{\"id\":\"" + id + "\",\"title\":\" \"}");
-                assertEquals(400, response.statusCode(), "body: " + response.body());
-                assertTrue(response.body().contains("\"code\":\"invalid_argument\""), "body: " + response.body());
-                assertTrue(response.body().contains("title"), "body should name the field: " + response.body());
-            } finally {
-                server.stop();
-            }
+            // Updating that todo with a single-space title must be rejected.
+            HttpResponse<String> response = post(client, base, "UpdateTodo", "{\"id\":\"" + id + "\",\"title\":\" \"}");
+            assertEquals(400, response.statusCode(), "body: " + response.body());
+            assertTrue(response.body().contains("\"code\":\"invalid_argument\""), "body: " + response.body());
+            assertTrue(response.body().contains("title"), "body should name the field: " + response.body());
+        } finally {
+            server.stop();
         }
     }
 }

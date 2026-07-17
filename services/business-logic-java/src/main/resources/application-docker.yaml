@@ -1,17 +1,18 @@
 # Docker profile — activated in the container image via ENV CONFIG_PROFILES=docker
 # (see services/business-logic-java/Dockerfile). Layered on top of application.yaml.
 #
-# In the container the SQLite database lives on the mounted `sqlite-data` volume
-# (docker-compose.yml mounts it at /data), so the docker-environment default DB
-# path differs from the local ./data/todos.db default. This is exactly the kind
-# of environment-varying service configuration that belongs in a config file
-# rather than being hard-coded in the compose/env layer.
+# In the container the database is a separate `postgres` service on the compose
+# network, reachable by its service name `postgres` (not localhost). So the
+# docker-environment default JDBC URL differs from the local
+# jdbc:postgresql://localhost:5432/todos default — exactly the kind of
+# environment-varying service configuration that belongs in a config file rather
+# than being hard-coded in the compose/env layer.
 #
-# Precedence note: this overrides only the DEFAULT of the same ${DATABASE_PATH:...}
-# expression the base file uses (not a bare literal), so an explicit DATABASE_PATH
-# environment variable still wins — compose or an operator can always repoint the
-# database without touching the image. (A bare literal here would silently sever
-# the DATABASE_PATH override, since avaje-config's automatic env key for db.path
-# is DB_PATH, not DATABASE_PATH.)
+# Precedence note: this overrides only the DEFAULT of the same ${DATABASE_URL:...}
+# expression the base file uses (not a bare literal), so an explicit DATABASE_URL
+# environment variable still wins — compose (which does set DATABASE_URL) or an
+# operator can always repoint the database without touching the image. (A bare
+# literal here would silently sever the DATABASE_URL override, since avaje-config's
+# automatic env key for db.url is DB_URL, not DATABASE_URL.)
 db:
-  path: ${DATABASE_PATH:/data/todos.db}
+  url: ${DATABASE_URL:jdbc:postgresql://postgres:5432/todos}

@@ -4,21 +4,32 @@
 # loads it from the classpath at startup (Config.asConfiguration()), then applies
 # overrides in precedence order (highest first):
 #   1. matching system property         (-Dserver.port=9000)
-#   2. matching environment variable    (SERVER_PORT / DATABASE_PATH / ...)
+#   2. matching environment variable    (SERVER_PORT / DATABASE_URL / ...)
 #   3. the ${VAR:default} expressions below, and profile files
 #   4. these file defaults
 #
-# The ${VAR:default} expressions below preserve the service's historical env-var
-# names verbatim, so docker-compose and the devenv ci:e2e task keep injecting
-# PORT / DATABASE_PATH exactly as before — those values now flow through
+# The ${VAR:default} expressions below preserve the service's public env-var
+# contract, so docker-compose and the devenv ci:e2e task inject DATABASE_URL /
+# DATABASE_USERNAME / DATABASE_PASSWORD (and PORT) and those values flow through
 # avaje-config instead of raw System.getenv() in Java.
 #
 # Profiles: set CONFIG_PROFILES=<name> (or -Dconfig.profiles=<name>) to layer
 # application-<name>.yaml on top of these defaults. See application-docker.yaml.
 server:
-  # HTTP listen port for the Helidon WebServer. Historical override: PORT.
+  # HTTP listen port for the Helidon WebServer. Override: PORT.
   port: ${PORT:3001}
 
 db:
-  # SQLite database file path. Historical override: DATABASE_PATH.
-  path: ${DATABASE_PATH:./data/todos.db}
+  # PostgreSQL JDBC URL. Override: DATABASE_URL. pgjdbc-specific tuning
+  # (prepareThreshold, statement-cache) is applied in AppFactory as datasource
+  # properties, NOT here, so a bare operator-supplied URL cannot drop it.
+  url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/todos}
+  # Database username. Override: DATABASE_USERNAME.
+  username: ${DATABASE_USERNAME:todos}
+  # Database password. Override: DATABASE_PASSWORD. Empty default on purpose —
+  # secrets live in the environment, never in this committed file.
+  password: ${DATABASE_PASSWORD:}
+  pool:
+    # HikariCP sizing (lean; sized for the DB, not the virtual-thread count).
+    max-size: ${DB_POOL_MAX_SIZE:16}
+    min-idle: ${DB_POOL_MIN_IDLE:4}

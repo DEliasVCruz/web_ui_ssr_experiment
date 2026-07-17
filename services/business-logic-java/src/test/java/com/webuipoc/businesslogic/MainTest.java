@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.webuipoc.businesslogic.mapper.TodoMapperImpl;
-import com.webuipoc.businesslogic.todo.TodoDb;
+import com.webuipoc.businesslogic.todo.PostgresSupport;
 import com.webuipoc.businesslogic.todo.TodoGrpcBridge;
 import com.webuipoc.businesslogic.todo.TodoRepository;
 import com.webuipoc.businesslogic.todo.TodoService;
@@ -14,19 +14,20 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.file.Path;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 class MainTest {
 
-    @TempDir
-    Path tempDir;
+    @BeforeEach
+    void reset() {
+        PostgresSupport.reset();
+    }
 
     /** Starts a server with the PRODUCTION routing (Main::routing) on an ephemeral port. */
-    private WebServer startWiredServer(TodoDb db) {
+    private WebServer startWiredServer() {
         TodoGrpcBridge bridge = new TodoGrpcBridge(
-                new TodoService(new TodoRepository(db)),
+                new TodoService(new TodoRepository(PostgresSupport.todoDb())),
                 new TodoMapperImpl(),
                 Validator.builder().build());
         return WebServer.builder()
@@ -38,61 +39,57 @@ class MainTest {
 
     @Test
     void healthEndpointReturnsSameJsonShapeAsBunService() throws Exception {
-        try (TodoDb db = new TodoDb(tempDir.resolve("todos.db").toString())) {
-            WebServer server = startWiredServer(db);
-            try (HttpClient client = HttpClient.newHttpClient()) {
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create("http://localhost:" + server.port() + "/health"))
-                        .GET()
-                        .build();
-                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        WebServer server = startWiredServer();
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("http://localhost:" + server.port() + "/health"))
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
-                assertEquals(200, response.statusCode());
-                assertEquals("{\"status\":\"ok\"}", response.body());
-                assertEquals(
-                        "application/json",
-                        response.headers().firstValue("content-type").orElse(""));
-            } finally {
-                server.stop();
-            }
+            assertEquals(200, response.statusCode());
+            assertEquals("{\"status\":\"ok\"}", response.body());
+            assertEquals(
+                    "application/json",
+                    response.headers().firstValue("content-type").orElse(""));
+        } finally {
+            server.stop();
         }
     }
 
     @Test
     void wiredRoutingServesTodoServiceOverConnectJson() throws Exception {
-        try (TodoDb db = new TodoDb(tempDir.resolve("todos.db").toString())) {
-            WebServer server = startWiredServer(db);
-            try (HttpClient client = HttpClient.newHttpClient()) {
-                String base = "http://localhost:" + server.port();
+        WebServer server = startWiredServer();
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            String base = "http://localhost:" + server.port();
 
-                // CreateTodo over Connect-unary JSON, through the real server.
-                HttpResponse<String> created = client.send(
-                        HttpRequest.newBuilder()
-                                .uri(URI.create(base + "/todo.v1.TodoService/CreateTodo"))
-                                .header("Content-Type", "application/json")
-                                .POST(HttpRequest.BodyPublishers.ofString("{\"title\":\"wired through Main\"}"))
-                                .build(),
-                        HttpResponse.BodyHandlers.ofString());
-                assertEquals(200, created.statusCode());
-                assertTrue(
-                        created.headers().firstValue("content-type").orElse("").startsWith("application/json"),
-                        "content-type was: "
-                                + created.headers().firstValue("content-type").orElse(""));
-                assertTrue(created.body().contains("\"title\":\"wired through Main\""), "body was: " + created.body());
+            // CreateTodo over Connect-unary JSON, through the real server.
+            HttpResponse<String> created = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create(base + "/todo.v1.TodoService/CreateTodo"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString("{\"title\":\"wired through Main\"}"))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, created.statusCode());
+            assertTrue(
+                    created.headers().firstValue("content-type").orElse("").startsWith("application/json"),
+                    "content-type was: "
+                            + created.headers().firstValue("content-type").orElse(""));
+            assertTrue(created.body().contains("\"title\":\"wired through Main\""), "body was: " + created.body());
 
-                // The created todo is visible via ListTodos (same DB instance).
-                HttpResponse<String> listed = client.send(
-                        HttpRequest.newBuilder()
-                                .uri(URI.create(base + "/todo.v1.TodoService/ListTodos"))
-                                .header("Content-Type", "application/json")
-                                .POST(HttpRequest.BodyPublishers.ofString("{}"))
-                                .build(),
-                        HttpResponse.BodyHandlers.ofString());
-                assertEquals(200, listed.statusCode());
-                assertTrue(listed.body().contains("\"title\":\"wired through Main\""), "body was: " + listed.body());
-            } finally {
-                server.stop();
-            }
+            // The created todo is visible via ListTodos (same DB instance).
+            HttpResponse<String> listed = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create(base + "/todo.v1.TodoService/ListTodos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, listed.statusCode());
+            assertTrue(listed.body().contains("\"title\":\"wired through Main\""), "body was: " + listed.body());
+        } finally {
+            server.stop();
         }
     }
 
@@ -102,23 +99,21 @@ class MainTest {
         // UUID is NOT rejected as invalid_argument. Server-generated ids are
         // lowercase UUIDv7, so the lookup then misses with not_found from the
         // repository layer. This pins the boundary between the two layers.
-        try (TodoDb db = new TodoDb(tempDir.resolve("todos.db").toString())) {
-            WebServer server = startWiredServer(db);
-            try (HttpClient client = HttpClient.newHttpClient()) {
-                HttpResponse<String> response = client.send(
-                        HttpRequest.newBuilder()
-                                .uri(URI.create("http://localhost:" + server.port() + "/todo.v1.TodoService/GetTodo"))
-                                .header("Content-Type", "application/json")
-                                .POST(HttpRequest.BodyPublishers.ofString(
-                                        "{\"id\":\"0197ABCD-EF12-7ABC-8DEF-0123456789AB\"}"))
-                                .build(),
-                        HttpResponse.BodyHandlers.ofString());
+        WebServer server = startWiredServer();
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            HttpResponse<String> response = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + server.port() + "/todo.v1.TodoService/GetTodo"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(
+                                    "{\"id\":\"0197ABCD-EF12-7ABC-8DEF-0123456789AB\"}"))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
 
-                assertEquals(404, response.statusCode());
-                assertTrue(response.body().contains("\"code\":\"not_found\""), "body was: " + response.body());
-            } finally {
-                server.stop();
-            }
+            assertEquals(404, response.statusCode());
+            assertTrue(response.body().contains("\"code\":\"not_found\""), "body was: " + response.body());
+        } finally {
+            server.stop();
         }
     }
 

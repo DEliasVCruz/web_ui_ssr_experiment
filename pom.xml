@@ -74,7 +74,18 @@
     <version.snakeyaml>2.5</version.snakeyaml>
     <version.avaje.validator>2.9</version.avaje.validator>
     <version.mapstruct>1.6.3</version.mapstruct>
-    <version.sqlite>3.53.2.0</version.sqlite>
+
+    <!-- PostgreSQL persistence stack (validated pins, 2026-07). All BOM-unmanaged
+         standalone libs; centralized here so the service module depends on them
+         version-less. flyway-database-postgresql is a SEPARATE artifact (required
+         since Flyway 10) that teaches flyway-core the jdbc:postgresql dialect. -->
+    <version.flyway>12.11.0</version.flyway>
+    <version.hikaricp>7.1.0</version.hikaricp>
+    <version.pgjdbc>42.7.13</version.pgjdbc>
+    <!-- Testcontainers: TEST scope only (repository tests boot a real Postgres via
+         podman). Like archunit, has no runtime consumers, so it does not
+         participate in the runtime scope-mediation trap. -->
+    <version.testcontainers>1.21.4</version.testcontainers>
 
     <!-- Build plugin versions (shared) -->
     <version.plugin.compiler>3.14.1</version.plugin.compiler>
@@ -172,6 +183,52 @@
         <groupId>com.tngtech.archunit</groupId>
         <artifactId>archunit-junit5</artifactId>
         <version>${version.archunit}</version>
+      </dependency>
+
+      <!-- PostgreSQL persistence stack. Runtime deps (pgjdbc, HikariCP, Flyway):
+           the driver + pool + migrator the service uses at runtime. Declared AFTER
+           the BOM imports so the load-bearing junit/grpc-before-helidon ordering is
+           untouched (none of these are managed by those BOMs anyway). pgjdbc pulls
+           com.ongres.scram:scram-client transitively at runtime — needed for the
+           SCRAM-SHA-256 auth Postgres 17 uses by default; do NOT exclude it. -->
+      <dependency>
+        <groupId>org.postgresql</groupId>
+        <artifactId>postgresql</artifactId>
+        <version>${version.pgjdbc}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.zaxxer</groupId>
+        <artifactId>HikariCP</artifactId>
+        <version>${version.hikaricp}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.flywaydb</groupId>
+        <artifactId>flyway-core</artifactId>
+        <version>${version.flyway}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.flywaydb</groupId>
+        <artifactId>flyway-database-postgresql</artifactId>
+        <version>${version.flyway}</version>
+      </dependency>
+
+      <!-- Testcontainers (test scope in the consuming module). Managed by explicit
+           version property rather than the testcontainers-bom to avoid any BOM
+           interaction with the load-bearing junit-bom ordering above. -->
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>testcontainers</artifactId>
+        <version>${version.testcontainers}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>postgresql</artifactId>
+        <version>${version.testcontainers}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>junit-jupiter</artifactId>
+        <version>${version.testcontainers}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

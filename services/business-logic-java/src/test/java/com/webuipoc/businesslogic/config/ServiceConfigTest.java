@@ -19,8 +19,8 @@ import org.junit.jupiter.api.Test;
 class ServiceConfigTest {
 
     /**
-     * The packaged {@code application.yaml} supplies the defaults: port 3001 and
-     * the local {@code ./data/todos.db} path (no overrides present).
+     * The packaged {@code application.yaml} supplies the defaults: port 3001, the
+     * local Postgres JDBC URL, and the todos username (no overrides present).
      */
     @Test
     void applicationYamlProvidesDefaults() {
@@ -28,85 +28,105 @@ class ServiceConfigTest {
 
         ServiceConfig serviceConfig = ServiceConfig.from(config);
         assertEquals(3001, serviceConfig.serverPort());
-        assertEquals("./data/todos.db", serviceConfig.databasePath());
+        assertEquals("jdbc:postgresql://localhost:5432/todos", serviceConfig.dbUrl());
+        assertEquals("todos", serviceConfig.dbUsername());
+        assertEquals("", serviceConfig.dbPassword());
+        assertEquals(16, serviceConfig.dbPoolMaxSize());
+        assertEquals(4, serviceConfig.dbPoolMinIdle());
     }
 
     /**
      * Layering the {@code docker} profile file on top of the base overrides the
-     * database path to the container volume location — this is the profile
+     * JDBC URL to the compose-network host {@code postgres} — this is the profile
      * mechanism the Dockerfile activates via {@code CONFIG_PROFILES=docker}.
      */
     @Test
-    void dockerProfileOverridesDatabasePath() {
+    void dockerProfileOverridesDatabaseUrl() {
         Configuration config = Configuration.builder()
                 .load("application.yaml")
                 .load("application-docker.yaml")
                 .build();
 
         ServiceConfig serviceConfig = ServiceConfig.from(config);
-        assertEquals("/data/todos.db", serviceConfig.databasePath());
+        assertEquals("jdbc:postgresql://postgres:5432/todos", serviceConfig.dbUrl());
         // The port is not touched by the docker profile — still the base default.
         assertEquals(3001, serviceConfig.serverPort());
     }
 
     /**
-     * The historical env-var names (PORT / DATABASE_PATH) still override the
-     * file defaults. avaje-config expression resolution consults system
-     * properties ahead of env vars, so a system property with the same name
-     * exercises the identical code path an environment variable would — and lets
-     * the test set/clear it deterministically.
+     * The env-var names (PORT / DATABASE_URL / ...) still override the file
+     * defaults. avaje-config expression resolution consults system properties
+     * ahead of env vars, so a system property with the same name exercises the
+     * identical code path an environment variable would — and lets the test
+     * set/clear it deterministically.
      */
     @Test
-    void portAndDatabasePathOverridesWin() {
+    void portAndDatabaseOverridesWin() {
         System.setProperty("PORT", "9999");
-        System.setProperty("DATABASE_PATH", "/tmp/override-todos.db");
+        System.setProperty("DATABASE_URL", "jdbc:postgresql://db.example:5433/other");
+        System.setProperty("DATABASE_USERNAME", "override-user");
+        System.setProperty("DATABASE_PASSWORD", "override-secret");
         try {
             Configuration config =
                     Configuration.builder().load("application.yaml").build();
 
             ServiceConfig serviceConfig = ServiceConfig.from(config);
             assertEquals(9999, serviceConfig.serverPort());
-            assertEquals("/tmp/override-todos.db", serviceConfig.databasePath());
+            assertEquals("jdbc:postgresql://db.example:5433/other", serviceConfig.dbUrl());
+            assertEquals("override-user", serviceConfig.dbUsername());
+            assertEquals("override-secret", serviceConfig.dbPassword());
         } finally {
             System.clearProperty("PORT");
-            System.clearProperty("DATABASE_PATH");
+            System.clearProperty("DATABASE_URL");
+            System.clearProperty("DATABASE_USERNAME");
+            System.clearProperty("DATABASE_PASSWORD");
         }
     }
 
     /**
-     * The DATABASE_PATH override still wins even with the docker profile active:
-     * an operator (or the e2e harness, which sets DATABASE_PATH to an ephemeral
-     * file) can always repoint the database. Guards the precedence
+     * The DATABASE_URL override still wins even with the docker profile active:
+     * an operator (or the e2e harness, which points DATABASE_URL at an ephemeral
+     * Postgres) can always repoint the database. Guards the precedence
      * env/system-property &gt; profile file.
      */
     @Test
-    void databasePathOverrideBeatsDockerProfile() {
-        System.setProperty("DATABASE_PATH", "/tmp/ephemeral-e2e.db");
+    void databaseUrlOverrideBeatsDockerProfile() {
+        System.setProperty("DATABASE_URL", "jdbc:postgresql://localhost:55432/ephemeral");
         try {
             Configuration config = Configuration.builder()
                     .load("application.yaml")
                     .load("application-docker.yaml")
                     .build();
 
-            assertEquals("/tmp/ephemeral-e2e.db", ServiceConfig.from(config).databasePath());
+            assertEquals(
+                    "jdbc:postgresql://localhost:55432/ephemeral",
+                    ServiceConfig.from(config).dbUrl());
         } finally {
-            System.clearProperty("DATABASE_PATH");
+            System.clearProperty("DATABASE_URL");
         }
     }
 
     /**
-     * The typed holder maps the two known keys straight off the Configuration.
+     * The typed holder maps the known keys straight off the Configuration.
      */
     @Test
     void typedHolderReadsConfiguredKeys() {
         Configuration config = Configuration.builder()
                 .put(ServiceConfig.KEY_SERVER_PORT, "7777")
-                .put(ServiceConfig.KEY_DB_PATH, "/var/lib/todos.db")
+                .put(ServiceConfig.KEY_DB_URL, "jdbc:postgresql://h:5432/db")
+                .put(ServiceConfig.KEY_DB_USERNAME, "u")
+                .put(ServiceConfig.KEY_DB_PASSWORD, "p")
+                .put(ServiceConfig.KEY_DB_POOL_MAX_SIZE, "8")
+                .put(ServiceConfig.KEY_DB_POOL_MIN_IDLE, "2")
                 .build();
 
         ServiceConfig serviceConfig = ServiceConfig.from(config);
         assertEquals(7777, serviceConfig.serverPort());
-        assertEquals("/var/lib/todos.db", serviceConfig.databasePath());
+        assertEquals("jdbc:postgresql://h:5432/db", serviceConfig.dbUrl());
+        assertEquals("u", serviceConfig.dbUsername());
+        assertEquals("p", serviceConfig.dbPassword());
+        assertEquals(8, serviceConfig.dbPoolMaxSize());
+        assertEquals(2, serviceConfig.dbPoolMinIdle());
     }
 
     /**
@@ -117,7 +137,11 @@ class ServiceConfigTest {
     void typedHolderFallsBackToCodeDefaults() {
         ServiceConfig serviceConfig = ServiceConfig.from(Configuration.builder().build());
         assertEquals(3001, serviceConfig.serverPort());
-        assertEquals("./data/todos.db", serviceConfig.databasePath());
+        assertEquals("jdbc:postgresql://localhost:5432/todos", serviceConfig.dbUrl());
+        assertEquals("todos", serviceConfig.dbUsername());
+        assertEquals("", serviceConfig.dbPassword());
+        assertEquals(16, serviceConfig.dbPoolMaxSize());
+        assertEquals(4, serviceConfig.dbPoolMinIdle());
     }
 
     /**

@@ -18,15 +18,15 @@ import io.helidon.webserver.http.HttpRouting;
  * {@code GET /health} with the same JSON shape as the retired Bun service.
  *
  * <p>Wiring is compile-time DI (avaje-inject): the {@link BeanScope} builds the
- * bean graph — {@link TodoDb} (one SQLite connection) &rarr; {@code TodoRepository}
- * &rarr; {@code TodoService} core &rarr; {@link TodoGrpcBridge} (plus the MapStruct
+ * bean graph — HikariCP {@code DataSource} &rarr; {@link TodoDb} (runs Flyway on
+ * construction, before the server starts) &rarr; {@code TodoRepository} &rarr;
+ * {@code TodoService} core &rarr; {@link TodoGrpcBridge} (plus the MapStruct
  * mapper and the avaje validator). A JVM shutdown hook closes the scope, which
- * closes the {@code AutoCloseable} {@code TodoDb}.
+ * closes the {@code AutoCloseable} HikariCP pool.
  *
- * <p>Exactly ONE {@link TodoDb} (one SQLite connection) backs the process:
- * SQLite in WAL mode with two connections on the same file from one process
- * risks {@code SQLITE_BUSY}; the Bun service likewise used a single
- * {@code bun:sqlite} Database.
+ * <p>Schema migration runs while the scope is being built (in the {@code TodoDb}
+ * constructor), which happens before {@code WebServer.start()} below — so the
+ * database is at its latest Flyway version before the first RPC can arrive.
  */
 public final class Main {
 
@@ -35,8 +35,8 @@ public final class Main {
     private Main() {}
 
     public static void main(String[] args) {
-        // Compile-time DI graph; shutdownHook(true) closes the scope (and the
-        // single SQLite connection) on JVM shutdown.
+        // Compile-time DI graph; building it runs Flyway migrations (TodoDb ctor).
+        // shutdownHook(true) closes the scope (and the HikariCP pool) on JVM shutdown.
         BeanScope scope = BeanScope.builder().shutdownHook(true).build();
         TodoGrpcBridge bridge = scope.get(TodoGrpcBridge.class);
         // The avaje-config -> Helidon bridge: the server port is resolved by

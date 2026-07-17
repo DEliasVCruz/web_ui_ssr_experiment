@@ -14,13 +14,10 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
-import java.nio.file.Path;
-import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import todo.v1.TodoOuterClass.CreateTodoRequest;
 import todo.v1.TodoOuterClass.DeleteTodoRequest;
 import todo.v1.TodoOuterClass.DeleteTodoResponse;
@@ -33,17 +30,13 @@ import todo.v1.TodoServiceGrpc;
 /**
  * Exercises {@link TodoGrpcBridge} (bridge -&gt; {@link TodoService} core -&gt;
  * {@link TodoRepository}) through a real in-process gRPC server and the
- * generated blocking stub, against a fresh temp-file SQLite database. Asserts
- * behavioral parity with the Bun service (todo-service.ts / todo-repository.ts),
- * plus the new domain business rule: a blank title is rejected as
- * {@code INVALID_ARGUMENT}.
+ * generated blocking stub, against the shared PostgreSQL container
+ * ({@link PostgresSupport}, reset before each test). Asserts behavioral parity
+ * with the Bun service (todo-service.ts / todo-repository.ts), plus the new
+ * domain business rule: a blank title is rejected as {@code INVALID_ARGUMENT}.
  */
 class TodoGrpcBridgeTest {
 
-    @TempDir
-    Path tempDir;
-
-    private TodoDb db;
     private TodoRepository repository;
     private Server server;
     private ManagedChannel channel;
@@ -51,8 +44,8 @@ class TodoGrpcBridgeTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        db = new TodoDb(tempDir.resolve("todos.db").toString());
-        repository = new TodoRepository(db);
+        PostgresSupport.reset();
+        repository = new TodoRepository(PostgresSupport.todoDb());
         TodoGrpcBridge bridge = new TodoGrpcBridge(
                 new TodoService(repository),
                 new TodoMapperImpl(),
@@ -71,7 +64,6 @@ class TodoGrpcBridgeTest {
     void tearDown() {
         channel.shutdownNow();
         server.shutdownNow();
-        db.close();
     }
 
     private Todo create(String title) {
@@ -270,21 +262,25 @@ class TodoGrpcBridgeTest {
     }
 
     @Test
-    void storedTimestampStringsMatchBunToIsoStringFormat() {
+    void storedTimestampsHaveMillisecondPrecisionMatchingProto() {
         Todo todo = create("timestamp check");
 
-        // Inspect the raw stored strings, not the protobuf round-trip.
+        // Inspect the stored instants, not the protobuf round-trip. The repository
+        // truncates to milliseconds to preserve the Bun service's
+        // new Date().toISOString() granularity (Postgres timestamptz would
+        // otherwise keep microseconds).
         TodoRepository.TodoRow row = repository.getTodo(todo.getId()).orElseThrow();
-        assertTrue(
-                TodoDbTest.BUN_ISO_MILLIS.matcher(row.createdAt()).matches(),
-                "created_at not in new Date().toISOString() format: " + row.createdAt());
-        assertTrue(
-                TodoDbTest.BUN_ISO_MILLIS.matcher(row.updatedAt()).matches(),
-                "updated_at not in new Date().toISOString() format: " + row.updatedAt());
+        assertEquals(
+                0,
+                row.createdAt().getNano() % 1_000_000,
+                "created_at must be millisecond-precision: " + row.createdAt());
+        assertEquals(
+                0,
+                row.updatedAt().getNano() % 1_000_000,
+                "updated_at must be millisecond-precision: " + row.updatedAt());
 
-        // And the proto Timestamp is the exact instant of the stored string.
-        Instant stored = Instant.parse(row.createdAt());
-        assertEquals(stored.getEpochSecond(), todo.getCreatedAt().getSeconds());
-        assertEquals(stored.getNano(), todo.getCreatedAt().getNanos());
+        // And the proto Timestamp is the exact instant of the stored value.
+        assertEquals(row.createdAt().getEpochSecond(), todo.getCreatedAt().getSeconds());
+        assertEquals(row.createdAt().getNano(), todo.getCreatedAt().getNanos());
     }
 }
