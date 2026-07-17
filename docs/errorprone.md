@@ -54,12 +54,32 @@ Version properties live once in the root `pom.xml` (`version.errorprone`,
   with `@NullMarked`; everything is non-null by default and genuine nullability
   is annotated `@Nullable`. `@NullMarked` also covers same-package *test* sources,
   so test code is null-checked too.
-- **No Error Prone checks disabled.** The default check set is clean on this
-  codebase. If a check ever needs suppressing, do it narrowly (`-Xep:Check:OFF`
-  or `@SuppressWarnings`) with a documented reason — same discipline as the PMD
-  ruleset exclusions. (Error Prone currently emits one non-blocking
-  `ReferenceEquality` **warning** on `req.prologue().method() == Method.GET`; a
-  warning does not fail the build and it was left as-is.)
+- **No Error Prone checks disabled.** The default check set produces zero
+  ERROR-severity findings on this codebase. If a check ever needs suppressing,
+  do it narrowly (`-Xep:Check:OFF` or `@SuppressWarnings`) with a documented
+  reason — same discipline as the PMD ruleset exclusions.
+
+## Known warnings (non-blocking)
+
+A full `mvn verify` currently emits **six** Error Prone WARNING-severity
+findings. Warnings never fail the build; all six were reviewed and left as-is:
+
+| Check | Location(s) | Why acceptable |
+| ----- | ----------- | -------------- |
+| `ReferenceEquality` | `ConnectUnaryHandler.java:159` (main) | `req.prologue().method() == Method.GET` — safe: Helidon interns `Method` constants, so reference equality is correct here; switching to `.equals` would be cosmetic. |
+| `BooleanLiteral` ×2 | `TodoMapperTest.java:103,116` (test) | Style nit: an assertion expression could use a boolean literal more directly. Harmless in tests; candidate for an opportunistic later cleanup. |
+| `JavaInstantGetSecondsGetNano` ×3 | `TodoGrpcBridgeTest.java:368,372,377` (test) | The tests intentionally compare `getEpochSecond()` and `getNano()` **as a pair** against the proto `Timestamp` seconds/nanos fields, which is exactly the pattern the check asks for; the warning fires per call site. Candidate for a later `@SuppressWarnings` with comment or assertion restructure. |
+
+## Upgrade protocol
+
+Error Prone's javac handshake is **version-coupled** (e.g. 2.50 requires
+`--should-stop=ifError=FLOW` where older javac defaults sufficed before). On
+every future Error Prone (or JDK) version bump, re-run a **tooth mutation** as
+the compatibility re-check: plant a self-assignment (`x = x;`) and a
+null-to-`@NonNull` call in `@NullMarked` code, confirm the build FAILS naming
+`SelfAssignment` and `NullAway` respectively, then revert. A build that merely
+*passes* after a bump proves nothing — the plugin may have silently stopped
+running.
 
 ## What NullAway verified
 

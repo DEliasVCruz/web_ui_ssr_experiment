@@ -382,6 +382,11 @@ final class ConnectUnaryHandler implements Handler {
             if (errorHeaders != null) {
                 errorMetadata.merge(errorHeaders);
             }
+            // Outcome.trailers is declared non-null, but it is populated from
+            // UNANNOTATED grpc-java callers (ServerCall.close(status, trailers));
+            // this null-check is deliberate defense-in-depth against a handler
+            // passing null through that unchecked seam, not a contradiction of
+            // the declared invariant.
             Metadata errorTrailers = outcome.trailers();
             if (errorTrailers != null) {
                 errorMetadata.merge(errorTrailers);
