@@ -44,7 +44,18 @@ export function createTodoMutation(transport: Transport) {
 
 export function updateTodoMutation(transport: Transport) {
 	return {
-		mutationFn: async (vars: { id: string; title?: string; completed?: boolean }) => {
+		// `details` is threaded through explicit-presence semantics: OMIT the key
+		// (undefined) to leave stored details unchanged; pass `""` to deliberately
+		// CLEAR them; pass text to set them. Callers MUST construct these vars
+		// explicitly and include `details` ONLY when the user edited it — never
+		// spread a cached todo in, whose inherited `details: ""` would silently
+		// clear stored content. See a4a.1 field guide #2.
+		mutationFn: async (vars: {
+			id: string;
+			title?: string;
+			completed?: boolean;
+			details?: string;
+		}) => {
 			const response = await callUnaryMethod(transport, updateTodoMethod, vars);
 			return response.todo;
 		},

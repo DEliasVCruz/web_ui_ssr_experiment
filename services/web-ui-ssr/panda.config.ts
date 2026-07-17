@@ -67,6 +67,7 @@ export default defineConfig({
 					dialog: { value: "24rem" }, // modal content max width
 					toastMin: { value: "15rem" }, // toast min width
 					toastMax: { value: "22rem" }, // toast max width
+					field: { value: "8rem" }, // multi-line field (details textarea) min height
 				},
 				// Elevation + focus-ring shadows, previously inline box-shadow strings.
 				// `focusRing` composes the brand.focusRing color token.

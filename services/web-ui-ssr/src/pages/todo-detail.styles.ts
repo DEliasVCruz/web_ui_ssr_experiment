@@ -54,3 +54,48 @@ export const meta = css({
 	color: "fg.muted",
 	fontSize: "sm",
 });
+
+// The details block: a labelled section holding either the rendered notes or an
+// empty-state line, plus the edit affordance.
+export const detailsSection = css({
+	display: "flex",
+	flexDir: "column",
+	gap: "2",
+	marginBlockStart: "6",
+});
+
+export const detailsHeading = css({
+	color: "fg",
+	fontSize: "md",
+	fontWeight: "semibold",
+});
+
+// Rendered details. `pre-wrap` preserves the author's newlines and runs of
+// spaces (a notes field), while `break-word` stops a long unbroken token from
+// overflowing the content column.
+export const detailsText = css({
+	color: "fg",
+	fontSize: "md",
+	whiteSpace: "pre-wrap",
+	overflowWrap: "break-word",
+});
+
+// Shown when the todo has no details (never set, or cleared — display treats
+// both identically; see the route note on presence equivalence).
+export const detailsEmpty = css({
+	color: "fg.muted",
+	fontSize: "md",
+	fontStyle: "italic",
+});
+
+export const editForm = css({
+	display: "flex",
+	flexDir: "column",
+	gap: "2",
+	marginBlockStart: "2",
+});
+
+export const editActions = css({
+	display: "flex",
+	gap: "2",
+});

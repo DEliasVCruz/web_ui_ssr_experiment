@@ -11,7 +11,7 @@ import { cx, sva } from "../../../styled-system/css";
 // (merged with the slot style) so callers can visually hide it while keeping
 // the accessible name.
 const fieldRecipe = sva({
-	slots: ["root", "input", "label", "errorText"],
+	slots: ["root", "input", "textarea", "label", "errorText"],
 	base: {
 		root: {
 			display: "flex",
@@ -37,6 +37,27 @@ const fieldRecipe = sva({
 				shadow: "focusRing",
 			},
 		},
+		// Multi-line variant of `input`: same border/focus treatment, plus a
+		// sensible default height (the semantic `field` size token) and
+		// vertical-only resize. Font is inherited via Panda preflight's
+		// `textarea { font: inherit }`, matching the surrounding type (the `input`
+		// slot relies on the same). `normal` line-height keeps wrapped lines legible.
+		textarea: {
+			inlineSize: "full",
+			minBlockSize: "field",
+			ring: "none",
+			border: "control",
+			rounded: "md",
+			py: "2",
+			px: "3",
+			fontSize: "md",
+			lineHeight: "normal",
+			resize: "vertical",
+			_focus: {
+				borderColor: "brand",
+				shadow: "focusRing",
+			},
+		},
 		errorText: {
 			py: "2",
 			px: "0",
@@ -57,6 +78,9 @@ export const Field = {
 		return <ArkField.Label {...rest} class={cx(styles.label, local.class)} />;
 	},
 	Input: (props: ArkField.InputProps) => <ArkField.Input {...props} class={styles.input} />,
+	Textarea: (props: ArkField.TextareaProps) => (
+		<ArkField.Textarea {...props} class={styles.textarea} />
+	),
 	ErrorText: (props: ArkField.ErrorTextProps) => (
 		<ArkField.ErrorText {...props} class={styles.errorText} />
 	),
