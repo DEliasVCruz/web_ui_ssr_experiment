@@ -123,13 +123,19 @@ and the dev node-http path):
   (the worker-thread transport path breaks under Bun bundling). A thin
   `PinoTransport` subclass omits LogLayer's empty message so each line is a
   bare schema object. One divergence from the Java lines: pino's mandatory
-  leading `"level":30` field (removing both `level` and `time` trips a pino
-  fast-path bug that emits malformed JSON). It does not affect correlation.
+  leading `"level":30` field (removing `level` — on its own, or together with
+  `time` — trips a pino fast-path bug that emits malformed JSON). It does not
+  affect correlation.
 - **Emission point**: the event is emitted when the **response stream
   finishes** (an identity `TransformStream`'s `flush`), not when the handler
   returns, so `duration_ms` covers the whole streamed render; response bytes
   are untouched. A request whose handler throws emits with `status: 500` and
-  the projected `error`.
+  the projected `error`. Known gap: streams that end abnormally mid-body —
+  a client disconnect (truncated) **or** a source-stream error after the first
+  chunk (`flush` never fires on an errored pipe, and Bun 1.3.10 does not
+  invoke the transformer's `cancel()` either) — emit no event. Follow-up:
+  task web_ui_ssr_experiment-iq2.5 (manual reader pump emitting on
+  close/error/cancel alike).
 - **Trace context**: same strict `traceparent` parser as the Java side
   (`trace-context.ts`); ids minted with `crypto.getRandomValues`. The context
   rides per-request `AsyncLocalStorage`, and a connect-es interceptor on the

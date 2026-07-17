@@ -57,6 +57,27 @@ describe("capStack", () => {
 		);
 		expect(capped).toContain("bytes");
 	});
+
+	test("caps a multibyte-heavy stack by ENCODED bytes without splitting surrogate pairs", () => {
+		// Each astral emoji is 2 UTF-16 units but 4 UTF-8 bytes: a naive
+		// String.slice(0, MAX_STACK_BYTES) would leave ~2x the byte budget. The
+		// cap must count encoded bytes and never cut a surrogate pair in half.
+		const emoji = "\u{1F4A5}"; // 💥
+		const stack = `Error: multibyte\n    at ${emoji.repeat(MAX_STACK_BYTES)} (f.ts:1:1)`;
+		const capped = capStack(stack);
+		expect(capped).not.toBeNull();
+		if (capped === null) {
+			throw new Error("unreachable");
+		}
+		const encodedLength = new TextEncoder().encode(capped).length;
+		expect(encodedLength).toBeLessThanOrEqual(MAX_STACK_BYTES + MARKER_ALLOWANCE);
+		expect(capped).toContain("bytes");
+		// Well-formedness: a lone surrogate does not survive an encode/decode
+		// round-trip (TextEncoder replaces it with U+FFFD), so equality here
+		// proves no surrogate pair was split by the cap.
+		const roundTrip = new TextDecoder().decode(new TextEncoder().encode(capped));
+		expect(roundTrip).toBe(capped);
+	});
 });
 
 describe("toWideEventError", () => {

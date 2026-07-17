@@ -83,9 +83,14 @@ function handleRequest(
 
 		// Emit when the streamed body completes. `flush` fires after the source
 		// stream closes (SSR render done); an identity transform leaves bytes
-		// untouched. A client that disconnects mid-stream aborts the transform
-		// without a flush — those rare truncated requests emit no event, an
-		// accepted trade for never altering the response.
+		// untouched. KNOWN GAP — two silent-emission paths: (1) a client that
+		// disconnects mid-stream aborts the transform without a flush, and (2) a
+		// SOURCE stream that ERRORS after its first chunk also never flushes (and
+		// Bun 1.3.10 does not invoke the transformer's cancel() on an errored
+		// pipe either). Both truncated and errored streams therefore emit no
+		// event — an accepted trade for never altering the response bytes. The
+		// fix (a manual reader pump emitting on close/error/cancel alike) is
+		// filed as task web_ui_ssr_experiment-iq2.5.
 		const monitored = response.body.pipeThrough(
 			new TransformStream({
 				flush() {

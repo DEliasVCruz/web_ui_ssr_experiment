@@ -75,11 +75,19 @@ export function capStack(stack: string | null | undefined): string | null {
 	if (framesTruncated) {
 		result += `\n\t... (stack truncated to ${String(MAX_STACK_FRAMES)} frames)`;
 	}
-	// Hard byte ceiling. Stacks are effectively ASCII, so a character slice keeps
-	// the byte length within the ceiling; the marker is short enough that the
-	// result stays comfortably under 16KB even after it is appended.
-	if (new TextEncoder().encode(result).length > MAX_STACK_BYTES) {
-		result = `${result.slice(0, MAX_STACK_BYTES)}\n\t... (stack truncated to ${String(MAX_STACK_BYTES)} bytes)`;
+	// Hard byte ceiling, applied to the UTF-8 ENCODED length: a UTF-16
+	// `String.slice` would under-cap multibyte-heavy stacks (each astral char is
+	// 4 encoded bytes but 2 sliced units) and could split a surrogate pair.
+	// Slice the encoded bytes instead and decode lossily — a multibyte sequence
+	// cut at the boundary becomes U+FFFD rather than a lone surrogate, so the
+	// result is always well-formed and within the ceiling (plus the short
+	// truncation marker).
+	const encoded = new TextEncoder().encode(result);
+	if (encoded.length > MAX_STACK_BYTES) {
+		const truncated = new TextDecoder("utf-8", { fatal: false }).decode(
+			encoded.subarray(0, MAX_STACK_BYTES),
+		);
+		result = `${truncated}\n\t... (stack truncated to ${String(MAX_STACK_BYTES)} bytes)`;
 	}
 	return result;
 }

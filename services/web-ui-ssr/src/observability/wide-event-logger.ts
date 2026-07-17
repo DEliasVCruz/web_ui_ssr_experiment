@@ -12,10 +12,11 @@ import type { WideEvent } from "./wide-event";
 // Pino is configured to strip its envelope down to a bare wide-event object:
 //   * base: null      → drop the default `pid` + `hostname` bindings
 //   * timestamp: false → we emit our own ISO `timestamp` field
-// The one field that cannot be removed is pino's leading `level` (dropping the
-// level AND the time leaves pino's fast JSON path writing a malformed `{,…}`),
-// so each line is `{"level":30,…schema fields…}`. `level` is a standard
-// structured-log field and does not affect trace_id correlation across services.
+// The one field that cannot be removed is pino's leading `level`: dropping it —
+// alone, or together with the timestamp — leaves pino's fast JSON path writing
+// a malformed `{,…}` line. So each line is `{"level":30,…schema fields…}`.
+// `level` is a standard structured-log field and does not affect trace_id
+// correlation across services.
 
 // pino redact guards the free-form `attributes` map: the current schema carries
 // no secrets or PII (trace ids, HTTP method/path/status), so these paths are a

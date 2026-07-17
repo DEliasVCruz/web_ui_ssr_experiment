@@ -366,7 +366,8 @@ in
         # event. MUST live outside services/web-ui-ssr/test-results: Playwright
         # deletes its outputDir at suite start, which would unlink the live log
         # files mid-run (the servers keep writing to the orphaned inodes and the
-        # spec reads an empty path). A per-run temp dir is wipe-proof and leak-free.
+        # spec reads an empty path). A per-run temp dir survives that wipe; the
+        # cleanup trap below removes it on exit so runs don't accumulate dirs.
         LOG_DIR="$(mktemp -d /tmp/wide-events-e2e.XXXXXX)"
         SSR_LOG="$LOG_DIR/ssr-server.log"
         BACKEND_LOG="$LOG_DIR/backend-server.log"
@@ -404,6 +405,9 @@ in
           # VOLUME /var/lib/postgresql/data, and a force-remove preempts --rm's
           # own anonymous-volume cleanup — without -v every run leaks one volume.
           podman rm -f -v "$PG_NAME" >/dev/null 2>&1 || true
+          # Remove the per-run wide-event log dir (created above) — the servers
+          # holding the files are dead by now, so nothing accumulates in /tmp.
+          if [ -n "''${LOG_DIR:-}" ]; then rm -rf "$LOG_DIR"; fi
         }
         trap cleanup EXIT
 

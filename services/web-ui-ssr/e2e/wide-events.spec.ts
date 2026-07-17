@@ -8,8 +8,14 @@ import { RAW_BASE_URL, test } from "./fixtures";
 // request through the SSR event and into the backend event. Destructured with a
 // presence check (dot access is barred by noPropertyAccessFromIndexSignature and
 // bracket access by biome useLiteralKeys); absent outside the ci:e2e harness.
-const { E2E_SSR_LOG, E2E_BACKEND_LOG } = process.env;
+// E2E_BACKEND_URL is the harness fingerprint (ci:e2e always exports it): when it
+// is present but the log paths are NOT, the log-capture exports in devenv.nix
+// have regressed — that must FAIL the spec, not skip it, or the suite would go
+// green with zero cross-service coverage. A plain skip is correct only outside
+// the harness (e.g. `bunx playwright test` against a hand-started server).
+const { E2E_SSR_LOG, E2E_BACKEND_LOG, E2E_BACKEND_URL } = process.env;
 const logsAvailable = E2E_SSR_LOG !== undefined && E2E_BACKEND_LOG !== undefined;
+const insideHarness = E2E_BACKEND_URL !== undefined;
 
 // A stable, spec-supplied caller span so we can assert the SSR event records it
 // as parent_span_id (proves inbound adoption, not just minting).
@@ -78,9 +84,22 @@ async function findEvent(
 }
 
 test.describe("wide events", () => {
-	test.skip(!logsAvailable, "requires the ci:e2e harness (E2E_SSR_LOG / E2E_BACKEND_LOG)");
+	// Skip ONLY outside the harness; inside it (E2E_BACKEND_URL present) missing
+	// log paths fall through to the hard failure below.
+	test.skip(
+		!logsAvailable && !insideHarness,
+		"requires the ci:e2e harness (E2E_SSR_LOG / E2E_BACKEND_LOG)",
+	);
 
 	test("one SSR request produces a single wide event correlated with the backend", async () => {
+		if (E2E_SSR_LOG === undefined || E2E_BACKEND_LOG === undefined) {
+			throw new Error(
+				"ci:e2e harness detected (E2E_BACKEND_URL is set) but E2E_SSR_LOG / E2E_BACKEND_LOG are missing — " +
+					"the wide-event log-capture exports in devenv.nix have regressed. Failing loudly: skipping here " +
+					"would turn the suite green with zero cross-service correlation coverage.",
+			);
+		}
+
 		const traceId = randomTraceId();
 		const traceparent = `00-${traceId}-${INBOUND_PARENT_ID}-01`;
 
@@ -88,10 +107,6 @@ test.describe("wide events", () => {
 		const response = await fetch(`${RAW_BASE_URL}/todos`, { headers: { traceparent } });
 		expect(response.status).toBe(HTTP_OK);
 		await response.text();
-
-		if (E2E_SSR_LOG === undefined || E2E_BACKEND_LOG === undefined) {
-			throw new Error("unreachable: guarded by test.skip");
-		}
 
 		// The SSR event: inbound trace adopted, caller recorded as parent, fresh span.
 		const ssrEvent = await findEvent(
