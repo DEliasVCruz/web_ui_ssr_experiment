@@ -15,7 +15,10 @@ import com.tngtech.archunit.lang.ArchRule;
  *
  * <p>Scope choice (generated-code exclusion): {@code @AnalyzeClasses} is rooted at
  * {@code com.webuipoc.businesslogic}. The buf/protoc generated proto + gRPC stubs live under {@code todo.v1..} and
- * {@code build.buf.validate..}, so they are OUT of this root by construction and no rule can fire on them.
+ * {@code build.buf.validate..}, and the jOOQ-generated metamodel under {@code com.webuipoc.jooq..} (a target package
+ * chosen DELIBERATELY outside this root — jOOQ 3.21 emits no runtime-retention {@code @Generated} annotation by
+ * default, verified on the generated sources, so package placement is the exclusion mechanism, not annotations), so
+ * they are all OUT of this root by construction and no rule can fire on them.
  * {@link ImportOption.DoNotIncludeTests} drops the {@code target/test-classes} compilation output so these production
  * layering rules never trip over test doubles (e.g. the StreamObserver-implementing StubTodoService). The remaining
  * in-package avaje-generated code (avaje-inject {@code $DI} / {@code BusinesslogicModule}, avaje-validation adapters)
@@ -75,8 +78,25 @@ class ArchitectureTest {
             .because("only the Main composition root wires the Helidon WebServer; the business core stays "
                     + "framework-free");
 
+    // Sibling of the JDBC rule for the typed-SQL layer (task wdt.4): the jOOQ DSL (org.jooq..) and the generated
+    // com.webuipoc.jooq.. metamodel are the repository's private vocabulary. TodoRepository is the ONLY class allowed
+    // to speak it — TodoDb stays on DataSource/Flyway, AppFactory on pool construction, and the service/domain/mapper
+    // layers never see a Table, Record or DSLContext. (The generated classes themselves live outside this test's
+    // analysis root, so rules fire on dependencies ON them, never on the generated code itself.)
+    @ArchTest
+    static final ArchRule jooq_is_confined_to_the_repository = noClasses()
+            .that()
+            .doNotHaveFullyQualifiedName("com.webuipoc.businesslogic.todo.TodoRepository")
+            .and(DescribedPredicate.not(GENERATED_CODE))
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage("org.jooq..", "com.webuipoc.jooq..")
+            .because("the jOOQ DSL and the generated metamodel are TodoRepository's private persistence vocabulary; "
+                    + "the rest of the service talks to the domain, not the database");
+
     // AGENTS.md: "The business-logic server must be the only database client." Within the server, raw JDBC access is
-    // confined to the persistence classes (TodoDb owns the DataSource + migrations, TodoRepository owns the SQL).
+    // confined to the persistence classes (TodoDb owns the DataSource + migrations; TodoRepository — although its
+    // queries are jOOQ now — remains in the allowlist as the SQL owner).
     @ArchTest
     static final ArchRule jdbc_is_confined_to_the_persistence_classes = noClasses()
             .that()

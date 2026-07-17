@@ -1,32 +1,50 @@
 package com.webuipoc.businesslogic.todo;
 
+import static com.webuipoc.jooq.Tables.TODOS;
+
+import com.webuipoc.jooq.tables.records.TodosRecord;
 import jakarta.inject.Singleton;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.jooq.DSLContext;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
 
 /**
- * Todo persistence over PostgreSQL, a port of the retired Bun service's
+ * Todo persistence over PostgreSQL via the jOOQ typed DSL (task wdt.4), a port
+ * of the plain-JDBC repository that itself ported the retired Bun service's
  * {@code src/todo-repository.ts}: same newest-first ordering ({@code created_at
  * DESC}, with {@code id DESC} as a deterministic same-millisecond tiebreaker),
  * same UUIDv7 ids, same "update always bumps updated_at" semantics.
  *
- * <p>Unlike the SQLite original (a single shared connection guarded by
- * {@code synchronized}), each method borrows a connection from the HikariCP pool
- * for the duration of the call and returns it — the pool provides the
- * concurrency isolation, so no method-level locking is needed.
+ * <p>The queries are built against the generated {@code com.webuipoc.jooq}
+ * metamodel ({@code Tables.TODOS}), which the build regenerates from the REAL
+ * migrated catalog (a throwaway Postgres container + this repo's Flyway
+ * migrations) on every compile — so a schema/query mismatch is a compile error,
+ * not a runtime surprise.
  *
- * <p>Dialect notes vs the SQLite port:
+ * <p>DSLContext lifecycle: ONE {@link DSLContext} is created per repository
+ * instance via {@code DSL.using(dataSource, POSTGRES)}. Backed by a
+ * {@code DataSource}, a DSLContext is thread-safe and connectionless — each
+ * statement borrows a pooled connection from HikariCP and returns it when the
+ * fetch completes, exactly the borrow-per-call discipline the JDBC version had,
+ * without rebuilding the (immutable) jOOQ {@code Configuration} on every call.
+ * Default {@code Settings} are used deliberately: the only non-default the old
+ * code expressed in SQL text (dialect-native {@code RETURNING}, {@code
+ * COALESCE}) is first-class in the POSTGRES dialect.
+ *
+ * <p>Error contract: jOOQ wraps every {@code SQLException} in its unchecked
+ * {@code org.jooq.exception.DataAccessException} — the same "DB failure
+ * surfaces as an unchecked exception, mapped to INTERNAL at the gRPC edge"
+ * contract the previous IllegalStateException wrapping provided.
+ *
+ * <p>Dialect/semantics notes preserved from the JDBC port:
  * <ul>
- *   <li>{@code completed} is a real {@code boolean} column (was INTEGER 0/1).</li>
+ *   <li>{@code completed} is a real {@code boolean} column.</li>
  *   <li>Timestamps are {@code timestamptz}; the app writes millisecond-truncated
  *       instants (preserving Bun's {@code new Date().toISOString()} granularity)
  *       and reads them back as {@link Instant}.</li>
@@ -34,70 +52,45 @@ import java.util.Optional;
  *       one round trip (no follow-up SELECT), and UPDATE null-merges absent
  *       fields in-statement via {@code COALESCE} (atomic — no read-merge-write
  *       race across pooled connections).</li>
+ *   <li>{@code id} is case-sensitive {@code text}: {@code TODOS.ID.eq(id)} is an
+ *       exact text comparison, so an upper-cased UUID must still MISS.</li>
  * </ul>
  */
 @Singleton
 public final class TodoRepository {
 
-    private static final String COLUMNS = "id, title, completed, created_at, updated_at";
-
     /** One row of the todos table: boolean completed, Instant timestamps (native Postgres types). */
     public record TodoRow(String id, String title, boolean completed, Instant createdAt, Instant updatedAt) {}
 
-    private final TodoDb db;
+    private final DSLContext dsl;
 
     public TodoRepository(TodoDb db) {
-        this.db = db;
+        this.dsl = DSL.using(db.dataSource(), SQLDialect.POSTGRES);
     }
 
     public List<TodoRow> listTodos() {
         // id DESC tiebreaker: created_at is millisecond-truncated, so same-ms ties
         // are realistic; UUIDv7 ids are time-ordered, making id DESC the natural
         // (and deterministic) newest-first order within a tied millisecond.
-        try (Connection connection = db.getConnection();
-                PreparedStatement statement = connection.prepareStatement(
-                        "SELECT " + COLUMNS + " FROM todos ORDER BY created_at DESC, id DESC");
-                ResultSet rs = statement.executeQuery()) {
-            List<TodoRow> rows = new ArrayList<>();
-            while (rs.next()) {
-                rows.add(toTodoRow(rs));
-            }
-            return rows;
-        } catch (SQLException e) {
-            throw new IllegalStateException("listTodos failed", e);
-        }
+        return dsl.selectFrom(TODOS)
+                .orderBy(TODOS.CREATED_AT.desc(), TODOS.ID.desc())
+                .fetch(TodoRepository::toTodoRow);
     }
 
     public Optional<TodoRow> getTodo(String id) {
-        try (Connection connection = db.getConnection();
-                PreparedStatement statement =
-                        connection.prepareStatement("SELECT " + COLUMNS + " FROM todos WHERE id = ?")) {
-            statement.setString(1, id);
-            try (ResultSet rs = statement.executeQuery()) {
-                return rs.next() ? Optional.of(toTodoRow(rs)) : Optional.empty();
-            }
-        } catch (SQLException e) {
-            throw new IllegalStateException("getTodo failed", e);
-        }
+        return dsl.selectFrom(TODOS).where(TODOS.ID.eq(id)).fetchOptional(TodoRepository::toTodoRow);
     }
 
     public TodoRow createTodo(String title) {
-        String id = UuidV7.randomUuidV7();
         OffsetDateTime now = nowMillis();
-        try (Connection connection = db.getConnection();
-                PreparedStatement statement = connection.prepareStatement(
-                        "INSERT INTO todos (" + COLUMNS + ") VALUES (?, ?, false, ?, ?) RETURNING " + COLUMNS)) {
-            statement.setString(1, id);
-            statement.setString(2, title);
-            statement.setObject(3, now);
-            statement.setObject(4, now);
-            try (ResultSet rs = statement.executeQuery()) {
-                rs.next();
-                return toTodoRow(rs);
-            }
-        } catch (SQLException e) {
-            throw new IllegalStateException("createTodo failed", e);
-        }
+        return toTodoRow(dsl.insertInto(TODOS)
+                .set(TODOS.ID, UuidV7.randomUuidV7())
+                .set(TODOS.TITLE, title)
+                .set(TODOS.COMPLETED, false)
+                .set(TODOS.CREATED_AT, now)
+                .set(TODOS.UPDATED_AT, now)
+                .returning()
+                .fetchSingle());
     }
 
     /**
@@ -106,39 +99,27 @@ public final class TodoRepository {
      * fallbacks). Like the Bun code, the UPDATE — and therefore the
      * {@code updated_at} bump — happens even when neither field is provided.
      *
-     * <p>The null-merge happens IN the statement ({@code COALESCE(?, column)}),
-     * not in Java: a read-merge-write across two pooled connections would be a
-     * lost-update race (two concurrent partial updates could silently drop one
-     * field — the old synchronized-single-connection SQLite code serialized
-     * these in-process). One atomic statement removes the race and the extra
-     * round trip; 0 rows updated means the id does not exist (NOT_FOUND at the
+     * <p>The null-merge happens IN the statement ({@code coalesce(?, column)},
+     * rendered from {@code DSL.coalesce(DSL.val(...), column)}), not in Java: a
+     * read-merge-write across two pooled connections would be a lost-update race
+     * (two concurrent partial updates could silently drop one field). One atomic
+     * statement removes the race and the extra round trip; an empty
+     * {@code RETURNING} result means the id does not exist (NOT_FOUND at the
      * service layer, exactly as before).
      */
     public Optional<TodoRow> updateTodo(String id, String title, Boolean completed) {
-        try (Connection connection = db.getConnection();
-                PreparedStatement statement = connection.prepareStatement(
-                        "UPDATE todos SET title = COALESCE(?, title), completed = COALESCE(?, completed), "
-                                + "updated_at = ? WHERE id = ? RETURNING " + COLUMNS)) {
-            statement.setString(1, title);
-            statement.setObject(2, completed);
-            statement.setObject(3, nowMillis());
-            statement.setString(4, id);
-            try (ResultSet rs = statement.executeQuery()) {
-                return rs.next() ? Optional.of(toTodoRow(rs)) : Optional.empty();
-            }
-        } catch (SQLException e) {
-            throw new IllegalStateException("updateTodo failed", e);
-        }
+        return dsl.update(TODOS)
+                .set(TODOS.TITLE, DSL.coalesce(DSL.val(title, TODOS.TITLE), TODOS.TITLE))
+                .set(TODOS.COMPLETED, DSL.coalesce(DSL.val(completed, TODOS.COMPLETED), TODOS.COMPLETED))
+                .set(TODOS.UPDATED_AT, nowMillis())
+                .where(TODOS.ID.eq(id))
+                .returning()
+                .fetchOptional()
+                .map(TodoRepository::toTodoRow);
     }
 
     public boolean deleteTodo(String id) {
-        try (Connection connection = db.getConnection();
-                PreparedStatement statement = connection.prepareStatement("DELETE FROM todos WHERE id = ?")) {
-            statement.setString(1, id);
-            return statement.executeUpdate() > 0;
-        } catch (SQLException e) {
-            throw new IllegalStateException("deleteTodo failed", e);
-        }
+        return dsl.deleteFrom(TODOS).where(TODOS.ID.eq(id)).execute() > 0;
     }
 
     /**
@@ -151,12 +132,12 @@ public final class TodoRepository {
         return Instant.now().truncatedTo(ChronoUnit.MILLIS).atOffset(ZoneOffset.UTC);
     }
 
-    private static TodoRow toTodoRow(ResultSet rs) throws SQLException {
+    private static TodoRow toTodoRow(TodosRecord record) {
         return new TodoRow(
-                rs.getString("id"),
-                rs.getString("title"),
-                rs.getBoolean("completed"),
-                rs.getObject("created_at", OffsetDateTime.class).toInstant(),
-                rs.getObject("updated_at", OffsetDateTime.class).toInstant());
+                record.getId(),
+                record.getTitle(),
+                record.getCompleted(),
+                record.getCreatedAt().toInstant(),
+                record.getUpdatedAt().toInstant());
     }
 }

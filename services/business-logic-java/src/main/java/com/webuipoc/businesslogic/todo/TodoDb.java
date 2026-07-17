@@ -1,7 +1,5 @@
 package com.webuipoc.businesslogic.todo;
 
-import java.sql.Connection;
-import java.sql.SQLException;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 
@@ -19,9 +17,9 @@ import org.flywaydb.core.Flyway;
  *
  * <p>The {@link DataSource} is a HikariCP pool (built in {@code AppFactory}); it
  * is {@code AutoCloseable} and closed by the DI scope on shutdown, so
- * {@link TodoDb} does not own the connection lifecycle — {@link TodoRepository}
- * borrows a connection per operation via {@link #getConnection()} and returns it
- * to the pool.
+ * {@link TodoDb} does not own the connection lifecycle — {@link TodoRepository}'s
+ * jOOQ {@code DSLContext} borrows a pooled connection per statement via
+ * {@link #dataSource()} and returns it to the pool.
  */
 public final class TodoDb {
 
@@ -43,8 +41,14 @@ public final class TodoDb {
                 .migrate();
     }
 
-    /** Borrows a pooled connection; the caller closes it (returning it to the pool). */
-    Connection getConnection() throws SQLException {
-        return dataSource.getConnection();
+    /**
+     * The migrated, pooled {@link DataSource} — for {@link TodoRepository}'s
+     * jOOQ {@code DSLContext}, which borrows/returns a pooled connection per
+     * statement through it. Package-private on purpose: obtaining the
+     * datasource through {@code TodoDb} (never injecting it directly) keeps
+     * "schema is migrated before first use" true by construction.
+     */
+    DataSource dataSource() {
+        return dataSource;
     }
 }
