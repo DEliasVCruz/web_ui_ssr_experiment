@@ -33,6 +33,26 @@ class TodoMapperTest {
     }
 
     @Test
+    void createCommandMapsIdUnsetToNull() {
+        // Explicit presence: an unset id maps to null ("not provided") so the
+        // repository mints a UUIDv7 — the hasId() guard, mirroring details.
+        CreateTodo command = mapper.toCreateCommand(TodoOuterClass.CreateTodoRequest.newBuilder()
+                .setTitle("buy milk")
+                .build());
+        assertNull(command.id(), "id was not set → must be null (server will mint)");
+    }
+
+    @Test
+    void createCommandMapsIdWhenSet() {
+        // A provided client id is carried through verbatim (idempotent create key).
+        CreateTodo command = mapper.toCreateCommand(TodoOuterClass.CreateTodoRequest.newBuilder()
+                .setTitle("buy milk")
+                .setId("0190163d-8694-7afd-8912-1c3d4e5f6a7b")
+                .build());
+        assertEquals("0190163d-8694-7afd-8912-1c3d4e5f6a7b", command.id());
+    }
+
+    @Test
     void createCommandMapsDetailsWhenSet() {
         CreateTodo command = mapper.toCreateCommand(TodoOuterClass.CreateTodoRequest.newBuilder()
                 .setTitle("buy milk")

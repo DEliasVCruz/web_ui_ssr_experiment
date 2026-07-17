@@ -411,6 +411,76 @@ class TodoServiceContractIT {
         assertInvalidArgumentNaming(response, "details");
     }
 
+    // ---- client-supplied id: idempotent first-write-wins create over the wire ----
+
+    /** A protovalidate-valid (lowercase UUIDv7-shaped) client id. */
+    private static final String CLIENT_ID = "0190163d-8694-7afd-8912-1c3d4e5f6a7b";
+
+    @Test
+    void createWithClientIdEchoesTheSuppliedIdOverTheWire() throws Exception {
+        // A binary POST carrying a client id persists and echoes exactly that id.
+        HttpResponse<byte[]> response = postProto(
+                CREATE_TODO,
+                TodoOuterClass.CreateTodoRequest.newBuilder()
+                        .setTitle("client-chosen")
+                        .setId(CLIENT_ID)
+                        .build());
+
+        assertEquals(200, response.statusCode());
+        TodoOuterClass.Todo todo =
+                TodoOuterClass.CreateTodoResponse.parseFrom(response.body()).getTodo();
+        assertEquals(CLIENT_ID, todo.getId(), "a supplied id must be echoed verbatim");
+        assertEquals("client-chosen", todo.getTitle());
+    }
+
+    @Test
+    void duplicateClientIdIsIdempotentFirstWriteWinsOverTheWire() throws Exception {
+        // Re-sending the SAME id (a replayed offline-queue entry) returns the
+        // EXISTING row as a 200 success, ignores the new payload, and adds no row.
+        TodoOuterClass.Todo first = TodoOuterClass.CreateTodoResponse.parseFrom(postProto(
+                                CREATE_TODO,
+                                TodoOuterClass.CreateTodoRequest.newBuilder()
+                                        .setTitle("original title")
+                                        .setId(CLIENT_ID)
+                                        .build())
+                        .body())
+                .getTodo();
+
+        HttpResponse<byte[]> replay = postProto(
+                CREATE_TODO,
+                TodoOuterClass.CreateTodoRequest.newBuilder()
+                        .setTitle("REPLAYED different title")
+                        .setId(CLIENT_ID)
+                        .build());
+
+        assertEquals(200, replay.statusCode(), "an idempotent replay is a 200 success, not a conflict error");
+        TodoOuterClass.Todo replayed =
+                TodoOuterClass.CreateTodoResponse.parseFrom(replay.body()).getTodo();
+        assertEquals("original title", replayed.getTitle(), "first-write-wins: the replay payload must be ignored");
+        assertEquals(first.getCreatedAt(), replayed.getCreatedAt(), "created_at must stay first-written");
+
+        // The list still holds exactly one row — no duplicate was created.
+        HttpResponse<byte[]> list = get(LIST_TODOS + "?connect=v1&encoding=proto&base64=1&message=");
+        assertEquals(
+                1,
+                TodoOuterClass.ListTodosResponse.parseFrom(list.body()).getTodosCount(),
+                "an idempotent replay must not create a second row");
+    }
+
+    @Test
+    void createWithInvalidIdIsRejected() throws Exception {
+        // TEETH: goes red if the id uuid protovalidate rule is removed — a
+        // non-uuid client id would then pass the edge and reach the repository
+        // instead of 400-ing. The same rule GetTodoRequest.id uses.
+        HttpResponse<byte[]> response = postProto(
+                CREATE_TODO,
+                TodoOuterClass.CreateTodoRequest.newBuilder()
+                        .setTitle("bad-id")
+                        .setId("not-a-uuid")
+                        .build());
+        assertInvalidArgumentNaming(response, "id");
+    }
+
     // ---- complementary full-stack surfaces (not part of the 18) ----
 
     @Test

@@ -72,6 +72,12 @@ class TodoGrpcBridgeTest {
                 .getTodo();
     }
 
+    private Todo createWithId(String id, String title) {
+        return stub.createTodo(
+                        CreateTodoRequest.newBuilder().setId(id).setTitle(title).build())
+                .getTodo();
+    }
+
     private Todo createWithDetails(String title, String details) {
         return stub.createTodo(CreateTodoRequest.newBuilder()
                         .setTitle(title)
@@ -121,6 +127,54 @@ class TodoGrpcBridgeTest {
 
         assertEquals(List.of(), list());
         assertNotFound(() -> get(created.getId()));
+    }
+
+    // --- client-supplied id: idempotent first-write-wins create -----------------
+
+    /** A protovalidate-valid (lowercase UUIDv7-shaped) client id. */
+    private static final String CLIENT_ID = "0190163d-8694-7afd-8912-1c3d4e5f6a7b";
+
+    @Test
+    void createWithClientIdEchoesTheSuppliedId() {
+        // A supplied id is persisted verbatim and echoed back (not a fresh mint),
+        // and the row is retrievable under exactly that id.
+        Todo created = createWithId(CLIENT_ID, "client-chosen");
+        assertEquals(CLIENT_ID, created.getId(), "a supplied id must be persisted verbatim");
+
+        Todo fetched = get(CLIENT_ID);
+        assertEquals("client-chosen", fetched.getTitle());
+    }
+
+    @Test
+    void createWithoutIdMintsServerId() {
+        // Existing behavior pinned: an absent id (the only path the current UI
+        // takes) yields a server-minted UUIDv7, distinct from any client id.
+        Todo created = create("server-minted");
+        assertFalse(created.getId().isEmpty(), "absent id must be server-minted");
+        assertTrue(
+                created.getId().matches("^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"),
+                "server-minted id must be a UUIDv7: " + created.getId());
+    }
+
+    @Test
+    void duplicateClientIdIsIdempotentFirstWriteWins() {
+        // TEETH: goes red if the create stops being first-write-wins (e.g. an
+        // ON CONFLICT DO UPDATE that upserts the title). Re-sending the SAME id —
+        // a replayed offline-queue entry — must return the EXISTING row, ignore
+        // the new payload, and add NO second row.
+        Todo first = createWithId(CLIENT_ID, "original title");
+
+        Todo replay = createWithId(CLIENT_ID, "REPLAYED different title");
+
+        assertEquals(first.getId(), replay.getId(), "replay must resolve to the same id");
+        assertEquals("original title", replay.getTitle(), "first-write-wins: the replay payload must be ignored");
+        assertEquals(first.getCreatedAt(), replay.getCreatedAt(), "created_at must stay first-written (server truth)");
+        assertEquals(
+                first.getUpdatedAt(), replay.getUpdatedAt(), "updated_at must stay first-written (no upsert bump)");
+        assertEquals(first, replay, "the whole row must be identical to the first write");
+
+        assertEquals(1, list().size(), "an idempotent replay must not create a second row");
+        assertEquals("original title", get(CLIENT_ID).getTitle(), "the stored row must remain the first write");
     }
 
     // --- ListTodos ordering ----------------------------------------------------
