@@ -2,6 +2,7 @@ import type { Transport } from "@connectrpc/connect";
 import type { QueryClient } from "@tanstack/solid-query";
 import { createRootRouteWithContext, HeadContent, Link, Outlet } from "@tanstack/solid-router";
 import { Suspense } from "solid-js";
+import { OfflineBanner } from "../components/offline-banner";
 import { Toaster } from "../components/ui/toast";
 import type { SsrContext } from "../router";
 
@@ -55,6 +56,9 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 	component: () => (
 		<>
 			<HeadContent />
+			{/* App-shell offline banner (1w9.4 §4.6). Empty during SSR/hydration
+			    (online-assumed), like the Toaster region — never mismatches. */}
+			<OfflineBanner />
 			<nav>
 				<Link to="/">Home</Link>
 				<Link to="/todos">Todos</Link>

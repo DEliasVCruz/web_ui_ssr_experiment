@@ -187,7 +187,8 @@
 			"includes": [
 				"services/web-ui-ssr/src/observability/**",
 				"services/web-ui-ssr/e2e/wide-events.spec.ts",
-				"services/web-ui-ssr/e2e/browser-trace.spec.ts"
+				"services/web-ui-ssr/e2e/browser-trace.spec.ts",
+				"services/web-ui-ssr/e2e/offline-queue.spec.ts"
 			],
 			"linter": {
 				"rules": {

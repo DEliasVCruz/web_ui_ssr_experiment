@@ -2,9 +2,11 @@ import { createForm } from "@tanstack/solid-form";
 import { createMutation, createQuery } from "@tanstack/solid-query";
 import { createFileRoute, Link } from "@tanstack/solid-router";
 import { createSignal, Match, Show, Suspense, Switch } from "solid-js";
+import { OfflineRouteError, StaleIndicator } from "../components/offline-banner";
 import { Button } from "../components/ui/button";
 import { Field } from "../components/ui/field";
 import { toast } from "../components/ui/toast";
+import { captureActionContext } from "../observability/browser-events";
 import { container } from "../pages/shared.styles";
 import {
 	backLink,
@@ -23,6 +25,8 @@ import {
 } from "../pages/todo-detail.styles";
 import {
 	type CachedTodo,
+	EDIT_TODO_KEY,
+	settleInvalidate,
 	todoQueryKey,
 	todoQueryOptions,
 	updateTodoMutation,
@@ -58,7 +62,10 @@ function DetailsEditor(props: { id: string; initial: string | undefined; onDone:
 	const queryClient = Route.useRouteContext({ select: (c) => c.queryClient });
 
 	const update = createMutation(() => ({
-		...updateTodoMutation(transport(), "edit_todo_details"),
+		...updateTodoMutation(transport()),
+		// Keyed so the paused mutation can be persisted/rehydrated (offline queue,
+		// 1w9.4); distinct from the toggle key though both are UpdateTodo.
+		mutationKey: EDIT_TODO_KEY,
 		// Cache-snapshot rollback pattern (a4a.3, edit): snapshot → optimistic write
 		// → restore on error → invalidate on settle.
 		onMutate: async (vars) => {
@@ -100,14 +107,12 @@ function DetailsEditor(props: { id: string; initial: string | undefined; onDone:
 			toast.error("Failed to save details", "Please try again.");
 		},
 		// Server stays source of truth: refetch this todo so the persisted value
-		// lands. RETURNED (keep-pending-until-refetch) so "settled" means the fresh
-		// value actually landed. NOT VT-wrapped — onMutate already applied the
-		// optimistic write, so old==new by settle time, and a transition here would
-		// suppress input across a network await (field guide #1). Scope stays
-		// GetTodo-only: details are not shown in the list, so no list invalidation
-		// is warranted (field guide #5).
+		// lands. OFFLINE-GUARDED keep-pending-until-refetch (1w9.4 §4.5): online it
+		// returns the promise so "settled" means the fresh value landed; offline it
+		// fires-and-forgets so a queued edit is never wedged pending. NOT VT-wrapped.
+		// Scope stays GetTodo-only: details are not shown in the list (field guide #5).
 		onSettled: (_data, _err, vars) =>
-			queryClient().invalidateQueries({ queryKey: todoQueryKey(transport(), vars.id) }),
+			settleInvalidate(queryClient(), [todoQueryKey(transport(), vars.id)]),
 	}));
 
 	const form = createForm(() => ({
@@ -120,7 +125,13 @@ function DetailsEditor(props: { id: string; initial: string | undefined; onDone:
 			// issue an UpdateTodo RPC. `value.details` is passed as-is: "" clears,
 			// text sets — see the explicit-presence note above.
 			if (validateDetails(value.details) === undefined) {
-				update.mutate({ id: props.id, details: value.details });
+				// Capture the trace context at enqueue (1w9.4) so an offline-queued edit
+				// replays under the original action's trace.
+				update.mutate({
+					id: props.id,
+					details: value.details,
+					__trace: captureActionContext("edit_todo_details"),
+				});
 			}
 		},
 	}));
@@ -197,16 +208,17 @@ function TodoDetail() {
 	const [editing, setEditing] = createSignal(false);
 
 	return (
+		// Data-first ordering (1w9.3 review F2): if we HAVE the todo — SSR-hydrated
+		// or restored from IndexedDB — render it even when a background refetch is
+		// erroring (show a stale indicator, never replace the content with an error
+		// screen). The error Match is the last resort, for no-data-at-all.
 		<Switch>
-			<Match when={query.isError}>
-				<p>Error loading todo. Please try again later.</p>
-			</Match>
-			<Match when={query.isSuccess && query.data === null}>
-				<p>Todo not found.</p>
-			</Match>
 			<Match when={query.data}>
 				{(todo) => (
 					<>
+						<Show when={query.isError}>
+							<StaleIndicator />
+						</Show>
 						<h1
 							class={todo().completed ? titleCompleted : title}
 							// Shared-element morph target: same name as the list row's title.
@@ -261,6 +273,12 @@ function TodoDetail() {
 					</>
 				)}
 			</Match>
+			<Match when={query.isSuccess && query.data === null}>
+				<p>Todo not found.</p>
+			</Match>
+			<Match when={query.isError}>
+				<p>Error loading todo. Please try again later.</p>
+			</Match>
 		</Switch>
 	);
 }
@@ -268,6 +286,9 @@ function TodoDetail() {
 export const Route = createFileRoute("/todos/$id")({
 	loader: ({ context, params }) =>
 		context.queryClient.ensureQueryData(todoQueryOptions(context.transport, params.id)),
+	// Designed offline/error screen (1w9.3 review F1) for a detail loader that
+	// fails with no cached data — e.g. deep-linking an uncached todo offline.
+	errorComponent: OfflineRouteError,
 	head: ({ loaderData }) => {
 		const todo = loaderData as { title?: string } | null | undefined;
 		return {
