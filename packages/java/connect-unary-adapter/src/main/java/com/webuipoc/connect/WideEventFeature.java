@@ -15,15 +15,24 @@ import java.io.PrintStream;
  * hardcoded, so this adapter stays service-agnostic and reusable (the same reason
  * {@link ConnectUnaryFeature} takes the service, not a service name).
  *
- * <p>It declares a high {@link Weighted weight} so Helidon runs its {@code setup}
- * (and hence registers its filter) before the default-weight routing and
- * {@link ConnectCors} filters: the wide-event filter must be the outermost filter
- * so its completion path wraps the entire request and its {@code duration_ms}
- * covers all of it.
+ * <p>The {@link Weighted weight} of 1000 is the ONLY ordering mechanism — the
+ * order features are added to the routing builder is irrelevant, because Helidon
+ * sorts all features by weight (descending; ties broken by class name, ascending)
+ * at {@code HttpRouting.Builder.build()} and only then runs each {@code setup}.
+ * Higher weight → earlier setup → earlier {@code addFilter} → outermost filter.
+ * At the default weight (100) the class-name tie-break ({@code ConnectUnaryFeature}
+ * &lt; {@code WideEventFeature}) would set the Connect feature up first and make
+ * this filter INNER to {@link ConnectCors} — the wide-event filter must be
+ * outermost so its completion path wraps the entire request and its
+ * {@code duration_ms} covers all of it.
  */
 public final class WideEventFeature implements HttpFeature, Weighted {
 
-    /** Above {@link Weighted#DEFAULT_WEIGHT} (100) so this feature is set up first (outermost filter). */
+    /**
+     * Above {@link Weighted#DEFAULT_WEIGHT} (100): weight-descending feature sort at
+     * routing build() sets this feature up first, making its filter outermost (see
+     * class javadoc for why the default-weight tie-break would invert that).
+     */
     private static final double WEIGHT = 1000.0;
 
     private final WideEventFilter filter;

@@ -88,8 +88,10 @@ public final class Main {
     /** The production routing: Connect adapter over {@code todoService} + {@code GET /health}. */
     static void routing(HttpRouting.Builder routing, BindableService todoService) {
         // Wide-event request logging (task iq2.1): one structured JSON line per
-        // request to stdout. Its high-weight feature installs the outermost filter
-        // so it wraps the whole request (including the Connect adapter + /health).
+        // request to stdout. Registration ORDER here is irrelevant — Helidon
+        // weight-sorts features at routing build() — what makes this filter
+        // outermost (wrapping the Connect adapter + /health) is the feature's
+        // Weighted weight of 1000 (see WideEventFeature).
         routing.addFeature(WideEventFeature.create(WIDE_EVENT_COMPONENT));
         routing.addFeature(ConnectUnaryFeature.create(todoService));
         routing.get("/health", (req, res) -> {

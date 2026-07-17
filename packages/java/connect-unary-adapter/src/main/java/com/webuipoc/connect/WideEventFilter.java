@@ -81,7 +81,28 @@ public final class WideEventFilter implements Filter {
             event.setDurationMs((System.nanoTime() - startNanos) / NANOS_PER_MILLI);
             event.setTimestamp(Instant.now().toString());
             event.setStatus(res.status().code());
+            emit(event);
+        }
+    }
+
+    /**
+     * Best-effort emit: this runs inside the filter's {@code finally}, so a codec
+     * failure MUST NOT propagate — an exception thrown from a finally block would
+     * mask any in-flight request exception and kill the keep-alive connection.
+     * Logging is observability, never a request-failure cause; on a serialization
+     * failure a one-line note goes to stderr instead (stdout stays reserved for
+     * well-formed wide-event JSON).
+     *
+     * <p>No test forces this path: the generated {@code WideEventJsonAdapter}
+     * serializes plain strings/longs/ints and a {@code Map<String,String>}, none
+     * of which can fail, so a failing event cannot be constructed through the
+     * public API without mocking the codec itself.
+     */
+    private void emit(WideEvent event) {
+        try {
             out.println(eventType.toJson(event));
+        } catch (RuntimeException e) {
+            System.err.println("wide-event emit failed: " + e);
         }
     }
 }

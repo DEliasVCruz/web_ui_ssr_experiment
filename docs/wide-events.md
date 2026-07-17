@@ -40,7 +40,7 @@ Serialized with snake_case keys (avaje-jsonb `LowerUnderscore` naming) and
 | `http_method`     | string            | no       | e.g. `GET`, `POST`. |
 | `path`            | string            | no       | Request path, e.g. `/todo.v1.TodoService/GetTodo`. |
 | `status`          | number (int)      | no       | Final HTTP status. |
-| `connect_code`    | string            | **yes**  | Connect wire error code (e.g. `not_found`, `invalid_argument`); `null` on success and on non-RPC requests. |
+| `connect_code`    | string            | **yes**  | Connect wire error code (e.g. `not_found`, `invalid_argument`); `null` on success and on non-RPC requests. Also `null` on the bare HTTP 415 paths (unsupported content-type / `encoding` param): those responses carry no Connect error envelope, so an RPC-path request can have `status: 415` with `connect_code: null`. |
 | `rpc_method`      | string            | **yes**  | Fully-qualified RPC method (e.g. `todo.v1.TodoService/GetTodo`); `null` for non-RPC requests (e.g. `/health`) and unknown routes. |
 | `component`       | string            | no       | Emitting service, e.g. `business-logic-java`. Injected by the composition root (the adapter is service-agnostic). |
 | `error`           | object            | **yes**  | Populated only when the request failed with an exception the filter saw (ordinary Connect errors use `connect_code` + `status`). See below. |
