@@ -53,6 +53,29 @@ export interface BrowserWideEvent {
 	readonly rpc_count: number;
 	readonly rpc_failures: number;
 	readonly error: BrowserWideEventError | null;
+	/**
+	 * True when this action's RPC was REPLAYED from the offline queue (task
+	 * 1w9.4) rather than sent live — captured at enqueue (`captureActionContext`),
+	 * carried in the persisted mutation variables, and stamped onto the ONE wide
+	 * event emitted at replay. The offline `onMutate` emits nothing (the action is
+	 * queued, not done), so a queued action produces exactly one event, here,
+	 * flagged. A live (online) action carries `false`.
+	 */
+	readonly offline_queued: boolean;
+}
+
+/**
+ * The action context captured at ENQUEUE time (task 1w9.4) and carried, verbatim
+ * and JSON-serializable, inside the persisted mutation variables. Replayed via
+ * {@link runActionWithContext} so the queued RPC's `traceparent` reuses the
+ * ORIGINAL `trace_id` and the replay wide event correlates to the enqueue-time
+ * action — never a fresh trace minted at flush. Purely data (no functions), so it
+ * survives IndexedDB round-trips and document reloads.
+ */
+export interface CapturedActionContext {
+	readonly traceId: string;
+	readonly action: string;
+	readonly offlineQueued: boolean;
 }
 
 /**
@@ -67,6 +90,8 @@ interface ActionContext {
 	readonly flags: string;
 	readonly name: string;
 	readonly startedAt: number;
+	/** Carried onto the emitted event as `offline_queued` (see the field doc). */
+	readonly offlineQueued: boolean;
 	rpcCount: number;
 	rpcFailures: number;
 	error: BrowserWideEventError | null;
@@ -99,13 +124,21 @@ interface ActionContext {
 // synchronously issued RPC is exact regardless.
 let activeAction: ActionContext | undefined;
 
-function createActionContext(name: string, previous: ActionContext | undefined): ActionContext {
+function createActionContext(
+	name: string,
+	previous: ActionContext | undefined,
+	// When replaying a queued action, the captured context seeds the ORIGINAL
+	// trace_id and the offline_queued flag; a fresh live action passes none and
+	// mints its own trace with offlineQueued=false.
+	seed?: CapturedActionContext,
+): ActionContext {
 	return {
-		traceId: mintTraceId(),
+		traceId: seed?.traceId ?? mintTraceId(),
 		spanId: mintSpanId(),
 		flags: DEFAULT_TRACE_FLAGS,
 		name,
 		startedAt: performance.now(),
+		offlineQueued: seed?.offlineQueued ?? false,
 		rpcCount: 0,
 		rpcFailures: 0,
 		error: null,
@@ -134,6 +167,7 @@ function buildActionEvent(ctx: ActionContext): BrowserWideEvent {
 		rpc_count: ctx.rpcCount,
 		rpc_failures: ctx.rpcFailures,
 		error: ctx.error,
+		offline_queued: ctx.offlineQueued,
 	};
 }
 
@@ -216,7 +250,7 @@ export function endAction(handle: ActionHandle, error?: unknown): void {
 	ctx.ended = true;
 	if (activeAction === ctx) {
 		let next = ctx.previous;
-		while (next !== undefined && next.ended) {
+		while (next?.ended) {
 			next = next.previous;
 		}
 		activeAction = next;
@@ -232,6 +266,64 @@ export function endAction(handle: ActionHandle, error?: unknown): void {
  */
 export async function runAction<T>(name: string, fn: () => Promise<T>): Promise<T> {
 	const handle = beginAction(name);
+	try {
+		const result = await fn();
+		endAction(handle);
+		return result;
+	} catch (error) {
+		endAction(handle, error);
+		throw error;
+	}
+}
+
+/**
+ * `navigator.onLine === false`, SSR-safe. Captured at ENQUEUE so the resulting
+ * wide event honestly records whether the action was queued offline (its RPC
+ * later replayed) or sent live — never re-read at flush time.
+ */
+function isOffline(): boolean {
+	return typeof navigator !== "undefined" && !navigator.onLine;
+}
+
+/**
+ * Captures the action context at ENQUEUE (task 1w9.4): mints THIS action's
+ * `trace_id` now and records whether we are offline, returning a plain,
+ * JSON-serializable token to embed in the mutation variables. The RPC — whether
+ * it flies immediately (online) or is replayed from the queue after a reconnect
+ * or reload — is later run under this exact context via {@link runActionWithContext},
+ * so its `traceparent` and its one wide event both carry the enqueue-time trace.
+ */
+export function captureActionContext(name: string): CapturedActionContext {
+	return { traceId: mintTraceId(), action: name, offlineQueued: isOffline() };
+}
+
+/**
+ * Opens an action scope seeded from a {@link captureActionContext} token instead
+ * of minting a fresh trace. Every RPC issued while it is open reuses the
+ * captured `trace_id` (the interceptor reads `activeAction` synchronously), and
+ * its emitted wide event carries the captured `offline_queued` flag.
+ */
+function beginActionWithContext(captured: CapturedActionContext): ActionHandle {
+	const ctx = createActionContext(captured.action, activeAction, captured);
+	activeAction = ctx;
+	return { ctx };
+}
+
+/**
+ * Runs `fn` under a CAPTURED action context (task 1w9.4) — the replay-time twin
+ * of {@link runAction}. Used by the offline-capable mutation fns: they read the
+ * `__trace` captured into their variables at enqueue and replay under it, so a
+ * queued RPC's `traceparent` reuses the original `trace_id` and exactly ONE wide
+ * event (flagged `offline_queued`) is emitted when the RPC actually flies —
+ * regardless of whether that is live, on reconnect, or after a reload. NEVER
+ * reads `activeAction` to derive the trace (that is `undefined` during
+ * background flush and would mint a wrong/fresh id).
+ */
+export async function runActionWithContext<T>(
+	captured: CapturedActionContext,
+	fn: () => Promise<T>,
+): Promise<T> {
+	const handle = beginActionWithContext(captured);
 	try {
 		const result = await fn();
 		endAction(handle);

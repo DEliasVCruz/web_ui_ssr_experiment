@@ -2,10 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
 	type BrowserWideEvent,
 	beginAction,
+	type CapturedActionContext,
+	captureActionContext,
 	createTraceParentInterceptor,
 	currentAction,
 	endAction,
 	runAction,
+	runActionWithContext,
 	setActionEventSink,
 } from "./browser-events";
 import { parseTraceParent } from "./trace-context";
@@ -140,6 +143,65 @@ describe("traceparent interceptor", () => {
 
 		expect(headers).toEqual([""]);
 		expect(events).toHaveLength(0);
+	});
+});
+
+// Offline queue (task 1w9.4 §4.4): the action's trace + offline flag are CAPTURED
+// at enqueue and carried in the mutation variables; the RPC is REPLAYED under that
+// captured context — never re-derived from `activeAction` at flush time (which is
+// `undefined` during a background flush). This is the unit teeth for teeth (b):
+// swap runActionWithContext to read activeAction and the trace correlation below
+// breaks (no traceparent header; the wrong/absent trace_id on the event).
+describe("captured-context replay", () => {
+	test("captureActionContext mints a fresh trace and records the enqueue-time offline flag", () => {
+		const captured = captureActionContext("create_todo");
+		expect(captured.action).toBe("create_todo");
+		expect(captured.traceId).toMatch(/^[0-9a-f]{32}$/);
+		// The flag reflects navigator.onLine at capture — a boolean either way (the
+		// bun runtime has no meaningful onLine, so we assert the shape, not the value;
+		// the true/false split is proven by the replay + runAction tests).
+		expect(typeof captured.offlineQueued).toBe("boolean");
+	});
+
+	test("runAction flags offline_queued=false (a live action)", async () => {
+		await runAction("navigate", async () => "x");
+		expect(events).toHaveLength(1);
+		expect(events[0]?.offline_queued).toBe(false);
+	});
+
+	test("replays the RPC under the ENQUEUE-time trace and flags offline_queued=true", async () => {
+		// A token as it would be persisted for a create enqueued while OFFLINE.
+		const enqueued: CapturedActionContext = {
+			traceId: "abcdef0123456789abcdef0123456789",
+			action: "create_todo",
+			offlineQueued: true,
+		};
+		const headers: string[] = [];
+		const next = invokeInterceptor(capturingNext(headers));
+
+		// No action is active at flush time — the ONLY trace source is the captured
+		// token. (Read activeAction instead and the interceptor would add no header.)
+		expect(currentAction()).toBeUndefined();
+		await runActionWithContext(enqueued, async () => {
+			await next({ header: new Headers() });
+		});
+
+		// The replayed RPC's traceparent carries the enqueue-time trace_id verbatim.
+		expect(headers).toHaveLength(1);
+		const parsed = parseTraceParent(headers[0]);
+		if (parsed === null) throw new Error(`malformed traceparent: ${String(headers[0])}`);
+		expect(parsed.traceId).toBe(enqueued.traceId);
+
+		// Exactly ONE wide event, correlated on that trace and flagged as queued.
+		expect(events).toHaveLength(1);
+		const event = events[0];
+		if (event === undefined) throw new Error("no replay event");
+		expect(event.trace_id).toBe(enqueued.traceId);
+		expect(event.action).toBe("create_todo");
+		expect(event.offline_queued).toBe(true);
+		expect(event.rpc_count).toBe(1);
+		// The scope is closed after replay — nothing leaks as active.
+		expect(currentAction()).toBeUndefined();
 	});
 });
 
