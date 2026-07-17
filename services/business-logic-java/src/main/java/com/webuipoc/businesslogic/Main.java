@@ -1,6 +1,7 @@
 package com.webuipoc.businesslogic;
 
 import com.webuipoc.connect.ConnectUnaryFeature;
+import com.webuipoc.businesslogic.config.ServiceConfig;
 import com.webuipoc.businesslogic.todo.TodoDb;
 import com.webuipoc.businesslogic.todo.TodoGrpcBridge;
 import io.avaje.inject.BeanScope;
@@ -29,7 +30,6 @@ import io.helidon.webserver.http.HttpRouting;
  */
 public final class Main {
 
-    static final int DEFAULT_PORT = 3001;
     static final String HEALTH_JSON = "{\"status\":\"ok\"}";
 
     private Main() {
@@ -40,25 +40,17 @@ public final class Main {
         // single SQLite connection) on JVM shutdown.
         BeanScope scope = BeanScope.builder().shutdownHook(true).build();
         TodoGrpcBridge bridge = scope.get(TodoGrpcBridge.class);
+        // The avaje-config -> Helidon bridge: the server port is resolved by
+        // avaje-config (application.yaml default 3001, env override PORT) and
+        // fed explicitly into the Helidon WebServer builder. Helidon SE never
+        // reads avaje-config directly — this is the only crossing point.
+        ServiceConfig config = scope.get(ServiceConfig.class);
         WebServer server = WebServer.builder()
-                .port(resolvePort(System.getenv("PORT")))
+                .port(config.serverPort())
                 .routing(routing -> routing(routing, bridge))
                 .build()
                 .start();
         System.out.println("business-logic-java listening on http://localhost:" + server.port());
-    }
-
-    /** Mirrors the Bun service: {@code Number(process.env.PORT) || 3001}. */
-    static int resolvePort(String portEnv) {
-        if (portEnv == null || portEnv.isBlank()) {
-            return DEFAULT_PORT;
-        }
-        try {
-            int port = Integer.parseInt(portEnv.trim());
-            return port > 0 ? port : DEFAULT_PORT;
-        } catch (NumberFormatException e) {
-            return DEFAULT_PORT;
-        }
     }
 
     /** The production routing: Connect adapter over {@code todoService} + {@code GET /health}. */

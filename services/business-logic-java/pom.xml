@@ -79,6 +79,17 @@
       <version>${version.avaje.inject}</version>
     </dependency>
 
+    <!-- External service configuration owner: application.yaml defaults, profile
+         files (application-<profile>.yaml) and env/system-property overrides.
+         Version managed by the parent's dependencyManagement. Wired into the DI
+         graph via a typed ServiceConfig holder (see config/ServiceConfig +
+         AppFactory); the server bootstrap bridges its values into the Helidon
+         WebServer builder. -->
+    <dependency>
+      <groupId>io.avaje</groupId>
+      <artifactId>avaje-config</artifactId>
+    </dependency>
+
     <!-- Business-rule validation on the domain command records (avaje-validator
          runtime + the standard constraint annotations, e.g. @NotBlank). Wire
          validation (protovalidate) stays in the Connect adapter; these rules are

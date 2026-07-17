@@ -73,8 +73,13 @@ WORKDIR /app
 COPY --from=build /build/services/business-logic-java/target/libs libs
 COPY --from=build /build/services/business-logic-java/target/business-logic-java.jar business-logic-java.jar
 
-# DATABASE_PATH defaults to ./data/todos.db (=/app/data/todos.db); compose
-# overrides it to /data/todos.db on the sqlite-data volume
+# Service configuration is owned by avaje-config (application.yaml, packaged
+# inside the jar). CONFIG_PROFILES=docker layers application-docker.yaml on top,
+# whose db.path default (/data/todos.db) targets the sqlite-data volume compose
+# mounts at /data. PORT / DATABASE_PATH environment variables still override
+# these file values (env > profile file), so compose's DATABASE_PATH and the
+# devenv e2e task's PORT/DATABASE_PATH keep working unchanged.
+ENV CONFIG_PROFILES=docker
 ENV PORT=3001
 EXPOSE 3001
 CMD ["java", "-jar", "business-logic-java.jar"]

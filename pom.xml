@@ -60,6 +60,7 @@
          (not managed by any imported BOM); used only by business-logic-java, but
          centralized here so all module versions live in one place. -->
     <version.avaje.inject>11.4</version.avaje.inject>
+    <version.avaje.config>5.2</version.avaje.config>
     <version.avaje.validator>2.9</version.avaje.validator>
     <version.mapstruct>1.6.3</version.mapstruct>
     <version.sqlite>3.53.2.0</version.sqlite>
@@ -116,6 +117,18 @@
         <groupId>build.buf</groupId>
         <artifactId>protovalidate</artifactId>
         <version>${version.protovalidate}</version>
+      </dependency>
+
+      <!-- avaje-config: the service's external configuration owner (YAML defaults
+           in application.yaml, profile files, env/system-property overrides).
+           BOM-unmanaged like the other avaje libs; pinned here so the service
+           module can depend on it version-less. Its YAML support uses a built-in
+           parser (snakeyaml is an optional transitive we deliberately do NOT
+           pull), so no extra dependency is needed for application.yaml. -->
+      <dependency>
+        <groupId>io.avaje</groupId>
+        <artifactId>avaje-config</artifactId>
+        <version>${version.avaje.config}</version>
       </dependency>
 
       <!-- Reactor-internal: lets business-logic-java depend on the adapter

@@ -65,10 +65,4 @@ class TodoDbTest {
             }
         }
     }
-
-    @Test
-    void resolvePathMirrorsBunEnvFallback() {
-        assertEquals("./data/todos.db", TodoDb.resolvePath(null));
-        assertEquals("/custom/path.db", TodoDb.resolvePath("/custom/path.db"));
-    }
 }

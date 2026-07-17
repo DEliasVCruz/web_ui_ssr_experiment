@@ -15,8 +15,6 @@ import java.sql.Statement;
  */
 public final class TodoDb implements AutoCloseable {
 
-    static final String DEFAULT_DB_PATH = "./data/todos.db";
-
     // Copied verbatim from services/business-logic/src/db.ts.
     private static final String CREATE_TODOS_TABLE = """
             CREATE TABLE IF NOT EXISTS todos (
@@ -36,6 +34,11 @@ public final class TodoDb implements AutoCloseable {
      * where a fresh checkout without {@code data/} failed every RPC (fixed in
      * db.ts with {@code mkdirSync(dirname(dbPath), { recursive: true })});
      * this port must not regress it.
+     *
+     * <p>The path is supplied by the caller ({@code AppFactory} feeds
+     * {@code ServiceConfig#databasePath()} here). The default and the historical
+     * {@code DATABASE_PATH} env-var override now live in avaje-config
+     * (application.yaml), not in this class.
      */
     public TodoDb(String dbPath) {
         Path parent = Path.of(dbPath).getParent();
@@ -56,19 +59,6 @@ public final class TodoDb implements AutoCloseable {
         } catch (SQLException e) {
             throw new IllegalStateException("failed to open SQLite database at " + dbPath, e);
         }
-    }
-
-    /**
-     * Opens the database at {@code DATABASE_PATH} (default {@code ./data/todos.db}),
-     * mirroring {@code process.env.DATABASE_PATH ?? DEFAULT_DB_PATH} in db.ts.
-     */
-    public static TodoDb open() {
-        return new TodoDb(resolvePath(System.getenv("DATABASE_PATH")));
-    }
-
-    /** Mirrors {@code process.env.DATABASE_PATH ?? DEFAULT_DB_PATH}. */
-    static String resolvePath(String envDatabasePath) {
-        return envDatabasePath != null ? envDatabasePath : DEFAULT_DB_PATH;
     }
 
     Connection connection() {
