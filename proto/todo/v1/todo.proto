@@ -19,6 +19,13 @@ message Todo {
   google.protobuf.Timestamp created_at = 4;
   // Timestamp when the todo was last updated.
   google.protobuf.Timestamp updated_at = 5;
+  // Free-form details/notes for the todo. Explicit presence: the field is unset
+  // when the todo has no details (the persisted column is NULL), and set —
+  // including to an empty string — when details were provided (an empty string
+  // means the content was explicitly cleared). Consumers distinguish
+  // "never set" (has_details == false) from "cleared" (has_details == true,
+  // value == "").
+  string details = 6 [features.field_presence = EXPLICIT];
 }
 
 // ListTodosRequest is the request message for ListTodos.
@@ -51,6 +58,14 @@ message CreateTodoRequest {
     min_len: 1
     max_len: 100
   }];
+  // Optional details for the new todo. Explicit presence: unset means "no
+  // details" (persisted as NULL); a provided value — including an empty string —
+  // is stored verbatim. No min_len (empty is legal, unlike title); at most
+  // 1000 characters (mirrors the title max_len style, sized for a notes field).
+  string details = 2 [
+    features.field_presence = EXPLICIT,
+    (buf.validate.field).string = {max_len: 1000}
+  ];
 }
 
 // CreateTodoResponse is the response message for CreateTodo.
@@ -75,6 +90,15 @@ message UpdateTodoRequest {
   ];
   // The new completed status, if updating.
   bool completed = 3 [features.field_presence = EXPLICIT];
+  // The new details, if updating. Explicit presence distinguishes "not provided"
+  // (unset — the details are left unchanged) from "provided" (set — the details
+  // are overwritten, including with an empty string, which clears the content).
+  // When set, at most 1000 characters; no min_len, so clearing via "" is legal.
+  // The rule is skipped when the field is unset.
+  string details = 4 [
+    features.field_presence = EXPLICIT,
+    (buf.validate.field).string = {max_len: 1000}
+  ];
 }
 
 // UpdateTodoResponse is the response message for UpdateTodo.
