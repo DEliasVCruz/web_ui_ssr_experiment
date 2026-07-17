@@ -18,18 +18,23 @@ import com.tngtech.archunit.lang.ArchRule;
  * {@code build.buf.validate..}, so they are OUT of this root by construction and no rule can fire on them.
  * {@link ImportOption.DoNotIncludeTests} drops the {@code target/test-classes} compilation output so these production
  * layering rules never trip over test doubles (e.g. the StreamObserver-implementing StubTodoService). The remaining
- * in-package generated code (avaje-inject {@code $DI} / {@code BusinesslogicModule}, avaje-validation adapters,
- * MapStruct {@code *Impl}) is filtered out per-rule via {@link #GENERATED_CODE} — those emitters legitimately reference
- * framework types (e.g. {@code io.grpc.BindableService}) that a working agreement should not police in hand-written
- * code. Every rule fails the build on violation; there is no freeze/baseline.
+ * in-package avaje-generated code (avaje-inject {@code $DI} / {@code BusinesslogicModule}, avaje-validation adapters)
+ * is filtered out per-rule via {@link #GENERATED_CODE} — those emitters legitimately reference framework types (e.g.
+ * {@code io.grpc.BindableService}) that a working agreement should not police in hand-written code. MapStruct
+ * {@code *Impl} output is NOT covered by that predicate (see its Javadoc) and needs no exclusion: no rule fires on it.
+ * Every rule fails the build on violation; there is no freeze/baseline.
  */
 @AnalyzeClasses(packages = "com.webuipoc.businesslogic", importOptions = ImportOption.DoNotIncludeTests.class)
 class ArchitectureTest {
 
     /**
-     * Annotation-processor output carries a {@code *.spi.Generated} / {@code javax.annotation.processing.Generated}
-     * marker (verified: avaje-inject, avaje-validation and MapStruct all do). Excluding it keeps the working agreements
-     * scoped to code humans write and review.
+     * Avaje annotation-processor output carries a CLASS-retention {@code io.avaje.*.spi.Generated} marker (verified
+     * via javap: avaje-inject {@code $DI}/{@code BusinesslogicModule} and avaje-validation adapters do). MapStruct's
+     * {@code @Generated} is SOURCE-retention, so {@code TodoMapperImpl.class} carries NO annotation and this predicate
+     * never matches MapStruct output — currently moot because no rule fires on it; if a future rule ever needs to
+     * exclude MapStruct {@code *Impl} classes, add a name/package-based predicate leg instead. Known trust boundary:
+     * any class annotated with a {@code *.Generated} annotation dodges these rules — acceptable here because such an
+     * annotation on hand-written code is visible in diff review.
      */
     private static final DescribedPredicate<JavaClass> GENERATED_CODE =
             new DescribedPredicate<JavaClass>("generated code (annotated @Generated)") {
@@ -42,7 +47,9 @@ class ArchitectureTest {
             };
 
     // AGENTS.md: the business core is plain Java. Domain records/commands carry no framework: no Helidon webserver
-    // types, no gRPC, and no generated proto (todo.v1). Mapping to/from proto is the mapper's job, not the domain's.
+    // types, no gRPC, no generated proto (todo.v1) and no protobuf runtime/protovalidate types — a domain record
+    // holding proto Timestamp/Struct instead of java.time is exactly the leak this prevents. Mapping to/from proto
+    // is the mapper's job, not the domain's.
     @ArchTest
     static final ArchRule domain_records_stay_framework_free = noClasses()
             .that()
@@ -50,9 +57,10 @@ class ArchitectureTest {
             .and(DescribedPredicate.not(GENERATED_CODE))
             .should()
             .dependOnClassesThat()
-            .resideInAnyPackage("io.helidon..", "io.grpc..", "todo.v1..")
-            .because("domain records are the plain business core; Helidon, gRPC and generated proto types "
-                    + "belong to the service's edges, not to the domain");
+            .resideInAnyPackage(
+                    "io.helidon..", "io.grpc..", "todo.v1..", "com.google.protobuf..", "build.buf.validate..")
+            .because("domain records are the plain business core; Helidon, gRPC, generated proto and protobuf "
+                    + "runtime types belong to the service's edges, not to the domain");
 
     // AGENTS.md: "Keep the two services honest." Helidon WebServer wiring is confined to the Main composition root;
     // the rest of the service (domain, todo core, mapper, config) must not reach for the HTTP framework.
