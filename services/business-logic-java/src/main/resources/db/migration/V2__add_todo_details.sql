@@ -1,0 +1,21 @@
+-- V2: add the free-form `details` column to todos (task a4a.1).
+--
+-- Nullable text, NO default and NO backfill: an absent value is honestly NULL
+-- ("this todo has no details"), which is distinct from an empty string ("the
+-- details were explicitly cleared"). This mirrors the proto's explicit-presence
+-- semantics on todo.v1.Todo.details / CreateTodoRequest.details /
+-- UpdateTodoRequest.details:
+--   * NULL column  <-> field unset  (has_details == false)  -> "never set"
+--   * ''   column  <-> field set ""  (has_details == true)  -> "cleared"
+--   * text column  <-> field set text                       -> the details
+--
+-- Existing rows created before this migration keep NULL details, which is the
+-- correct "no details" state — no data migration is required.
+--
+-- Type choice: text (not varchar(1000)). The 1000-char cap is a wire-level
+-- protovalidate constraint (CreateTodoRequest/UpdateTodoRequest.details
+-- max_len), enforced at the service edge; the column stays an unbounded text to
+-- avoid duplicating that policy in the schema (consistent with title, whose
+-- 100-char cap also lives only in protovalidate, not the V1 DDL).
+ALTER TABLE todos
+    ADD COLUMN details text;

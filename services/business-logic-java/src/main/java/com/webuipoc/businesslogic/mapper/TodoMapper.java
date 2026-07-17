@@ -4,8 +4,10 @@ import com.google.protobuf.Timestamp;
 import com.webuipoc.businesslogic.domain.CreateTodo;
 import com.webuipoc.businesslogic.domain.UpdateTodo;
 import java.time.Instant;
+import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
+import org.mapstruct.NullValueCheckStrategy;
 import org.mapstruct.ReportingPolicy;
 import todo.v1.TodoOuterClass;
 
@@ -25,21 +27,38 @@ import todo.v1.TodoOuterClass;
 @Mapper(unmappedTargetPolicy = ReportingPolicy.IGNORE)
 public interface TodoMapper {
 
-    /** {@code CreateTodoRequest.title} -&gt; {@code CreateTodo(title)}. */
+    /**
+     * {@code CreateTodoRequest} -&gt; {@code CreateTodo}. {@code title} maps by
+     * name; {@code details} has explicit presence, so an unset field becomes
+     * {@code null} ("not provided") rather than the empty-string default — the
+     * same explicit-presence translation used for {@code UpdateTodoRequest}.
+     */
+    @Mapping(target = "details", expression = "java(request.hasDetails() ? request.getDetails() : null)")
     CreateTodo toCreateCommand(TodoOuterClass.CreateTodoRequest request);
 
     /**
      * {@code UpdateTodoRequest} -&gt; {@code UpdateTodo}, translating editions-2023
-     * explicit presence into the nullable-field convention: an unset title or
-     * completed becomes {@code null} ("not provided"). MapStruct cannot infer
-     * this from {@code getTitle()}/{@code getCompleted()} alone, so the presence
-     * checks are written explicitly. {@code id} maps by name.
+     * explicit presence into the nullable-field convention: an unset title,
+     * details, or completed becomes {@code null} ("not provided"). MapStruct
+     * cannot infer this from the {@code getX()} accessors alone (they return the
+     * default value when unset), so the presence checks are written explicitly.
+     * {@code id} maps by name.
      */
     @Mapping(target = "title", expression = "java(request.hasTitle() ? request.getTitle() : null)")
+    @Mapping(target = "details", expression = "java(request.hasDetails() ? request.getDetails() : null)")
     @Mapping(target = "completed", expression = "java(request.hasCompleted() ? request.getCompleted() : null)")
     UpdateTodo toUpdateCommand(TodoOuterClass.UpdateTodoRequest request);
 
-    /** Domain {@code Todo} -&gt; wire {@code todo.v1.Todo} (Instant -&gt; Timestamp via {@link #toTimestamp}). */
+    /**
+     * Domain {@code Todo} -&gt; wire {@code todo.v1.Todo} (Instant -&gt; Timestamp via
+     * {@link #toTimestamp}). {@code nullValueCheckStrategy = ALWAYS} because
+     * {@code details} is nullable and the protobuf builder's {@code setDetails}
+     * throws on {@code null}: a null-check must guard it so a null domain
+     * {@code details} leaves the explicit-presence wire field unset (rather than
+     * NPE-ing or writing an empty string). The other source fields are non-null,
+     * so the extra guards are inert.
+     */
+    @BeanMapping(nullValueCheckStrategy = NullValueCheckStrategy.ALWAYS)
     TodoOuterClass.Todo toProto(com.webuipoc.businesslogic.domain.Todo todo);
 
     /** Instant -&gt; {@code google.protobuf.Timestamp} (seconds + nanos), used for created_at/updated_at. */

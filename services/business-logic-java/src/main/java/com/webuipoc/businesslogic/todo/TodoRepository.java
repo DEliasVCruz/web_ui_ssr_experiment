@@ -59,8 +59,14 @@ import org.jooq.impl.DSL;
 @Singleton
 public final class TodoRepository {
 
-    /** One row of the todos table: boolean completed, Instant timestamps (native Postgres types). */
-    public record TodoRow(String id, String title, boolean completed, Instant createdAt, Instant updatedAt) {}
+    /**
+     * One row of the todos table: boolean completed, Instant timestamps (native
+     * Postgres types). {@code details} is nullable — {@code null} maps to the
+     * table's NULL "no details" state (distinct from an empty string, which is
+     * "details explicitly cleared").
+     */
+    public record TodoRow(
+            String id, String title, boolean completed, String details, Instant createdAt, Instant updatedAt) {}
 
     private final DSLContext dsl;
 
@@ -81,12 +87,17 @@ public final class TodoRepository {
         return dsl.selectFrom(TODOS).where(TODOS.ID.eq(id)).fetchOptional(TodoRepository::toTodoRow);
     }
 
-    public TodoRow createTodo(String title) {
+    public TodoRow createTodo(String title, String details) {
         OffsetDateTime now = nowMillis();
+        // details is bound as-is: null -> the column's NULL "no details" state,
+        // a non-null value (including "") -> stored verbatim. The column has no
+        // default, so an omitted set would also yield NULL; setting it explicitly
+        // keeps the create statement symmetric with title.
         return toTodoRow(dsl.insertInto(TODOS)
                 .set(TODOS.ID, UuidV7.randomUuidV7())
                 .set(TODOS.TITLE, title)
                 .set(TODOS.COMPLETED, false)
+                .set(TODOS.DETAILS, details)
                 .set(TODOS.CREATED_AT, now)
                 .set(TODOS.UPDATED_AT, now)
                 .returning()
@@ -106,10 +117,16 @@ public final class TodoRepository {
      * statement removes the race and the extra round trip; an empty
      * {@code RETURNING} result means the id does not exist (NOT_FOUND at the
      * service layer, exactly as before).
+     *
+     * <p>{@code details} participates in the same presence-based partial update:
+     * a {@code null} param leaves the column untouched, while a non-null value —
+     * including the empty string — is written through ({@code coalesce("", column)}
+     * yields {@code ""}), which is how an update clears the details.
      */
-    public Optional<TodoRow> updateTodo(String id, String title, Boolean completed) {
+    public Optional<TodoRow> updateTodo(String id, String title, String details, Boolean completed) {
         return dsl.update(TODOS)
                 .set(TODOS.TITLE, DSL.coalesce(DSL.val(title, TODOS.TITLE), TODOS.TITLE))
+                .set(TODOS.DETAILS, DSL.coalesce(DSL.val(details, TODOS.DETAILS), TODOS.DETAILS))
                 .set(TODOS.COMPLETED, DSL.coalesce(DSL.val(completed, TODOS.COMPLETED), TODOS.COMPLETED))
                 .set(TODOS.UPDATED_AT, nowMillis())
                 .where(TODOS.ID.eq(id))
@@ -137,6 +154,7 @@ public final class TodoRepository {
                 record.getId(),
                 record.getTitle(),
                 record.getCompleted(),
+                record.getDetails(),
                 record.getCreatedAt().toInstant(),
                 record.getUpdatedAt().toInstant());
     }

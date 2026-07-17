@@ -29,7 +29,7 @@ public class TodoService {
     }
 
     public Todo createTodo(CreateTodo command) {
-        return toDomain(repository.createTodo(command.title()));
+        return toDomain(repository.createTodo(command.title(), command.details()));
     }
 
     public List<Todo> listTodos() {
@@ -42,7 +42,7 @@ public class TodoService {
 
     public Todo updateTodo(UpdateTodo command) {
         return repository
-                .updateTodo(command.id(), command.title(), command.completed())
+                .updateTodo(command.id(), command.title(), command.details(), command.completed())
                 .map(TodoService::toDomain)
                 .orElseThrow(TodoService::notFound);
     }
@@ -57,8 +57,8 @@ public class TodoService {
         return new NotFoundException(NOT_FOUND_MESSAGE);
     }
 
-    /** Repository row -&gt; domain Todo; both already carry native boolean + Instant, so this is a straight copy. */
+    /** Repository row -&gt; domain Todo; both already carry native boolean + Instant + nullable details, so this is a straight copy. */
     private static Todo toDomain(TodoRow row) {
-        return new Todo(row.id(), row.title(), row.completed(), row.createdAt(), row.updatedAt());
+        return new Todo(row.id(), row.title(), row.completed(), row.details(), row.createdAt(), row.updatedAt());
     }
 }
