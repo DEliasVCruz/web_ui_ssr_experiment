@@ -1,6 +1,7 @@
 package com.webuipoc.businesslogic.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.avaje.config.Configuration;
 import org.junit.jupiter.api.Test;
@@ -116,5 +117,31 @@ class ServiceConfigTest {
         ServiceConfig serviceConfig = ServiceConfig.from(Configuration.builder().build());
         assertEquals(3001, serviceConfig.serverPort());
         assertEquals("./data/todos.db", serviceConfig.databasePath());
+    }
+
+    /**
+     * A non-numeric port FAILS FAST instead of silently falling back to 3001
+     * (the retired Bun service's leniency was deliberately dropped — config
+     * errors should be loud). Pins the deliberate semantics change: with
+     * PORT=abc the ${PORT:3001} expression resolves to "abc" and startup dies
+     * with NumberFormatException. Exercised both through the direct key and
+     * through the real application.yaml expression path.
+     */
+    @Test
+    void invalidPortFailsFast() {
+        Configuration direct = Configuration.builder()
+                .put(ServiceConfig.KEY_SERVER_PORT, "abc")
+                .build();
+        assertThrows(NumberFormatException.class, () -> ServiceConfig.from(direct));
+
+        // Same failure through the packaged application.yaml's ${PORT:3001}
+        // expression, i.e. the exact path a bad PORT env var takes at startup.
+        System.setProperty("PORT", "not-a-number");
+        try {
+            Configuration viaYaml = Configuration.builder().load("application.yaml").build();
+            assertThrows(NumberFormatException.class, () -> ServiceConfig.from(viaYaml));
+        } finally {
+            System.clearProperty("PORT");
+        }
     }
 }

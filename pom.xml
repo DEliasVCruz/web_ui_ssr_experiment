@@ -61,6 +61,12 @@
          centralized here so all module versions live in one place. -->
     <version.avaje.inject>11.4</version.avaje.inject>
     <version.avaje.config>5.2</version.avaje.config>
+    <!-- YAML parser avaje-config selects when present. Matches the version the
+         helidon-dependencies BOM manages (and that protovalidate's dev.cel:cel
+         already drags onto the runtime classpath transitively); pinned here so
+         the direct entry (which wins over BOM imports) keeps the parser choice
+         deterministic even if Helidon moves its managed line. -->
+    <version.snakeyaml>2.5</version.snakeyaml>
     <version.avaje.validator>2.9</version.avaje.validator>
     <version.mapstruct>1.6.3</version.mapstruct>
     <version.sqlite>3.53.2.0</version.sqlite>
@@ -129,6 +135,11 @@
         <groupId>io.avaje</groupId>
         <artifactId>avaje-config</artifactId>
         <version>${version.avaje.config}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.yaml</groupId>
+        <artifactId>snakeyaml</artifactId>
+        <version>${version.snakeyaml}</version>
       </dependency>
 
       <!-- Reactor-internal: lets business-logic-java depend on the adapter

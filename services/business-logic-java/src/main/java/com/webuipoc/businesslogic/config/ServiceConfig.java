@@ -38,6 +38,14 @@ public record ServiceConfig(int serverPort, String databasePath) {
      * {@link Configuration}. Kept side-effect free and Configuration-parameterised
      * (rather than reaching for the global {@code Config}) so it is trivially
      * unit-testable against isolated Configuration instances.
+     *
+     * <p>Invalid-port semantics (deliberate, pinned by ServiceConfigTest):
+     * a non-numeric {@code server.port} / {@code PORT} value FAILS FAST — this
+     * {@code getInt} propagates {@link NumberFormatException} and the process
+     * never starts. The retired Bun service silently fell back to 3001; that
+     * leniency was intentionally dropped: config errors should be loud, not
+     * masked by a default. {@code PORT=0} is passed through to Helidon, which
+     * binds an OS-assigned ephemeral port.
      */
     public static ServiceConfig from(Configuration configuration) {
         return new ServiceConfig(

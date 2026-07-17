@@ -90,6 +90,22 @@
       <artifactId>avaje-config</artifactId>
     </dependency>
 
+    <!-- Deterministic YAML parsing for avaje-config: snakeyaml is an OPTIONAL
+         avaje-config dep, but avaje-config prefers YamlLoaderSnake whenever
+         snakeyaml is on the classpath — and it already is, transitively at
+         runtime scope (connect-unary-adapter -> protovalidate -> dev.cel:cel).
+         Without this explicit declaration the production parser choice would
+         silently flip to the built-in simple parser if that transitive ever
+         disappeared. Declared at default (compile) scope, NEVER test: a direct
+         test-scope declaration would win dependency mediation over the
+         transitive runtime scope and drop the jar from target/libs (the repo's
+         documented scope-mediation trap). Version from the parent's
+         dependencyManagement. -->
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+    </dependency>
+
     <!-- Business-rule validation on the domain command records (avaje-validator
          runtime + the standard constraint annotations, e.g. @NotBlank). Wire
          validation (protovalidate) stays in the Connect adapter; these rules are
