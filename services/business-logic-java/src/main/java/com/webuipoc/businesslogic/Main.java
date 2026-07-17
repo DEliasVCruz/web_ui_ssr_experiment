@@ -34,6 +34,12 @@ public final class Main {
 
     private Main() {}
 
+    // PMD.CloseResource: the BeanScope is intentionally NOT closed in main() — it is a
+    // process-lifetime resource whose shutdownHook(true) registers a JVM shutdown hook
+    // that closes it (and the HikariCP pool) on exit. The rule stays active everywhere
+    // else (notably the JDBC persistence layer), so this single documented carve-out
+    // does not weaken resource-leak detection elsewhere.
+    @SuppressWarnings("PMD.CloseResource")
     public static void main(String[] args) {
         WebServer server = start();
         System.out.println("business-logic-java listening on http://localhost:" + server.port());

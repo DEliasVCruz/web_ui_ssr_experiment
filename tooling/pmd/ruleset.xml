@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ruleset name="web-ui-ssr-experiment"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns:pmd-java="http://pmd.sourceforge.net/rule/xpath/java"
+         xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+
+  <description>
+    Curated PMD rules for the Java modules (business-logic-java + connect-unary-adapter).
+
+    SCOPE / LAYERING (zero overlap with the other checkers, by design):
+      * Spotless + palantir-java-format own FORMATTING (whitespace, wrapping, import
+        ordering). This ruleset contains NO formatting rules.
+      * Checkstyle (tooling/checkstyle/checkstyle.xml) owns NAMING conventions and
+        star-import bans. This ruleset therefore does NOT pull category/java/codestyle
+        (its naming rules would double-report against Checkstyle).
+      * PMD here owns semantic bug-catching: category/java/errorprone (likely-bug
+        constructs) + category/java/bestpractices (idiom/API-misuse), plus a few
+        project-specific XPath rules encoding this repo's real conventions.
+
+    Engine: PMD 7.26.0 (pinned in the root pom's pluginManagement; parses Java 25).
+  </description>
+
+  <!-- ============================================================= -->
+  <!-- category/java/errorprone: likely-bug constructs.               -->
+  <!-- Excludes each conflict with a documented repo idiom.           -->
+  <!-- ============================================================= -->
+  <rule ref="category/java/errorprone.xml">
+    <!-- JVM termination is governed by the project rule DoNotCallSystemExitOutsideMain
+         below, which ALLOWS System.exit inside Main but forbids it elsewhere. The
+         built-in bans it everywhere (removing the Main carve-out) and would
+         double-report with ours, so it is excluded in favour of the project rule. -->
+    <exclude name="DoNotTerminateVM"/>
+    <!-- Accessor idiom: the ConnectCode enum and UnaryCapturingServerCall expose a
+         field via a same-named accessor method (grpcCode/wireCode/httpStatus/outcome),
+         exactly like a record component. Field-name-matches-method is the intended
+         shape here, not a mistake. -->
+    <exclude name="AvoidFieldNameMatchingMethodName"/>
+    <!-- The Connect adapter (ConnectUnaryHandler) IS the error-translation boundary:
+         it deliberately catches Throwable/Exception/RuntimeException to map ANY failure
+         into a Connect error code / best-effort listener cleanup. Broad catching is the
+         boundary's contract, so this rule fights its core purpose. -->
+    <exclude name="AvoidCatchingGenericException"/>
+    <!-- The multicatch (ExecutionException | InterruptedException) restores the
+         interrupt flag via `if (e instanceof InterruptedException)` before mapping the
+         error — the idiomatic way to handle InterruptedException alongside a sibling
+         without duplicating the error-mapping tail into two catch clauses. -->
+    <exclude name="AvoidInstanceofChecksInCatchClause"/>
+    <!-- ArchUnit test classes declare rules as `@ArchTest static ArchRule` FIELDS, not
+         JUnit @Test methods, so PMD sees "a test class with no test cases". That is the
+         ArchUnit idiom, not an empty test. -->
+    <exclude name="TestClassWithoutTestCases"/>
+    <!-- Test fixtures legitimately repeat string literals (expected field values,
+         column names, error-message fragments) across and within test methods; the
+         threshold-4 duplicate-literal rule fires only in test data here. Real
+         copy-paste of LOGIC is already guarded by CPD (cpd-check). -->
+    <exclude name="AvoidDuplicateLiterals"/>
+    <!-- EmptyCatchBlock is KEPT, but re-declared below with allowCommentedBlocks=true:
+         a catch that is intentionally empty AND carries a comment explaining why (the
+         adapter's best-effort listener cleanup) is allowed; a truly silent empty catch
+         still fails. Excluded from the wildcard here only to attach that property. -->
+    <exclude name="EmptyCatchBlock"/>
+  </rule>
+
+  <!-- EmptyCatchBlock, re-enabled with the documented-no-op carve-out. Silent empty
+       catch blocks still fail the build; only ones with an explanatory comment pass. -->
+  <rule ref="category/java/errorprone.xml/EmptyCatchBlock">
+    <properties>
+      <property name="allowCommentedBlocks" value="true"/>
+    </properties>
+  </rule>
+
+  <!-- ============================================================= -->
+  <!-- category/java/bestpractices: idiom + API-misuse rules.         -->
+  <!-- ============================================================= -->
+  <rule ref="category/java/bestpractices.xml">
+    <!-- System.out is a DELIBERATE, documented choice (task d4n.5): Main.java's
+         startup banner and the test ContractTestServer print to stdout. No logging
+         framework is wired, so this rule (and any System.out ban) is intentionally off. -->
+    <exclude name="SystemPrintln"/>
+    <!-- The JDBC tests DO verify ResultSet.next() — via JUnit assertions
+         (assertTrue(rs.next(), ...)). PMD's CheckResultSet only recognizes if/while
+         guards, so it false-positives on the assertion-based checking style. -->
+    <exclude name="CheckResultSet"/>
+    <!-- This codebase's tests group several related assertions per @Test (state after
+         an operation, each field of a mapped record, ...). The one-assert-per-test
+         dogma does not match that style and fires on nearly every test. -->
+    <exclude name="UnitTestContainsTooManyAsserts"/>
+    <!-- JUnit 5 / AssertJ failures are self-describing (they print expected vs actual
+         and the source line). Requiring a human message argument on every single
+         assertion is pure noise against this test style. -->
+    <exclude name="UnitTestAssertionsShouldIncludeMessage"/>
+  </rule>
+
+  <!-- ============================================================= -->
+  <!-- PROJECT-SPECIFIC RULES (XPath) — real conventions of this repo -->
+  <!-- ============================================================= -->
+
+  <!-- Convention: Helidon SE owns all threading. Production code must never spawn a
+       raw thread for concurrency — work runs on the server's executors. This targets
+       a STARTED thread (new Thread(...).start()); a Thread handed to
+       Runtime.addShutdownHook(...) (as PostgresSupport does for container cleanup) is
+       a legitimate JVM lifecycle callback, not a spawned worker, and is NOT matched. -->
+  <rule name="DoNotStartRawThreads"
+        language="java"
+        message="Do not start raw threads — Helidon SE owns threading. Submit work to a server-managed executor instead of new Thread(...).start()."
+        class="net.sourceforge.pmd.lang.rule.xpath.XPathRule">
+    <description>
+      Flags `new Thread(...).start()`. Helidon manages the thread pools; raw thread
+      spawning bypasses them. Shutdown hooks (new Thread passed to addShutdownHook,
+      never .start()-ed) are intentionally not matched.
+    </description>
+    <priority>3</priority>
+    <properties>
+      <property name="xpath">
+        <value>
+<![CDATA[
+//MethodCall[@MethodName='start'][ConstructorCall/ClassType[pmd-java:typeIs('java.lang.Thread') or @SimpleName='Thread']]
+]]>
+        </value>
+      </property>
+    </properties>
+  </rule>
+
+  <!-- Convention: constructor injection only. The DI graph is wired at compile time by
+       avaje-inject through constructors (see AppFactory / the *Repository/*Service
+       chain); FIELD injection is never used. This forbids @Inject on a field, keeping
+       collaborators final and visible in the constructor signature (also what the
+       ArchUnit rules assume). Matches jakarta/javax/io.avaje @Inject by simple name. -->
+  <rule name="NoFieldInjection"
+        language="java"
+        message="No field injection — inject collaborators through the constructor (avaje-inject is constructor-based) so fields stay final and dependencies are explicit."
+        class="net.sourceforge.pmd.lang.rule.xpath.XPathRule">
+    <description>
+      Flags an @Inject annotation placed on a field declaration. This codebase wires
+      its beans via constructor injection exclusively; field injection hides
+      dependencies and prevents final fields.
+    </description>
+    <priority>3</priority>
+    <properties>
+      <property name="xpath">
+        <value>
+<![CDATA[
+//FieldDeclaration[ModifierList/Annotation[@SimpleName='Inject']]
+]]>
+        </value>
+      </property>
+    </properties>
+  </rule>
+
+  <!-- Convention: only the Main entry point may terminate the JVM. Services, the
+       adapter and libraries must signal failure by throwing, never by calling
+       System.exit / Runtime.exit / Runtime.halt (which would strand shutdown hooks and
+       skip the avaje BeanScope close). System.exit IS permitted inside Main. -->
+  <rule name="DoNotCallSystemExitOutsideMain"
+        language="java"
+        message="Only Main may terminate the JVM — throw instead of calling System.exit/Runtime.exit/Runtime.halt outside the Main entry point."
+        class="net.sourceforge.pmd.lang.rule.xpath.XPathRule">
+    <description>
+      Flags System.exit(...), Runtime.exit(...) and Runtime.halt(...) anywhere outside a
+      class named Main. The entry point owns process termination; everything else must
+      surface errors as exceptions so shutdown hooks and the DI scope close cleanly.
+    </description>
+    <priority>3</priority>
+    <properties>
+      <property name="xpath">
+        <value>
+<![CDATA[
+//MethodCall[
+  (@MethodName='exit' or @MethodName='halt')
+  and (
+    *[1][self::TypeExpression/ClassType[@SimpleName='System' or @SimpleName='Runtime']]
+    or *[1][self::MethodCall[@MethodName='getRuntime']]
+    or *[1][self::VariableAccess[@Name='Runtime' or @Name='System']]
+    or *[1][self::FieldAccess[@Name='Runtime' or @Name='System']]
+  )
+][not(ancestor::ClassDeclaration[@SimpleName='Main'])]
+]]>
+        </value>
+      </property>
+    </properties>
+  </rule>
+
+</ruleset>

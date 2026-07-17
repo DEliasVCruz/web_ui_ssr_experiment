@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE module PUBLIC
+    "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+    "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+  MINIMAL Checkstyle config for the Java modules. Engine: Checkstyle 13.8.0
+  (pinned in the root pom's pluginManagement; parses Java 25).
+
+  DELIBERATELY NARROW SCOPE — zero overlap with the other checkers:
+    * Spotless + palantir-java-format own ALL FORMATTING (whitespace, indentation,
+      wrapping, blank lines, import ORDER). This file contains NO formatting checks;
+      every check here is about a NAME or a structural import rule the formatter does
+      not police.
+    * PMD (tooling/pmd/ruleset.xml) owns semantic bug-catching (errorprone +
+      bestpractices) and does NOT include category/java/codestyle, so naming lives
+      here and here only — no double-reporting.
+
+  Everything below is a naming convention or a star-import ban: things palantir
+  reformats around but never rejects, and that PMD's enabled categories do not cover.
+-->
+<module name="Checker">
+  <property name="charset" value="UTF-8"/>
+  <!-- Fail the build (not just warn) on any violation. -->
+  <property name="severity" value="error"/>
+
+  <module name="TreeWalker">
+
+    <!-- ===== Naming conventions (NOT enforced by any formatter) ===== -->
+    <!-- lowercase dotted packages: com.webuipoc.businesslogic -->
+    <module name="PackageName">
+      <property name="format" value="^[a-z]+(\.[a-z][a-z0-9]*)*$"/>
+    </module>
+    <!-- UpperCamelCase types (classes, interfaces, enums, records, annotations) -->
+    <module name="TypeName"/>
+    <!-- lowerCamelCase methods -->
+    <module name="MethodName"/>
+    <!-- lowerCamelCase instance fields -->
+    <module name="MemberName"/>
+    <!-- lowerCamelCase parameters -->
+    <module name="ParameterName"/>
+    <!-- lowerCamelCase locals -->
+    <module name="LocalVariableName"/>
+    <!-- lowerCamelCase pattern-match / catch variables -->
+    <module name="CatchParameterName"/>
+    <module name="LambdaParameterName"/>
+    <!-- UPPER_SNAKE_CASE for static final constants (HEALTH_JSON, DATA_SOURCE) -->
+    <module name="ConstantName"/>
+    <!-- lowerCamelCase for non-final static fields -->
+    <module name="StaticVariableName"/>
+    <!-- UpperCamelCase generic type parameters. The default pattern is a single
+         letter (^[A-Z]$); relaxed to UpperCamel so this repo can follow grpc-java's
+         own convention for request/response type params (ReqT / RespT, as in
+         io.grpc.ClientCall<ReqT, RespT>) while still rejecting lowercase / snake_case
+         type parameters. -->
+    <module name="ClassTypeParameterName">
+      <property name="format" value="^[A-Z][a-zA-Z0-9]*$"/>
+    </module>
+    <module name="MethodTypeParameterName">
+      <property name="format" value="^[A-Z][a-zA-Z0-9]*$"/>
+    </module>
+
+    <!-- ArchUnit carve-out: @ArchTest rule fields are `static final` (so ConstantName
+         fires) but the ArchUnit DSL idiom names them as lowercase_snake_case sentences
+         describing the rule (e.g. adapter_stays_service_agnostic). This precise filter
+         exempts ONLY fields annotated @ArchTest from ConstantName — every other
+         constant still must be UPPER_SNAKE_CASE. -->
+    <module name="SuppressionXpathSingleFilter">
+      <property name="checks" value="ConstantName"/>
+      <property name="query" value="//VARIABLE_DEF[./MODIFIERS/ANNOTATION/IDENT[@text='ArchTest']]/IDENT"/>
+    </module>
+
+    <!-- ===== Structural import rule (formatter does NOT reject wildcards) =====
+         palantir-java-format ORDERS imports but leaves `import x.*;` intact, and
+         Spotless removeUnusedImports only drops UNUSED ones. This bans on-demand
+         (star) imports outright — a convention neither tool enforces. Not covered by
+         the enabled PMD categories either (that would be category/java/codestyle). -->
+    <module name="AvoidStarImport"/>
+
+  </module>
+</module>

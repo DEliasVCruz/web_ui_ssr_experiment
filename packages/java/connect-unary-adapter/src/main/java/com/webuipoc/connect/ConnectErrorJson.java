@@ -14,6 +14,13 @@ package com.webuipoc.connect;
  */
 final class ConnectErrorJson {
 
+    /**
+     * First non-control ASCII code point (space, U+0020). Characters below this must be
+     * emitted as {@code \\uXXXX} escapes in a JSON string; everything else is copied
+     * verbatim (after the explicit escapes handled above).
+     */
+    private static final char FIRST_NON_CONTROL_CHAR = 0x20;
+
     private ConnectErrorJson() {}
 
     static String toJson(ConnectCode code, String message) {
@@ -39,7 +46,7 @@ final class ConnectErrorJson {
                 case '\r' -> out.append("\\r");
                 case '\t' -> out.append("\\t");
                 default -> {
-                    if (c < 0x20) {
+                    if (c < FIRST_NON_CONTROL_CHAR) {
                         out.append(String.format("\\u%04x", (int) c));
                     } else {
                         out.append(c);

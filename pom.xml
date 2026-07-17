@@ -119,6 +119,20 @@
          clean in the verify gate). -->
     <version.plugin.spotless>3.8.0</version.plugin.spotless>
     <version.palantir.javaformat>2.96.0</version.palantir.javaformat>
+
+    <!-- Static analysis (task d4n.7). Plugins bundle OLD engines by default
+         (maven-pmd-plugin 3.28.0 ships PMD 7.17; maven-checkstyle-plugin 3.6.0 ships
+         Checkstyle 9.3), so BOTH the plugin AND the underlying engine are pinned
+         explicitly — the engine is overridden via the plugin's <dependencies> in
+         pluginManagement below, exactly like the jOOQ codegen plugin overrides its
+         bundled tools. Engine versions verified latest-stable on Maven Central
+         (2026-07) and confirmed to PARSE Java 25: PMD supports Java 25 since 7.16
+         (default language level is Java 26 as of 7.21); Checkstyle supports Java 25
+         (JEP 512/513) since 13.6. The devenv toolchain compiler release is 25. -->
+    <version.plugin.pmd>3.28.0</version.plugin.pmd>
+    <version.pmd>7.26.0</version.pmd>
+    <version.plugin.checkstyle>3.6.0</version.plugin.checkstyle>
+    <version.checkstyle>13.8.0</version.checkstyle>
   </properties>
 
   <dependencyManagement>
@@ -414,6 +428,127 @@
             </execution>
           </executions>
         </plugin>
+
+        <!-- ============================================================= -->
+        <!-- PMD + CPD (task d4n.7). Version + engine override + shared     -->
+        <!-- config + verify-phase bindings live here in pluginManagement;  -->
+        <!-- a bare reference in <build><plugins> below activates it for     -->
+        <!-- every reactor module, mirroring the Spotless wiring.            -->
+        <!--                                                                 -->
+        <!-- ENGINE OVERRIDE: the plugin bundles PMD 7.17; the <dependencies>-->
+        <!-- force pmd-core + pmd-java to ${version.pmd} (7.26) so the engine -->
+        <!-- that parses the sources is the exact Java-25-capable line, not  -->
+        <!-- the plugin's default. Same pattern as the jOOQ codegen plugin.  -->
+        <!--                                                                 -->
+        <!-- SCOPE: includeTests=true covers src/test/java (the plugin       -->
+        <!-- default is main-only); excludeRoots drops every generated-source -->
+        <!-- root (buf protobuf/grpc under generated-sources/, jOOQ under    -->
+        <!-- target/generated-sources/jooq) so only hand-written code is     -->
+        <!-- analysed. targetJdk=25 pins PMD's parse language level (the repo -->
+        <!-- sets only maven.compiler.release, which the plugin does not read -->
+        <!-- for language inference). Ruleset + duplicate detection are the  -->
+        <!-- curated project files under tooling/. -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-pmd-plugin</artifactId>
+          <version>${version.plugin.pmd}</version>
+          <dependencies>
+            <dependency>
+              <groupId>net.sourceforge.pmd</groupId>
+              <artifactId>pmd-core</artifactId>
+              <version>${version.pmd}</version>
+            </dependency>
+            <dependency>
+              <groupId>net.sourceforge.pmd</groupId>
+              <artifactId>pmd-java</artifactId>
+              <version>${version.pmd}</version>
+            </dependency>
+          </dependencies>
+          <configuration>
+            <targetJdk>25</targetJdk>
+            <includeTests>true</includeTests>
+            <printFailingErrors>true</printFailingErrors>
+            <failOnViolation>true</failOnViolation>
+            <minimumTokens>100</minimumTokens>
+            <rulesets>
+              <ruleset>${maven.multiModuleProjectDirectory}/tooling/pmd/ruleset.xml</ruleset>
+            </rulesets>
+            <!-- Generated code is never analysed (buf + jOOQ output). These roots
+                 are added by build-helper / the jOOQ plugin at generate-sources; PMD
+                 and CPD both honour excludeRoots. Paths that don't exist in a given
+                 module (e.g. the adapter has no generated sources) are simply ignored. -->
+            <excludeRoots>
+              <excludeRoot>${project.basedir}/generated-sources/protobuf</excludeRoot>
+              <excludeRoot>${project.basedir}/generated-sources/grpc</excludeRoot>
+              <excludeRoot>${project.build.directory}/generated-sources/jooq</excludeRoot>
+              <excludeRoot>${project.build.directory}/generated-sources</excludeRoot>
+            </excludeRoots>
+          </configuration>
+          <executions>
+            <!-- Bind to verify: `check` fails the build on any ruleset violation,
+                 `cpd-check` fails it on any >=100-token duplicate block. -->
+            <execution>
+              <id>pmd-check</id>
+              <phase>verify</phase>
+              <goals>
+                <goal>check</goal>
+              </goals>
+            </execution>
+            <execution>
+              <id>pmd-cpd-check</id>
+              <phase>verify</phase>
+              <goals>
+                <goal>cpd-check</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+
+        <!-- ============================================================= -->
+        <!-- Checkstyle (task d4n.7). Engine override + minimal shared      -->
+        <!-- config + verify-phase binding; activated by a bare reference   -->
+        <!-- in <build><plugins> below. The plugin bundles Checkstyle 9.3;  -->
+        <!-- the <dependency> forces ${version.checkstyle} (13.8, Java-25-  -->
+        <!-- capable). Source dirs are pinned to src/{main,test}/java ONLY   -->
+        <!-- so generated roots (added to compileSourceRoots by build-helper -->
+        <!-- / jOOQ) are never scanned. violationSeverity=error + the        -->
+        <!-- config's severity=error make any finding fail the build. -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-checkstyle-plugin</artifactId>
+          <version>${version.plugin.checkstyle}</version>
+          <dependencies>
+            <dependency>
+              <groupId>com.puppycrawl.tools</groupId>
+              <artifactId>checkstyle</artifactId>
+              <version>${version.checkstyle}</version>
+            </dependency>
+          </dependencies>
+          <configuration>
+            <configLocation>${maven.multiModuleProjectDirectory}/tooling/checkstyle/checkstyle.xml</configLocation>
+            <includeTestSourceDirectory>true</includeTestSourceDirectory>
+            <consoleOutput>true</consoleOutput>
+            <failOnViolation>true</failOnViolation>
+            <violationSeverity>error</violationSeverity>
+            <!-- Pin to hand-written sources only; overrides the plugin default
+                 (all compileSourceRoots, which includes generated roots). -->
+            <sourceDirectories>
+              <sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
+            </sourceDirectories>
+            <testSourceDirectories>
+              <testSourceDirectory>${project.basedir}/src/test/java</testSourceDirectory>
+            </testSourceDirectories>
+          </configuration>
+          <executions>
+            <execution>
+              <id>checkstyle-check</id>
+              <phase>verify</phase>
+              <goals>
+                <goal>check</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
       </plugins>
     </pluginManagement>
 
@@ -425,6 +560,21 @@
       <plugin>
         <groupId>com.diffplug.spotless</groupId>
         <artifactId>spotless-maven-plugin</artifactId>
+      </plugin>
+
+      <!-- Activate PMD + CPD (task d4n.7) across the whole reactor. Config and
+           executions are inherited from pluginManagement above, so `mvn verify`
+           runs pmd:check + pmd:cpd-check on every module and fails on any violation. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-pmd-plugin</artifactId>
+      </plugin>
+
+      <!-- Activate Checkstyle (task d4n.7) across the whole reactor; config +
+           execution inherited from pluginManagement above. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
       </plugin>
     </plugins>
   </build>
