@@ -58,6 +58,19 @@ const pandaConfig = {
 	plugins: { "@pandacss": pandaPlugin },
 	rules: {
 		...pandaPlugin.configs.recommended.rules,
+		// ── Strict token/design-system gap rules (d4n1) ──────────────────
+		// These five are NOT in @pandacss's `recommended` preset (or ship only
+		// as `warn` there); pin them to ERROR so they gate CI. Together with
+		// panda.config.ts `strictTokens`/`strictPropertyValues` (which make raw
+		// values TYPE errors) they seal the remaining escape routes that the
+		// type system alone cannot: the `[...]` bracket escape hatch, hardcoded
+		// colors, `!important`, physical (non-logical) properties, and longhand
+		// props that have a shorthand.
+		"@pandacss/no-escape-hatch": "error",
+		"@pandacss/no-hardcoded-color": "error",
+		"@pandacss/no-important": "error",
+		"@pandacss/no-physical-properties": "error",
+		"@pandacss/prefer-shorthand-properties": "error",
 		// `file-not-included` misfires in this monorepo: @pandacss/eslint-plugin
 		// 0.3.2 resolves a file's inclusion by making `path.relative(cwd, file)`
 		// and matching it against panda's `include` globs — but `cwd` comes from

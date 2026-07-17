@@ -4,6 +4,14 @@ export default defineConfig({
 	preflight: true,
 	include: ["./src/**/*.{ts,tsx}"],
 	outdir: "styled-system",
+	// Uncompilable beats lintable: raw hex/px/arbitrary values become TYPE
+	// ERRORS, not lint warnings. strictTokens forces token-only values on
+	// properties that have a token category (colors, spacing, fontSizes, …);
+	// strictPropertyValues forces the constrained keyword set on properties
+	// like display/position that have no token category. The bracket escape
+	// `[...]` is additionally sealed by @pandacss/no-escape-hatch (eslint).
+	strictTokens: true,
+	strictPropertyValues: true,
 	theme: {
 		extend: {
 			// Semantic color palette. Every value is the exact hex previously
@@ -42,6 +50,39 @@ export default defineConfig({
 					surface: { value: "#ffffff" },
 					overlay: { value: "rgba(0, 0, 0, 0.4)" },
 				},
+				// Two display type sizes that sit off Panda's default t-shirt
+				// fontSize scale (which has no 2rem/1.75rem step). `heading` is the
+				// top-level page H1 (todos list); `title` is the detail-page H1.
+				// Every other font size in the app maps onto the default xs/sm/md/xl
+				// tokens, so these are the only bespoke type tokens.
+				fontSizes: {
+					title: { value: "1.75rem" },
+					heading: { value: "2rem" },
+				},
+				// Named layout widths. These are component-role widths, not steps on
+				// the generic sizes scale, so they get semantic names (mirroring the
+				// semantic color tokens above) instead of obscure numeric/t-shirt keys.
+				sizes: {
+					container: { value: "48rem" }, // page content column max width
+					dialog: { value: "24rem" }, // modal content max width
+					toastMin: { value: "15rem" }, // toast min width
+					toastMax: { value: "22rem" }, // toast max width
+				},
+				// Elevation + focus-ring shadows, previously inline box-shadow strings.
+				// `focusRing` composes the brand.focusRing color token.
+				shadows: {
+					dialog: { value: "0 10px 25px rgba(0, 0, 0, 0.15)" },
+					toast: { value: "0 6px 18px rgba(0, 0, 0, 0.15)" },
+					focusRing: { value: "0 0 0 2px {colors.brand.focusRing}" },
+				},
+				// Composite border tokens so components keep the `border` shorthand
+				// (satisfying prefer-shorthand-properties) while still being fully
+				// token-driven (satisfying strictTokens). Each composes a color token.
+				borders: {
+					control: { value: "1px solid {colors.border.input}" }, // inputs, checkbox control
+					divider: { value: "1px solid {colors.border}" }, // list-row separator
+					accent: { value: "4px solid {colors.border}" }, // toast start accent
+				},
 			},
 			// Reference recipe for the Ark UI + Panda component pattern (ol9.1).
 			// Consumed by src/components/ui/button.tsx, which wraps Ark's headless
@@ -54,9 +95,10 @@ export default defineConfig({
 						display: "inline-flex",
 						alignItems: "center",
 						justifyContent: "center",
-						gap: "0.375rem",
-						borderRadius: "0.375rem",
-						fontWeight: 600,
+						gap: "1.5",
+						borderRadius: "md",
+						fontWeight: "semibold",
+						// Unitless ratio with no matching lineHeights token; kept literal.
 						lineHeight: 1.2,
 						cursor: "pointer",
 						_disabled: {
@@ -91,13 +133,15 @@ export default defineConfig({
 						},
 						size: {
 							sm: {
-								borderRadius: "0.25rem",
-								padding: "0.25rem 0.5rem",
-								fontSize: "0.75rem",
+								borderRadius: "sm",
+								paddingBlock: "1",
+								paddingInline: "2",
+								fontSize: "xs",
 							},
 							md: {
-								padding: "0.5rem 1rem",
-								fontSize: "1rem",
+								paddingBlock: "2",
+								paddingInline: "4",
+								fontSize: "md",
 							},
 						},
 					},

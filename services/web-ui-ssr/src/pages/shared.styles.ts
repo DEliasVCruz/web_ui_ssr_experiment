@@ -1,13 +1,14 @@
 import { css } from "../../styled-system/css";
 
 export const container = css({
-	margin: "0 auto",
-	padding: "2rem",
-	maxInlineSize: "48rem",
+	my: "0",
+	mx: "auto",
+	p: "8",
+	maxInlineSize: "container",
 });
 
 export const heading = css({
-	marginBlockEnd: "1rem",
-	fontSize: "2rem",
-	fontWeight: 700,
+	marginBlockEnd: "4",
+	fontSize: "heading",
+	fontWeight: "bold",
 });
