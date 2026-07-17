@@ -42,19 +42,14 @@ final class ConnectCors {
 
     /** connect-es {@code cors.exposedHeaders}. */
     static final List<String> EXPOSED_HEADERS = List.of(
-            "Grpc-Status",
-            "Grpc-Message",
-            "Grpc-Status-Details-Bin",
-            "Content-Encoding",
-            "Connect-Content-Encoding");
+            "Grpc-Status", "Grpc-Message", "Grpc-Status-Details-Bin", "Content-Encoding", "Connect-Content-Encoding");
 
     private static final HeaderName ALLOW_ORIGIN_HEADER = HeaderNames.create("Access-Control-Allow-Origin");
     private static final HeaderName ALLOW_METHODS_HEADER = HeaderNames.create("Access-Control-Allow-Methods");
     private static final HeaderName ALLOW_HEADERS_HEADER = HeaderNames.create("Access-Control-Allow-Headers");
     private static final HeaderName EXPOSE_HEADERS_HEADER = HeaderNames.create("Access-Control-Expose-Headers");
 
-    private ConnectCors() {
-    }
+    private ConnectCors() {}
 
     /**
      * Filter applied to every request (like the Bun service's {@code app.use("/*", cors(...))}):

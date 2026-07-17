@@ -54,7 +54,9 @@ class TodoGrpcBridgeTest {
         db = new TodoDb(tempDir.resolve("todos.db").toString());
         repository = new TodoRepository(db);
         TodoGrpcBridge bridge = new TodoGrpcBridge(
-                new TodoService(repository), new TodoMapperImpl(), Validator.builder().build());
+                new TodoService(repository),
+                new TodoMapperImpl(),
+                Validator.builder().build());
         String serverName = InProcessServerBuilder.generateName();
         server = InProcessServerBuilder.forName(serverName)
                 .directExecutor()
@@ -73,7 +75,8 @@ class TodoGrpcBridgeTest {
     }
 
     private Todo create(String title) {
-        return stub.createTodo(CreateTodoRequest.newBuilder().setTitle(title).build()).getTodo();
+        return stub.createTodo(CreateTodoRequest.newBuilder().setTitle(title).build())
+                .getTodo();
     }
 
     private Todo get(String id) {
@@ -110,8 +113,8 @@ class TodoGrpcBridgeTest {
 
         assertEquals(List.of(updated), list());
 
-        DeleteTodoResponse deleteResponse =
-                stub.deleteTodo(DeleteTodoRequest.newBuilder().setId(created.getId()).build());
+        DeleteTodoResponse deleteResponse = stub.deleteTodo(
+                DeleteTodoRequest.newBuilder().setId(created.getId()).build());
         // Same shape as the Bun service: an empty message.
         assertEquals(DeleteTodoResponse.getDefaultInstance(), deleteResponse);
 
@@ -141,7 +144,10 @@ class TodoGrpcBridgeTest {
     @Test
     void titleOnlyUpdatePreservesCompleted() {
         Todo todo = create("task");
-        stub.updateTodo(UpdateTodoRequest.newBuilder().setId(todo.getId()).setCompleted(true).build());
+        stub.updateTodo(UpdateTodoRequest.newBuilder()
+                .setId(todo.getId())
+                .setCompleted(true)
+                .build());
 
         Todo updated = stub.updateTodo(UpdateTodoRequest.newBuilder()
                         .setId(todo.getId())
@@ -168,7 +174,10 @@ class TodoGrpcBridgeTest {
     @Test
     void explicitCompletedFalseIsApplied() {
         Todo todo = create("task");
-        stub.updateTodo(UpdateTodoRequest.newBuilder().setId(todo.getId()).setCompleted(true).build());
+        stub.updateTodo(UpdateTodoRequest.newBuilder()
+                .setId(todo.getId())
+                .setCompleted(true)
+                .build());
 
         Todo updated = stub.updateTodo(UpdateTodoRequest.newBuilder()
                         .setId(todo.getId())
@@ -188,13 +197,15 @@ class TodoGrpcBridgeTest {
         // space too (blank-after-trim).
         Todo todo = create("has a title");
 
-        StatusRuntimeException e = assertThrows(StatusRuntimeException.class,
+        StatusRuntimeException e = assertThrows(
+                StatusRuntimeException.class,
                 () -> stub.updateTodo(UpdateTodoRequest.newBuilder()
                         .setId(todo.getId())
                         .setTitle("")
                         .build()));
         assertEquals(Status.Code.INVALID_ARGUMENT, e.getStatus().getCode());
-        assertTrue(e.getStatus().getDescription().contains("title"),
+        assertTrue(
+                e.getStatus().getDescription().contains("title"),
                 "description should name the title field: " + e.getStatus().getDescription());
     }
 
@@ -205,12 +216,14 @@ class TodoGrpcBridgeTest {
         Todo todo = create("untouched");
         Thread.sleep(5);
 
-        Todo updated = stub.updateTodo(UpdateTodoRequest.newBuilder().setId(todo.getId()).build())
+        Todo updated = stub.updateTodo(
+                        UpdateTodoRequest.newBuilder().setId(todo.getId()).build())
                 .getTodo();
         assertEquals("untouched", updated.getTitle());
         assertFalse(updated.getCompleted());
         assertEquals(todo.getCreatedAt(), updated.getCreatedAt());
-        assertTrue(isAfter(updated.getUpdatedAt(), todo.getUpdatedAt()),
+        assertTrue(
+                isAfter(updated.getUpdatedAt(), todo.getUpdatedAt()),
                 "updated_at must be bumped even when no field is set");
     }
 
@@ -236,8 +249,7 @@ class TodoGrpcBridgeTest {
     }
 
     private static boolean isAfter(Timestamp a, Timestamp b) {
-        return a.getSeconds() > b.getSeconds()
-                || (a.getSeconds() == b.getSeconds() && a.getNanos() > b.getNanos());
+        return a.getSeconds() > b.getSeconds() || (a.getSeconds() == b.getSeconds() && a.getNanos() > b.getNanos());
     }
 
     private static void assertNotFound(org.junit.jupiter.api.function.Executable call) {
@@ -252,8 +264,8 @@ class TodoGrpcBridgeTest {
     @Test
     void createdIdsAreUuidV7() {
         Todo todo = create("id check");
-        assertTrue(todo.getId().matches(
-                        "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"),
+        assertTrue(
+                todo.getId().matches("^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"),
                 "not a UUIDv7: " + todo.getId());
     }
 
@@ -263,9 +275,11 @@ class TodoGrpcBridgeTest {
 
         // Inspect the raw stored strings, not the protobuf round-trip.
         TodoRepository.TodoRow row = repository.getTodo(todo.getId()).orElseThrow();
-        assertTrue(TodoDbTest.BUN_ISO_MILLIS.matcher(row.createdAt()).matches(),
+        assertTrue(
+                TodoDbTest.BUN_ISO_MILLIS.matcher(row.createdAt()).matches(),
                 "created_at not in new Date().toISOString() format: " + row.createdAt());
-        assertTrue(TodoDbTest.BUN_ISO_MILLIS.matcher(row.updatedAt()).matches(),
+        assertTrue(
+                TodoDbTest.BUN_ISO_MILLIS.matcher(row.updatedAt()).matches(),
                 "updated_at not in new Date().toISOString() format: " + row.updatedAt());
 
         // And the proto Timestamp is the exact instant of the stored string.

@@ -10,5 +10,4 @@ import java.time.Instant;
  * The MapStruct {@code TodoMapper} converts this to the wire {@code todo.v1.Todo}
  * and the {@code TodoService} converts repository rows into this.
  */
-public record Todo(String id, String title, boolean completed, Instant createdAt, Instant updatedAt) {
-}
+public record Todo(String id, String title, boolean completed, Instant createdAt, Instant updatedAt) {}

@@ -61,7 +61,8 @@ class ServiceConfigTest {
         System.setProperty("PORT", "9999");
         System.setProperty("DATABASE_PATH", "/tmp/override-todos.db");
         try {
-            Configuration config = Configuration.builder().load("application.yaml").build();
+            Configuration config =
+                    Configuration.builder().load("application.yaml").build();
 
             ServiceConfig serviceConfig = ServiceConfig.from(config);
             assertEquals(9999, serviceConfig.serverPort());
@@ -138,7 +139,8 @@ class ServiceConfigTest {
         // expression, i.e. the exact path a bad PORT env var takes at startup.
         System.setProperty("PORT", "not-a-number");
         try {
-            Configuration viaYaml = Configuration.builder().load("application.yaml").build();
+            Configuration viaYaml =
+                    Configuration.builder().load("application.yaml").build();
             assertThrows(NumberFormatException.class, () -> ServiceConfig.from(viaYaml));
         } finally {
             System.clearProperty("PORT");

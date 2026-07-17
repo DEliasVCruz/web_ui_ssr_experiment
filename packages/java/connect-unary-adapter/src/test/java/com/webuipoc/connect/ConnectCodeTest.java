@@ -13,8 +13,7 @@ import org.junit.jupiter.api.Test;
  */
 class ConnectCodeTest {
 
-    private record Expectation(String wireCode, int httpStatus) {
-    }
+    private record Expectation(String wireCode, int httpStatus) {}
 
     private static final Map<Status.Code, Expectation> SPEC_TABLE = Map.ofEntries(
             Map.entry(Status.Code.CANCELLED, new Expectation("canceled", 499)),

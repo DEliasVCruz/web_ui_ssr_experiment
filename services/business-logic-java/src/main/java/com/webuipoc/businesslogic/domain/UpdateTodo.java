@@ -13,5 +13,4 @@ import io.avaje.validation.constraints.Valid;
  * {@code @NotBlank} would wrongly reject the not-provided {@code null} case).
  */
 @Valid
-public record UpdateTodo(String id, @NullOrNotBlank String title, Boolean completed) {
-}
+public record UpdateTodo(String id, @NullOrNotBlank String title, Boolean completed) {}

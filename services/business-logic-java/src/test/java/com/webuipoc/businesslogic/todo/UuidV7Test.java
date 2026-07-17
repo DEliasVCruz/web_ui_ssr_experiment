@@ -9,8 +9,8 @@ import org.junit.jupiter.api.Test;
 class UuidV7Test {
 
     /** Canonical lowercase UUID with version 7 and RFC 9562 variant (10xx → 8/9/a/b). */
-    private static final Pattern UUID_V7 = Pattern.compile(
-            "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$");
+    private static final Pattern UUID_V7 =
+            Pattern.compile("^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$");
 
     @Test
     void hasVersion7AndRfc9562VariantBits() {
@@ -31,7 +31,8 @@ class UuidV7Test {
 
         long encodedMs = Long.parseLong(id.substring(0, 8) + id.substring(9, 13), 16);
         // The monotonic counter may borrow at most a few ms ahead under contention.
-        assertTrue(encodedMs >= before && encodedMs <= after + 10,
+        assertTrue(
+                encodedMs >= before && encodedMs <= after + 10,
                 "timestamp segment " + encodedMs + " outside [" + before + ", " + after + "]");
     }
 
@@ -42,8 +43,7 @@ class UuidV7Test {
             String next = UuidV7.randomUuidV7();
             // Strictly increasing as strings (timestamp segment + rand_a counter),
             // like Bun's randomUUIDv7 — this is what keeps time-ordering stable.
-            assertTrue(next.compareTo(previous) > 0,
-                    "expected " + next + " > " + previous);
+            assertTrue(next.compareTo(previous) > 0, "expected " + next + " > " + previous);
             previous = next;
         }
     }

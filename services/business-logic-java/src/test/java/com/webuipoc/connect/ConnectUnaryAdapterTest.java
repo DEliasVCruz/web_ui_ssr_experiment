@@ -34,6 +34,7 @@ class ConnectUnaryAdapterTest {
     private static final String UPDATE_TODO = "/todo.v1.TodoService/UpdateTodo";
     /** Any syntactically valid UUID: the stub echoes it back as the todo id. */
     private static final String ECHO_ID = "8b3e1a1e-6f2a-4b57-9f3e-2d4c5a6b7c8d";
+
     private static final int TITLE_MAX_LEN = 100;
 
     private static WebServer server;
@@ -59,8 +60,7 @@ class ConnectUnaryAdapterTest {
         return HttpRequest.newBuilder().uri(URI.create("http://localhost:" + server.port() + path));
     }
 
-    private static HttpResponse<byte[]> postProto(String path, com.google.protobuf.Message message)
-            throws Exception {
+    private static HttpResponse<byte[]> postProto(String path, com.google.protobuf.Message message) throws Exception {
         HttpRequest request = request(path)
                 .header("Content-Type", "application/proto")
                 .header("Connect-Protocol-Version", "1")
@@ -79,20 +79,23 @@ class ConnectUnaryAdapterTest {
             throws Exception {
         assertEquals(expectedStatus, response.statusCode());
         // Spec: error responses are always application/json, whatever the request codec.
-        assertEquals("application/json", response.headers().firstValue("content-type").orElse(""));
+        assertEquals(
+                "application/json",
+                response.headers().firstValue("content-type").orElse(""));
         Struct body = parseJson(response.body());
         assertEquals(expectedCode, body.getFieldsOrThrow("code").getStringValue());
     }
 
     @Test
     void happyPathBinary() throws Exception {
-        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder()
-                .setId(ECHO_ID)
-                .build();
+        TodoOuterClass.GetTodoRequest request =
+                TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
         HttpResponse<byte[]> response = postProto(GET_TODO, request);
 
         assertEquals(200, response.statusCode());
-        assertEquals("application/proto", response.headers().firstValue("content-type").orElse(""));
+        assertEquals(
+                "application/proto",
+                response.headers().firstValue("content-type").orElse(""));
         // The body is the bare serialized message — no envelope framing.
         TodoOuterClass.GetTodoResponse parsed = TodoOuterClass.GetTodoResponse.parseFrom(response.body());
         assertEquals(ECHO_ID, parsed.getTodo().getId());
@@ -110,10 +113,16 @@ class ConnectUnaryAdapterTest {
 
         assertEquals(200, response.statusCode());
         // The response codec mirrors the request codec.
-        assertEquals("application/json", response.headers().firstValue("content-type").orElse(""));
+        assertEquals(
+                "application/json",
+                response.headers().firstValue("content-type").orElse(""));
         Struct body = parseJson(response.body());
-        assertEquals(ECHO_ID, body.getFieldsOrThrow("todo").getStructValue()
-                .getFieldsOrThrow("id").getStringValue());
+        assertEquals(
+                ECHO_ID,
+                body.getFieldsOrThrow("todo")
+                        .getStructValue()
+                        .getFieldsOrThrow("id")
+                        .getStringValue());
     }
 
     @Test
@@ -125,7 +134,8 @@ class ConnectUnaryAdapterTest {
 
         assertConnectError(response, 404, "not_found");
         Struct body = parseJson(response.body());
-        assertEquals("todo \"" + StubTodoService.MISSING_ID + "\" not found",
+        assertEquals(
+                "todo \"" + StubTodoService.MISSING_ID + "\" not found",
                 body.getFieldsOrThrow("message").getStringValue());
     }
 
@@ -136,8 +146,7 @@ class ConnectUnaryAdapterTest {
      */
     @Test
     void fullSpecErrorCodeTable() throws Exception {
-        record Row(String grpcCode, String connectCode, int httpStatus) {
-        }
+        record Row(String grpcCode, String connectCode, int httpStatus) {}
         // Transcribed from https://connectrpc.com/docs/protocol/ ("Error Codes").
         List<Row> table = List.of(
                 new Row("CANCELLED", "canceled", 499),
@@ -224,7 +233,8 @@ class ConnectUnaryAdapterTest {
 
         assertConnectError(response, 501, "unimplemented");
         Struct body = parseJson(response.body());
-        assertTrue(body.getFieldsOrThrow("message").getStringValue().contains("identity"),
+        assertTrue(
+                body.getFieldsOrThrow("message").getStringValue().contains("identity"),
                 "message should list the supported encodings");
     }
 
@@ -256,9 +266,10 @@ class ConnectUnaryAdapterTest {
         HttpRequest request = request(GET_TODO)
                 .header("Content-Type", "application/proto")
                 .header("Connect-Timeout-Ms", "50")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(
-                        TodoOuterClass.GetTodoRequest.newBuilder().setId(StubTodoService.SLOW_ID).build()
-                                .toByteArray()))
+                .POST(HttpRequest.BodyPublishers.ofByteArray(TodoOuterClass.GetTodoRequest.newBuilder()
+                        .setId(StubTodoService.SLOW_ID)
+                        .build()
+                        .toByteArray()))
                 .build();
         HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
 
@@ -288,41 +299,48 @@ class ConnectUnaryAdapterTest {
         HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
 
         assertEquals(204, response.statusCode());
-        assertEquals("*", response.headers().firstValue("access-control-allow-origin").orElse(""));
+        assertEquals(
+                "*",
+                response.headers().firstValue("access-control-allow-origin").orElse(""));
 
-        String allowMethods = response.headers().firstValue("access-control-allow-methods").orElse("");
+        String allowMethods =
+                response.headers().firstValue("access-control-allow-methods").orElse("");
         for (String method : ConnectCors.ALLOWED_METHODS) {
             assertTrue(allowMethods.contains(method), "allow-methods should contain " + method);
         }
 
-        String allowHeaders = response.headers().firstValue("access-control-allow-headers").orElse("")
+        String allowHeaders = response.headers()
+                .firstValue("access-control-allow-headers")
+                .orElse("")
                 .toLowerCase(Locale.ROOT);
         for (String header : ConnectCors.ALLOWED_HEADERS) {
-            assertTrue(allowHeaders.contains(header.toLowerCase(Locale.ROOT)),
-                    "allow-headers should contain " + header);
+            assertTrue(
+                    allowHeaders.contains(header.toLowerCase(Locale.ROOT)), "allow-headers should contain " + header);
         }
     }
 
     @Test
     void actualResponsesCarryCorsHeaders() throws Exception {
-        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder()
-                .setId(ECHO_ID)
-                .build();
+        TodoOuterClass.GetTodoRequest request =
+                TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
         HttpResponse<byte[]> response = postProto(GET_TODO, request);
 
-        assertEquals("*", response.headers().firstValue("access-control-allow-origin").orElse(""));
-        String exposed = response.headers().firstValue("access-control-expose-headers").orElse("")
+        assertEquals(
+                "*",
+                response.headers().firstValue("access-control-allow-origin").orElse(""));
+        String exposed = response.headers()
+                .firstValue("access-control-expose-headers")
+                .orElse("")
                 .toLowerCase(Locale.ROOT);
         for (String header : ConnectCors.EXPOSED_HEADERS) {
-            assertTrue(exposed.contains(header.toLowerCase(Locale.ROOT)),
-                    "expose-headers should contain " + header);
+            assertTrue(exposed.contains(header.toLowerCase(Locale.ROOT)), "expose-headers should contain " + header);
         }
     }
 
     @Test
     void emptyRequestMessageWorks() throws Exception {
-        HttpResponse<byte[]> response = postProto("/todo.v1.TodoService/ListTodos",
-                TodoOuterClass.ListTodosRequest.getDefaultInstance());
+        HttpResponse<byte[]> response =
+                postProto("/todo.v1.TodoService/ListTodos", TodoOuterClass.ListTodosRequest.getDefaultInstance());
 
         assertEquals(200, response.statusCode());
         TodoOuterClass.ListTodosResponse parsed = TodoOuterClass.ListTodosResponse.parseFrom(response.body());
@@ -334,9 +352,8 @@ class ConnectUnaryAdapterTest {
 
     @Test
     void createTodoWithEmptyTitleIsRejectedBinary() throws Exception {
-        TodoOuterClass.CreateTodoRequest request = TodoOuterClass.CreateTodoRequest.newBuilder()
-                .setTitle("")
-                .build();
+        TodoOuterClass.CreateTodoRequest request =
+                TodoOuterClass.CreateTodoRequest.newBuilder().setTitle("").build();
         HttpResponse<byte[]> response = postProto(CREATE_TODO, request);
 
         assertConnectError(response, 400, "invalid_argument");
@@ -374,9 +391,8 @@ class ConnectUnaryAdapterTest {
     @Test
     void createTodoWithMaxLengthTitleIsAccepted() throws Exception {
         String title = "x".repeat(TITLE_MAX_LEN);
-        TodoOuterClass.CreateTodoRequest request = TodoOuterClass.CreateTodoRequest.newBuilder()
-                .setTitle(title)
-                .build();
+        TodoOuterClass.CreateTodoRequest request =
+                TodoOuterClass.CreateTodoRequest.newBuilder().setTitle(title).build();
         HttpResponse<byte[]> response = postProto(CREATE_TODO, request);
 
         assertEquals(200, response.statusCode());
@@ -414,9 +430,8 @@ class ConnectUnaryAdapterTest {
 
     @Test
     void getTodoWithNonUuidIdIsRejected() throws Exception {
-        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder()
-                .setId("not-a-uuid")
-                .build();
+        TodoOuterClass.GetTodoRequest request =
+                TodoOuterClass.GetTodoRequest.newBuilder().setId("not-a-uuid").build();
         HttpResponse<byte[]> response = postProto(GET_TODO, request);
 
         assertConnectError(response, 400, "invalid_argument");
@@ -450,13 +465,16 @@ class ConnectUnaryAdapterTest {
     @Test
     void getOverProtoBase64Works() throws Exception {
         // The connect-es binary GET path: encoding=proto, base64=1, message=base64url(proto).
-        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
-        HttpResponse<byte[]> response = get(GET_TODO
-                + "?connect=v1&encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
+        TodoOuterClass.GetTodoRequest request =
+                TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
+        HttpResponse<byte[]> response =
+                get(GET_TODO + "?connect=v1&encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
 
         assertEquals(200, response.statusCode());
         // Response codec mirrors the encoding parameter.
-        assertEquals("application/proto", response.headers().firstValue("content-type").orElse(""));
+        assertEquals(
+                "application/proto",
+                response.headers().firstValue("content-type").orElse(""));
         TodoOuterClass.GetTodoResponse parsed = TodoOuterClass.GetTodoResponse.parseFrom(response.body());
         assertEquals(ECHO_ID, parsed.getTodo().getId());
         assertEquals("stub-todo", parsed.getTodo().getTitle());
@@ -465,28 +483,39 @@ class ConnectUnaryAdapterTest {
     @Test
     void getOverJsonPercentEncodedWorks() throws Exception {
         // encoding=json without base64: message is the percent-encoded JSON body.
-        HttpResponse<byte[]> response = get(GET_TODO
-                + "?connect=v1&encoding=json&message=" + urlEncode("{\"id\":\"" + ECHO_ID + "\"}"));
+        HttpResponse<byte[]> response =
+                get(GET_TODO + "?connect=v1&encoding=json&message=" + urlEncode("{\"id\":\"" + ECHO_ID + "\"}"));
 
         assertEquals(200, response.statusCode());
-        assertEquals("application/json", response.headers().firstValue("content-type").orElse(""));
+        assertEquals(
+                "application/json",
+                response.headers().firstValue("content-type").orElse(""));
         Struct body = parseJson(response.body());
-        assertEquals(ECHO_ID, body.getFieldsOrThrow("todo").getStructValue()
-                .getFieldsOrThrow("id").getStringValue());
+        assertEquals(
+                ECHO_ID,
+                body.getFieldsOrThrow("todo")
+                        .getStructValue()
+                        .getFieldsOrThrow("id")
+                        .getStringValue());
     }
 
     @Test
     void getOverJsonBase64Works() throws Exception {
         // encoding=json WITH base64: message is base64url(JSON).
         byte[] json = ("{\"id\":\"" + ECHO_ID + "\"}").getBytes(StandardCharsets.UTF_8);
-        HttpResponse<byte[]> response = get(GET_TODO
-                + "?connect=v1&encoding=json&base64=1&message=" + base64Url(json));
+        HttpResponse<byte[]> response = get(GET_TODO + "?connect=v1&encoding=json&base64=1&message=" + base64Url(json));
 
         assertEquals(200, response.statusCode());
-        assertEquals("application/json", response.headers().firstValue("content-type").orElse(""));
+        assertEquals(
+                "application/json",
+                response.headers().firstValue("content-type").orElse(""));
         Struct body = parseJson(response.body());
-        assertEquals(ECHO_ID, body.getFieldsOrThrow("todo").getStructValue()
-                .getFieldsOrThrow("id").getStringValue());
+        assertEquals(
+                ECHO_ID,
+                body.getFieldsOrThrow("todo")
+                        .getStructValue()
+                        .getFieldsOrThrow("id")
+                        .getStringValue());
     }
 
     @Test
@@ -512,18 +541,20 @@ class ConnectUnaryAdapterTest {
 
     @Test
     void getMissingConnectVersionIsRejected() throws Exception {
-        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
-        HttpResponse<byte[]> response = get(GET_TODO
-                + "?encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
+        TodoOuterClass.GetTodoRequest request =
+                TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
+        HttpResponse<byte[]> response =
+                get(GET_TODO + "?encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
 
         assertConnectError(response, 400, "invalid_argument");
     }
 
     @Test
     void getWrongConnectVersionIsRejected() throws Exception {
-        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
-        HttpResponse<byte[]> response = get(GET_TODO
-                + "?connect=v2&encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
+        TodoOuterClass.GetTodoRequest request =
+                TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
+        HttpResponse<byte[]> response =
+                get(GET_TODO + "?connect=v2&encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
 
         assertConnectError(response, 400, "invalid_argument");
     }
@@ -546,7 +577,8 @@ class ConnectUnaryAdapterTest {
      * dispatches normally.
      */
     private static byte[] base64AlphabetProbePayload() {
-        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
+        TodoOuterClass.GetTodoRequest request =
+                TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
         byte[] core = request.toByteArray();
         byte[] unknownField = {0x12, 0x03, (byte) 0x80, (byte) 0xbe, (byte) 0xfc};
         byte[] payload = new byte[core.length + unknownField.length];
@@ -563,7 +595,8 @@ class ConnectUnaryAdapterTest {
         String encoded = base64Url(payload);
         // Guard the test's own premise: the probe must actually exercise the
         // url-alphabet code points.
-        assertTrue(encoded.contains("-") && encoded.contains("_"),
+        assertTrue(
+                encoded.contains("-") && encoded.contains("_"),
                 "probe payload must encode with both '-' and '_': " + encoded);
 
         HttpResponse<byte[]> response = get(GET_TODO + "?connect=v1&encoding=proto&base64=1&message=" + encoded);
@@ -580,11 +613,10 @@ class ConnectUnaryAdapterTest {
         // invalid_argument — a standard-alphabet decoder would silently accept
         // it (and 200), so this test also pins the alphabet.
         String std = Base64.getEncoder().withoutPadding().encodeToString(base64AlphabetProbePayload());
-        assertTrue(std.contains("+") && std.contains("/"),
-                "probe payload must std-encode with both '+' and '/': " + std);
+        assertTrue(
+                std.contains("+") && std.contains("/"), "probe payload must std-encode with both '+' and '/': " + std);
 
-        HttpResponse<byte[]> response = get(GET_TODO
-                + "?connect=v1&encoding=proto&base64=1&message=" + urlEncode(std));
+        HttpResponse<byte[]> response = get(GET_TODO + "?connect=v1&encoding=proto&base64=1&message=" + urlEncode(std));
 
         assertConnectError(response, 400, "invalid_argument");
     }
@@ -600,8 +632,8 @@ class ConnectUnaryAdapterTest {
     @Test
     void getWithProtovalidateViolationIsRejected() throws Exception {
         // Bad uuid over GET must fail the same protovalidate check as POST.
-        HttpResponse<byte[]> response = get(GET_TODO
-                + "?connect=v1&encoding=json&message=" + urlEncode("{\"id\":\"not-a-uuid\"}"));
+        HttpResponse<byte[]> response =
+                get(GET_TODO + "?connect=v1&encoding=json&message=" + urlEncode("{\"id\":\"not-a-uuid\"}"));
 
         assertConnectError(response, 400, "invalid_argument");
         String message = parseJson(response.body()).getFieldsOrThrow("message").getStringValue();
@@ -610,8 +642,7 @@ class ConnectUnaryAdapterTest {
 
     @Test
     void getUnsupportedCompressionIsRejected() throws Exception {
-        HttpResponse<byte[]> response = get(GET_TODO
-                + "?connect=v1&encoding=proto&compression=gzip&base64=1&message=");
+        HttpResponse<byte[]> response = get(GET_TODO + "?connect=v1&encoding=proto&compression=gzip&base64=1&message=");
 
         assertConnectError(response, 501, "unimplemented");
     }
@@ -622,8 +653,8 @@ class ConnectUnaryAdapterTest {
         TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder()
                 .setId(StubTodoService.MISSING_ID)
                 .build();
-        HttpResponse<byte[]> response = get(GET_TODO
-                + "?connect=v1&encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
+        HttpResponse<byte[]> response =
+                get(GET_TODO + "?connect=v1&encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
 
         assertConnectError(response, 404, "not_found");
     }
@@ -638,22 +669,27 @@ class ConnectUnaryAdapterTest {
         HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
 
         assertEquals(204, response.statusCode());
-        String allowMethods = response.headers().firstValue("access-control-allow-methods").orElse("");
+        String allowMethods =
+                response.headers().firstValue("access-control-allow-methods").orElse("");
         assertTrue(allowMethods.contains("GET"), "allow-methods should contain GET");
     }
 
     @Test
     void getResponsesCarryCorsHeaders() throws Exception {
-        TodoOuterClass.GetTodoRequest request = TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
-        HttpResponse<byte[]> response = get(GET_TODO
-                + "?connect=v1&encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
+        TodoOuterClass.GetTodoRequest request =
+                TodoOuterClass.GetTodoRequest.newBuilder().setId(ECHO_ID).build();
+        HttpResponse<byte[]> response =
+                get(GET_TODO + "?connect=v1&encoding=proto&base64=1&message=" + base64Url(request.toByteArray()));
 
-        assertEquals("*", response.headers().firstValue("access-control-allow-origin").orElse(""));
-        String exposed = response.headers().firstValue("access-control-expose-headers").orElse("")
+        assertEquals(
+                "*",
+                response.headers().firstValue("access-control-allow-origin").orElse(""));
+        String exposed = response.headers()
+                .firstValue("access-control-expose-headers")
+                .orElse("")
                 .toLowerCase(Locale.ROOT);
         for (String header : ConnectCors.EXPOSED_HEADERS) {
-            assertTrue(exposed.contains(header.toLowerCase(Locale.ROOT)),
-                    "expose-headers should contain " + header);
+            assertTrue(exposed.contains(header.toLowerCase(Locale.ROOT)), "expose-headers should contain " + header);
         }
     }
 }

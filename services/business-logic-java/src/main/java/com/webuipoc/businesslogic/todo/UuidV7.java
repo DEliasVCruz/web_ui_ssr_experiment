@@ -24,13 +24,13 @@ public final class UuidV7 {
 
     /** Counter seed keeps the top bit clear: 2^11 guaranteed increments per ms. */
     private static final int COUNTER_SEED_MASK = 0x7FF;
+
     private static final int COUNTER_MAX = 0xFFF;
 
     private static long lastTimestampMs = Long.MIN_VALUE;
     private static int counter;
 
-    private UuidV7() {
-    }
+    private UuidV7() {}
 
     /** Returns a new canonical lowercase UUIDv7 string, e.g. {@code 0190163d-8694-7afd-8912-...}. */
     public static synchronized String randomUuidV7() {

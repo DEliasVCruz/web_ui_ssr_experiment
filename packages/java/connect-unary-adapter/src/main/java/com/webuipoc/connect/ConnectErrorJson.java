@@ -14,11 +14,11 @@ package com.webuipoc.connect;
  */
 final class ConnectErrorJson {
 
-    private ConnectErrorJson() {
-    }
+    private ConnectErrorJson() {}
 
     static String toJson(ConnectCode code, String message) {
-        StringBuilder json = new StringBuilder("{\"code\":\"").append(code.wireCode()).append('"');
+        StringBuilder json =
+                new StringBuilder("{\"code\":\"").append(code.wireCode()).append('"');
         if (message != null && !message.isEmpty()) {
             json.append(",\"message\":\"");
             escapeInto(json, message);

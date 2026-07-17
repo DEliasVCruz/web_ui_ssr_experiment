@@ -43,14 +43,10 @@ final class HttpMetadata {
             "upgrade");
 
     /** Response headers owned by the adapter; metadata must not override them. */
-    private static final Set<String> RESERVED_RESPONSE_HEADERS = Set.of(
-            "content-type",
-            "content-length",
-            "content-encoding",
-            "transfer-encoding");
+    private static final Set<String> RESERVED_RESPONSE_HEADERS =
+            Set.of("content-type", "content-length", "content-encoding", "transfer-encoding");
 
-    private HttpMetadata() {
-    }
+    private HttpMetadata() {}
 
     static Metadata fromRequestHeaders(Headers headers) {
         Metadata metadata = new Metadata();
@@ -110,11 +106,12 @@ final class HttpMetadata {
     }
 
     private static byte[] decodeBase64Lenient(String value) {
-        String padded = switch (value.length() % 4) {
-            case 2 -> value + "==";
-            case 3 -> value + "=";
-            default -> value;
-        };
+        String padded =
+                switch (value.length() % 4) {
+                    case 2 -> value + "==";
+                    case 3 -> value + "=";
+                    default -> value;
+                };
         return Base64.getDecoder().decode(padded);
     }
 }

@@ -24,15 +24,18 @@ class TodoMapperTest {
 
     @Test
     void createCommandMapsTitle() {
-        CreateTodo command = mapper.toCreateCommand(
-                TodoOuterClass.CreateTodoRequest.newBuilder().setTitle("buy milk").build());
+        CreateTodo command = mapper.toCreateCommand(TodoOuterClass.CreateTodoRequest.newBuilder()
+                .setTitle("buy milk")
+                .build());
         assertEquals("buy milk", command.title());
     }
 
     @Test
     void updateWithTitleSetMapsToValue() {
         UpdateTodo command = mapper.toUpdateCommand(TodoOuterClass.UpdateTodoRequest.newBuilder()
-                .setId("id-1").setTitle("renamed").build());
+                .setId("id-1")
+                .setTitle("renamed")
+                .build());
         assertEquals("id-1", command.id());
         assertEquals("renamed", command.title());
         assertNull(command.completed(), "completed was not set → must be null (not provided)");
@@ -41,7 +44,9 @@ class TodoMapperTest {
     @Test
     void updateWithTitleUnsetMapsToNull() {
         UpdateTodo command = mapper.toUpdateCommand(TodoOuterClass.UpdateTodoRequest.newBuilder()
-                .setId("id-1").setCompleted(true).build());
+                .setId("id-1")
+                .setCompleted(true)
+                .build());
         assertNull(command.title(), "title was not set → must be null (not provided)");
         assertEquals(Boolean.TRUE, command.completed());
     }
@@ -51,7 +56,10 @@ class TodoMapperTest {
         // Editions-2023 explicit presence: an explicitly set empty title / false
         // completed are "provided" and must NOT collapse to null.
         UpdateTodo command = mapper.toUpdateCommand(TodoOuterClass.UpdateTodoRequest.newBuilder()
-                .setId("id-1").setTitle("").setCompleted(false).build());
+                .setId("id-1")
+                .setTitle("")
+                .setCompleted(false)
+                .build());
         assertEquals("", command.title(), "explicit empty title is provided, not null");
         assertEquals(Boolean.FALSE, command.completed(), "explicit completed=false is provided, not null");
     }

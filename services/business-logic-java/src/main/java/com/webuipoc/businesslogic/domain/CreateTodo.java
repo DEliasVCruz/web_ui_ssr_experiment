@@ -13,5 +13,5 @@ import io.avaje.validation.constraints.Valid;
  * layer closes.
  */
 @Valid
-public record CreateTodo(@NotBlank(message = "must not be blank") String title) {
-}
+public record CreateTodo(
+        @NotBlank(message = "must not be blank") String title) {}

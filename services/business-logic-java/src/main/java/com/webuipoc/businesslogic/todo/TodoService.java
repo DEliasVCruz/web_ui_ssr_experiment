@@ -42,7 +42,8 @@ public class TodoService {
     }
 
     public Todo updateTodo(UpdateTodo command) {
-        return repository.updateTodo(command.id(), command.title(), command.completed())
+        return repository
+                .updateTodo(command.id(), command.title(), command.completed())
                 .map(TodoService::toDomain)
                 .orElseThrow(TodoService::notFound);
     }

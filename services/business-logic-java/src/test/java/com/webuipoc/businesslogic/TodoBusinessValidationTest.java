@@ -36,7 +36,9 @@ class TodoBusinessValidationTest {
 
     private WebServer startServer(TodoDb db) {
         TodoGrpcBridge bridge = new TodoGrpcBridge(
-                new TodoService(new TodoRepository(db)), new TodoMapperImpl(), Validator.builder().build());
+                new TodoService(new TodoRepository(db)),
+                new TodoMapperImpl(),
+                Validator.builder().build());
         return WebServer.builder()
                 .port(0)
                 .routing(routing -> Main.routing(routing, bridge))
@@ -61,8 +63,8 @@ class TodoBusinessValidationTest {
             WebServer server = startServer(db);
             try (HttpClient client = HttpClient.newHttpClient()) {
                 // A single space passes protovalidate (min_len 1) but is blank.
-                HttpResponse<String> response = post(client, "http://localhost:" + server.port(),
-                        "CreateTodo", "{\"title\":\" \"}");
+                HttpResponse<String> response =
+                        post(client, "http://localhost:" + server.port(), "CreateTodo", "{\"title\":\" \"}");
                 assertEquals(400, response.statusCode(), "body: " + response.body());
                 assertTrue(response.body().contains("\"code\":\"invalid_argument\""), "body: " + response.body());
                 assertTrue(response.body().contains("title"), "body should name the field: " + response.body());
@@ -87,8 +89,8 @@ class TodoBusinessValidationTest {
                 String id = m.group(1);
 
                 // Updating that todo with a single-space title must be rejected.
-                HttpResponse<String> response = post(client, base, "UpdateTodo",
-                        "{\"id\":\"" + id + "\",\"title\":\" \"}");
+                HttpResponse<String> response =
+                        post(client, base, "UpdateTodo", "{\"id\":\"" + id + "\",\"title\":\" \"}");
                 assertEquals(400, response.statusCode(), "body: " + response.body());
                 assertTrue(response.body().contains("\"code\":\"invalid_argument\""), "body: " + response.body());
                 assertTrue(response.body().contains("title"), "body should name the field: " + response.body());

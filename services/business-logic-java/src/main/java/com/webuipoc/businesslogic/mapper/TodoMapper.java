@@ -35,10 +35,8 @@ public interface TodoMapper {
      * this from {@code getTitle()}/{@code getCompleted()} alone, so the presence
      * checks are written explicitly. {@code id} maps by name.
      */
-    @Mapping(target = "title",
-            expression = "java(request.hasTitle() ? request.getTitle() : null)")
-    @Mapping(target = "completed",
-            expression = "java(request.hasCompleted() ? request.getCompleted() : null)")
+    @Mapping(target = "title", expression = "java(request.hasTitle() ? request.getTitle() : null)")
+    @Mapping(target = "completed", expression = "java(request.hasCompleted() ? request.getCompleted() : null)")
     UpdateTodo toUpdateCommand(TodoOuterClass.UpdateTodoRequest request);
 
     /** Domain {@code Todo} -&gt; wire {@code todo.v1.Todo} (Instant -&gt; Timestamp via {@link #toTimestamp}). */

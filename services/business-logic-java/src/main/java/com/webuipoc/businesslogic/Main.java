@@ -1,9 +1,9 @@
 package com.webuipoc.businesslogic;
 
-import com.webuipoc.connect.ConnectUnaryFeature;
 import com.webuipoc.businesslogic.config.ServiceConfig;
 import com.webuipoc.businesslogic.todo.TodoDb;
 import com.webuipoc.businesslogic.todo.TodoGrpcBridge;
+import com.webuipoc.connect.ConnectUnaryFeature;
 import io.avaje.inject.BeanScope;
 import io.grpc.BindableService;
 import io.helidon.common.media.type.MediaTypes;
@@ -32,8 +32,7 @@ public final class Main {
 
     static final String HEALTH_JSON = "{\"status\":\"ok\"}";
 
-    private Main() {
-    }
+    private Main() {}
 
     public static void main(String[] args) {
         // Compile-time DI graph; shutdownHook(true) closes the scope (and the

@@ -17,8 +17,7 @@ import java.util.concurrent.CompletableFuture;
 final class UnaryCapturingServerCall<ReqT, RespT> extends ServerCall<ReqT, RespT> {
 
     /** Terminal state of the call: {@code close(status, trailers)} plus what was sent before it. */
-    record Outcome<T>(Status status, Metadata headers, T message, Metadata trailers) {
-    }
+    record Outcome<T>(Status status, Metadata headers, T message, Metadata trailers) {}
 
     private final MethodDescriptor<ReqT, RespT> method;
     private final CompletableFuture<Outcome<RespT>> outcome = new CompletableFuture<>();

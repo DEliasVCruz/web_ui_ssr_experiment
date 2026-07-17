@@ -27,8 +27,7 @@ public final class ContractTestServer {
 
     private static final int DEFAULT_PORT = 3911;
 
-    private ContractTestServer() {
-    }
+    private ContractTestServer() {}
 
     public static void main(String[] args) {
         String portEnv = System.getenv("PORT");
@@ -38,7 +37,7 @@ public final class ContractTestServer {
                 .routing(routing -> routing.addFeature(ConnectUnaryFeature.create(new StubTodoService())))
                 .build()
                 .start();
-        System.out.println("connect contract-test server (StubTodoService) listening on http://localhost:"
-                + server.port());
+        System.out.println(
+                "connect contract-test server (StubTodoService) listening on http://localhost:" + server.port());
     }
 }

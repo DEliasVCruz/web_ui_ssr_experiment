@@ -115,6 +115,7 @@ final class ConnectUnaryHandler implements Handler {
     private static final String PARAM_COMPRESSION = "compression";
     /** GET carries the protocol version as {@code connect=v1} (no header). */
     private static final String CONNECT_VERSION_VALUE = "v" + SUPPORTED_PROTOCOL_VERSION;
+
     private static final String ENCODING_PROTO = "proto";
     private static final String ENCODING_JSON = "json";
 
@@ -142,8 +143,7 @@ final class ConnectUnaryHandler implements Handler {
         if (method == null) {
             // 404 so plain HTTP clients see "not found"; the body carries the
             // Connect code the spec's HTTP-to-Connect table infers from 404.
-            sendError(res, 404, ConnectCode.UNIMPLEMENTED,
-                    "no unary RPC " + path + " on this server", null);
+            sendError(res, 404, ConnectCode.UNIMPLEMENTED, "no unary RPC " + path + " on this server", null);
             return;
         }
 
@@ -167,9 +167,11 @@ final class ConnectUnaryHandler implements Handler {
         // add the adapter's standard JSON error body plus an Allow header.
         if (!method.getMethodDescriptor().isSafe()) {
             res.header(ALLOW, "POST");
-            sendError(res, 405, ConnectCode.UNIMPLEMENTED,
-                    "GET is not supported for " + path
-                            + "; only NO_SIDE_EFFECTS methods may be called with GET",
+            sendError(
+                    res,
+                    405,
+                    ConnectCode.UNIMPLEMENTED,
+                    "GET is not supported for " + path + "; only NO_SIDE_EFFECTS methods may be called with GET",
                     null);
             return;
         }
@@ -179,22 +181,31 @@ final class ConnectUnaryHandler implements Handler {
         // connect=v1 is required: GET carries no connect-protocol-version header,
         // so this parameter both selects the protocol and its version.
         if (query.first(PARAM_CONNECT).isEmpty()) {
-            sendError(res, ConnectCode.INVALID_ARGUMENT,
-                    "missing required parameter: set connect to \"" + CONNECT_VERSION_VALUE + "\"", null);
+            sendError(
+                    res,
+                    ConnectCode.INVALID_ARGUMENT,
+                    "missing required parameter: set connect to \"" + CONNECT_VERSION_VALUE + "\"",
+                    null);
             return;
         }
         String connect = query.first(PARAM_CONNECT).get();
         if (!CONNECT_VERSION_VALUE.equals(connect.trim())) {
-            sendError(res, ConnectCode.INVALID_ARGUMENT,
-                    "connect must be \"" + CONNECT_VERSION_VALUE + "\": got \"" + connect + "\"", null);
+            sendError(
+                    res,
+                    ConnectCode.INVALID_ARGUMENT,
+                    "connect must be \"" + CONNECT_VERSION_VALUE + "\": got \"" + connect + "\"",
+                    null);
             return;
         }
 
         // compression defaults to identity; only identity is supported.
         String compression = query.first(PARAM_COMPRESSION).map(String::trim).orElse("identity");
         if (!"identity".equalsIgnoreCase(compression)) {
-            sendError(res, ConnectCode.UNIMPLEMENTED,
-                    "unsupported compression \"" + compression + "\"; supported compressions are: identity", null);
+            sendError(
+                    res,
+                    ConnectCode.UNIMPLEMENTED,
+                    "unsupported compression \"" + compression + "\"; supported compressions are: identity",
+                    null);
             return;
         }
 
@@ -220,8 +231,11 @@ final class ConnectUnaryHandler implements Handler {
         try {
             body = decodeMessageParam(query, base64);
         } catch (IllegalArgumentException e) {
-            sendError(res, ConnectCode.INVALID_ARGUMENT,
-                    "failed to decode base64 message parameter: " + e.getMessage(), null);
+            sendError(
+                    res,
+                    ConnectCode.INVALID_ARGUMENT,
+                    "failed to decode base64 message parameter: " + e.getMessage(),
+                    null);
             return;
         }
 
@@ -232,19 +246,27 @@ final class ConnectUnaryHandler implements Handler {
     private void handlePost(ServerRequest req, ServerResponse res, ServerMethodDefinition<?, ?> method)
             throws Exception {
         Optional<String> protocolVersion = req.headers().first(CONNECT_PROTOCOL_VERSION);
-        if (protocolVersion.isPresent() && !SUPPORTED_PROTOCOL_VERSION.equals(protocolVersion.get().trim())) {
-            sendError(res, ConnectCode.INVALID_ARGUMENT,
-                    "connect-protocol-version must be \"1\": got \"" + protocolVersion.get() + "\"", null);
+        if (protocolVersion.isPresent()
+                && !SUPPORTED_PROTOCOL_VERSION.equals(protocolVersion.get().trim())) {
+            sendError(
+                    res,
+                    ConnectCode.INVALID_ARGUMENT,
+                    "connect-protocol-version must be \"1\": got \"" + protocolVersion.get() + "\"",
+                    null);
             return;
         }
 
         // Absent content-encoding means identity (standard HTTP semantics); any
         // other encoding must be rejected with code unimplemented, with a
         // message listing the supported encodings (spec, "Unary Request").
-        String encoding = req.headers().first(CONTENT_ENCODING).orElse("identity").trim();
+        String encoding =
+                req.headers().first(CONTENT_ENCODING).orElse("identity").trim();
         if (!"identity".equalsIgnoreCase(encoding)) {
-            sendError(res, ConnectCode.UNIMPLEMENTED,
-                    "unsupported content-encoding \"" + encoding + "\"; supported encodings are: identity", null);
+            sendError(
+                    res,
+                    ConnectCode.UNIMPLEMENTED,
+                    "unsupported content-encoding \"" + encoding + "\"; supported encodings are: identity",
+                    null);
             return;
         }
 
@@ -271,21 +293,23 @@ final class ConnectUnaryHandler implements Handler {
         invokeUnary(method, codec, body, req, res, timeoutMs);
     }
 
-    private <ReqT, RespT> void invokeUnary(ServerMethodDefinition<ReqT, RespT> method,
-                                           Codec codec,
-                                           byte[] body,
-                                           ServerRequest req,
-                                           ServerResponse res,
-                                           Long timeoutMs) {
+    private <ReqT, RespT> void invokeUnary(
+            ServerMethodDefinition<ReqT, RespT> method,
+            Codec codec,
+            byte[] body,
+            ServerRequest req,
+            ServerResponse res,
+            Long timeoutMs) {
         MethodDescriptor<ReqT, RespT> descriptor = method.getMethodDescriptor();
 
         ReqT request;
         try {
             request = parseRequest(descriptor, codec, body);
         } catch (Exception e) {
-            sendError(res, ConnectCode.INVALID_ARGUMENT,
-                    "failed to decode " + codec.name().toLowerCase(Locale.ROOT) + " request message: "
-                            + e.getMessage(),
+            sendError(
+                    res,
+                    ConnectCode.INVALID_ARGUMENT,
+                    "failed to decode " + codec.name().toLowerCase(Locale.ROOT) + " request message: " + e.getMessage(),
                     null);
             return;
         }
@@ -321,14 +345,15 @@ final class ConnectUnaryHandler implements Handler {
             // No connect-timeout-ms → infinite timeout per spec: this wait is
             // unbounded, so an async handler that never closes its call pins
             // this request forever (see class javadoc).
-            outcome = timeoutMs == null
-                    ? call.outcome().get()
-                    : call.outcome().get(timeoutMs, TimeUnit.MILLISECONDS);
+            outcome = timeoutMs == null ? call.outcome().get() : call.outcome().get(timeoutMs, TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
             call.cancel();
             notifyCancel(listener);
-            sendError(res, ConnectCode.DEADLINE_EXCEEDED,
-                    "the operation timed out after " + timeoutMs + "ms (connect-timeout-ms)", null);
+            sendError(
+                    res,
+                    ConnectCode.DEADLINE_EXCEEDED,
+                    "the operation timed out after " + timeoutMs + "ms (connect-timeout-ms)",
+                    null);
             return;
         } catch (ExecutionException | InterruptedException e) {
             if (e instanceof InterruptedException) {
@@ -466,8 +491,8 @@ final class ConnectUnaryHandler implements Handler {
         return (ReqT) builder.build();
     }
 
-    private static <RespT> byte[] serializeResponse(MethodDescriptor<?, RespT> descriptor, Codec codec,
-                                                    RespT message) throws Exception {
+    private static <RespT> byte[] serializeResponse(MethodDescriptor<?, RespT> descriptor, Codec codec, RespT message)
+            throws Exception {
         if (codec == Codec.PROTO) {
             try (InputStream stream = descriptor.streamResponse(message)) {
                 return stream.readAllBytes();
@@ -525,7 +550,9 @@ final class ConnectUnaryHandler implements Handler {
             return null;
         }
         String value = header.get().trim();
-        if (value.isEmpty() || value.length() > MAX_TIMEOUT_DIGITS || !value.chars().allMatch(Character::isDigit)) {
+        if (value.isEmpty()
+                || value.length() > MAX_TIMEOUT_DIGITS
+                || !value.chars().allMatch(Character::isDigit)) {
             throw new IllegalArgumentException("protocol error: invalid connect-timeout-ms value \"" + value + "\"");
         }
         return Long.parseLong(value);
@@ -535,8 +562,8 @@ final class ConnectUnaryHandler implements Handler {
         sendError(res, code.httpStatus(), code, message, metadata);
     }
 
-    private static void sendError(ServerResponse res, int httpStatus, ConnectCode code, String message,
-                                  Metadata metadata) {
+    private static void sendError(
+            ServerResponse res, int httpStatus, ConnectCode code, String message, Metadata metadata) {
         if (metadata != null) {
             HttpMetadata.writeToResponse(res, metadata, "");
         }

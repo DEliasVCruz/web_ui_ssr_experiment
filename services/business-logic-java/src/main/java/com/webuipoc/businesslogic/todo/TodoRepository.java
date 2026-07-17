@@ -26,8 +26,7 @@ import java.util.Optional;
 public final class TodoRepository {
 
     /** One row of the todos table; completed stays an INTEGER as in the TS TodoRow. */
-    public record TodoRow(String id, String title, int completed, String createdAt, String updatedAt) {
-    }
+    public record TodoRow(String id, String title, int completed, String createdAt, String updatedAt) {}
 
     /** Formats like JS {@code new Date().toISOString()}: always exactly 3 fractional digits. */
     private static final DateTimeFormatter ISO_MILLIS =
@@ -40,8 +39,7 @@ public final class TodoRepository {
     }
 
     public synchronized List<TodoRow> listTodos() {
-        try (PreparedStatement statement =
-                connection.prepareStatement("SELECT * FROM todos ORDER BY created_at DESC");
+        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM todos ORDER BY created_at DESC");
                 ResultSet rs = statement.executeQuery()) {
             List<TodoRow> rows = new ArrayList<>();
             while (rs.next()) {
@@ -54,8 +52,7 @@ public final class TodoRepository {
     }
 
     public synchronized Optional<TodoRow> getTodo(String id) {
-        try (PreparedStatement statement =
-                connection.prepareStatement("SELECT * FROM todos WHERE id = ?")) {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM todos WHERE id = ?")) {
             statement.setString(1, id);
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() ? Optional.of(toTodoRow(rs)) : Optional.empty();
@@ -98,8 +95,8 @@ public final class TodoRepository {
         int newCompleted = completed == null ? existing.completed() : (completed ? 1 : 0);
         String now = nowIsoString();
 
-        try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE todos SET title = ?, completed = ?, updated_at = ? WHERE id = ?")) {
+        try (PreparedStatement statement =
+                connection.prepareStatement("UPDATE todos SET title = ?, completed = ?, updated_at = ? WHERE id = ?")) {
             statement.setString(1, newTitle);
             statement.setInt(2, newCompleted);
             statement.setString(3, now);
@@ -112,8 +109,7 @@ public final class TodoRepository {
     }
 
     public synchronized boolean deleteTodo(String id) {
-        try (PreparedStatement statement =
-                connection.prepareStatement("DELETE FROM todos WHERE id = ?")) {
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM todos WHERE id = ?")) {
             statement.setString(1, id);
             return statement.executeUpdate() > 0;
         } catch (SQLException e) {

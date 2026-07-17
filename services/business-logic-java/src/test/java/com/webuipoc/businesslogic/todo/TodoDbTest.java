@@ -15,8 +15,7 @@ import org.junit.jupiter.api.io.TempDir;
 class TodoDbTest {
 
     /** The exact string shape Bun's repository writes: new Date().toISOString(). */
-    static final Pattern BUN_ISO_MILLIS =
-            Pattern.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$");
+    static final Pattern BUN_ISO_MILLIS = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$");
 
     @Test
     void createsMissingParentDirectories(@TempDir Path tempDir) throws Exception {
@@ -56,8 +55,8 @@ class TodoDbTest {
         try (TodoDb db = new TodoDb(tempDir.resolve("todos.db").toString());
                 Statement statement = db.connection().createStatement()) {
             statement.execute("INSERT INTO todos (id, title) VALUES ('x', 'defaults')");
-            try (ResultSet rs = statement.executeQuery(
-                    "SELECT completed, created_at, updated_at FROM todos WHERE id = 'x'")) {
+            try (ResultSet rs =
+                    statement.executeQuery("SELECT completed, created_at, updated_at FROM todos WHERE id = 'x'")) {
                 assertTrue(rs.next());
                 assertEquals(0, rs.getInt("completed"));
                 assertTrue(BUN_ISO_MILLIS.matcher(rs.getString("created_at")).matches());

@@ -63,9 +63,11 @@ public class TodoGrpcBridge extends todo.v1.TodoServiceGrpc.TodoServiceImplBase 
 
     @Override
     public void getTodo(GetTodoRequest request, StreamObserver<GetTodoResponse> observer) {
-        respond(observer, () -> GetTodoResponse.newBuilder()
-                .setTodo(mapper.toProto(service.getTodo(request.getId())))
-                .build());
+        respond(
+                observer,
+                () -> GetTodoResponse.newBuilder()
+                        .setTodo(mapper.toProto(service.getTodo(request.getId())))
+                        .build());
     }
 
     @Override

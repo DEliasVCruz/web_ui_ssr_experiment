@@ -47,7 +47,8 @@ final class StubTodoService extends TodoServiceGrpc.TodoServiceImplBase {
         return String.format(Locale.ROOT, "%s%02d", ERROR_ID_PREFIX, code.value());
     }
 
-    private static final Timestamp FIXED_TIME = Timestamp.newBuilder().setSeconds(1_700_000_000L).build();
+    private static final Timestamp FIXED_TIME =
+            Timestamp.newBuilder().setSeconds(1_700_000_000L).build();
 
     private static TodoOuterClass.Todo todo(String id, String title) {
         return TodoOuterClass.Todo.newBuilder()
@@ -60,8 +61,9 @@ final class StubTodoService extends TodoServiceGrpc.TodoServiceImplBase {
     }
 
     @Override
-    public void listTodos(TodoOuterClass.ListTodosRequest request,
-                          StreamObserver<TodoOuterClass.ListTodosResponse> responseObserver) {
+    public void listTodos(
+            TodoOuterClass.ListTodosRequest request,
+            StreamObserver<TodoOuterClass.ListTodosResponse> responseObserver) {
         responseObserver.onNext(TodoOuterClass.ListTodosResponse.newBuilder()
                 .addTodos(todo("todo-1", "first"))
                 .addTodos(todo("todo-2", "second"))
@@ -70,8 +72,8 @@ final class StubTodoService extends TodoServiceGrpc.TodoServiceImplBase {
     }
 
     @Override
-    public void getTodo(TodoOuterClass.GetTodoRequest request,
-                        StreamObserver<TodoOuterClass.GetTodoResponse> responseObserver) {
+    public void getTodo(
+            TodoOuterClass.GetTodoRequest request, StreamObserver<TodoOuterClass.GetTodoResponse> responseObserver) {
         String id = request.getId();
         if (MISSING_ID.equals(id)) {
             responseObserver.onError(Status.NOT_FOUND
@@ -80,8 +82,8 @@ final class StubTodoService extends TodoServiceGrpc.TodoServiceImplBase {
             return;
         }
         if (id.startsWith(ERROR_ID_PREFIX)) {
-            Status.Code code = Status.fromCodeValue(
-                    Integer.parseInt(id.substring(ERROR_ID_PREFIX.length()))).getCode();
+            Status.Code code = Status.fromCodeValue(Integer.parseInt(id.substring(ERROR_ID_PREFIX.length())))
+                    .getCode();
             responseObserver.onError(code.toStatus()
                     .withDescription("stub failure with code " + code.name())
                     .asRuntimeException());
@@ -93,12 +95,13 @@ final class StubTodoService extends TodoServiceGrpc.TodoServiceImplBase {
                     .asRuntimeException();
         }
         if (SLOW_ID.equals(id)) {
-            CompletableFuture.delayedExecutor(SLOW_RESPONSE_MS, TimeUnit.MILLISECONDS).execute(() -> {
-                responseObserver.onNext(TodoOuterClass.GetTodoResponse.newBuilder()
-                        .setTodo(todo(id, "slow-todo"))
-                        .build());
-                responseObserver.onCompleted();
-            });
+            CompletableFuture.delayedExecutor(SLOW_RESPONSE_MS, TimeUnit.MILLISECONDS)
+                    .execute(() -> {
+                        responseObserver.onNext(TodoOuterClass.GetTodoResponse.newBuilder()
+                                .setTodo(todo(id, "slow-todo"))
+                                .build());
+                        responseObserver.onCompleted();
+                    });
             return;
         }
         responseObserver.onNext(TodoOuterClass.GetTodoResponse.newBuilder()
@@ -108,8 +111,9 @@ final class StubTodoService extends TodoServiceGrpc.TodoServiceImplBase {
     }
 
     @Override
-    public void createTodo(TodoOuterClass.CreateTodoRequest request,
-                           StreamObserver<TodoOuterClass.CreateTodoResponse> responseObserver) {
+    public void createTodo(
+            TodoOuterClass.CreateTodoRequest request,
+            StreamObserver<TodoOuterClass.CreateTodoResponse> responseObserver) {
         responseObserver.onNext(TodoOuterClass.CreateTodoResponse.newBuilder()
                 .setTodo(todo("created-1", request.getTitle()))
                 .build());
@@ -117,8 +121,9 @@ final class StubTodoService extends TodoServiceGrpc.TodoServiceImplBase {
     }
 
     @Override
-    public void updateTodo(TodoOuterClass.UpdateTodoRequest request,
-                           StreamObserver<TodoOuterClass.UpdateTodoResponse> responseObserver) {
+    public void updateTodo(
+            TodoOuterClass.UpdateTodoRequest request,
+            StreamObserver<TodoOuterClass.UpdateTodoResponse> responseObserver) {
         responseObserver.onNext(TodoOuterClass.UpdateTodoResponse.newBuilder()
                 .setTodo(todo(request.getId(), request.hasTitle() ? request.getTitle() : "unchanged"))
                 .build());
@@ -126,8 +131,9 @@ final class StubTodoService extends TodoServiceGrpc.TodoServiceImplBase {
     }
 
     @Override
-    public void deleteTodo(TodoOuterClass.DeleteTodoRequest request,
-                           StreamObserver<TodoOuterClass.DeleteTodoResponse> responseObserver) {
+    public void deleteTodo(
+            TodoOuterClass.DeleteTodoRequest request,
+            StreamObserver<TodoOuterClass.DeleteTodoResponse> responseObserver) {
         responseObserver.onNext(TodoOuterClass.DeleteTodoResponse.getDefaultInstance());
         responseObserver.onCompleted();
     }
