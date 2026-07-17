@@ -13,6 +13,12 @@ const ignores = globalIgnores([
 	"**/build/**",
 	"packages/rpc/gen/**",
 	"**/styled-system/**",
+	// Leading-dot config file: TypeScript's implicit `**/*` include glob skips
+	// dotfiles, so it lands in no tsconfig and typescript-eslint's projectService
+	// cannot type-check it ("not found by the project service"). Biome still
+	// formats/lints it; the type-checked ESLint pass has nothing to add to a
+	// plain CJS config object.
+	".dependency-cruiser.cjs",
 ]);
 
 // ─── TypeScript parser + plugin (no rules, needed by solid plugin) ─

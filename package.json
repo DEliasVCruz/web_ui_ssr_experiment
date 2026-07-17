@@ -31,7 +31,8 @@
 		"fix:deps": "syncpack fix",
 		"lint:workspaces": "sherif -r multiple-dependency-versions -r unsync-similar-dependencies -r packages-without-package-json --fail-on-warnings",
 		"lint:knip": "knip",
-		"lint:hygiene": "bun run lint:deps && bun run lint:workspaces && bun run lint:knip"
+		"lint:boundaries": "depcruise services packages --config .dependency-cruiser.cjs",
+		"lint:hygiene": "bun run lint:deps && bun run lint:workspaces && bun run lint:knip && bun run lint:boundaries"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "~2.4.12",
@@ -41,6 +42,7 @@
 		"@pandacss/eslint-plugin": "^0.3.2",
 		"@tanstack/eslint-plugin-query": "^5.99.2",
 		"@tanstack/eslint-plugin-router": "^1.162.0",
+		"dependency-cruiser": "^18.1.0",
 		"eslint": "^10.2.1",
 		"eslint-plugin-solid": "^0.14.5",
 		"knip": "^6.27.0",

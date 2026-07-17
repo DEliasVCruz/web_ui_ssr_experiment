@@ -301,10 +301,12 @@ in
     };
     # Workspace hygiene gate: dependency-version consistency (syncpack, the single
     # authoritative version enforcer), orthogonal monorepo lints (sherif, lint-only —
-    # its version rules are disabled so it never fights syncpack), and unused
-    # files/exports/dependencies (knip). All three are also exposed as root
-    # package.json scripts (lint:deps / lint:workspaces / lint:knip). Config &
-    # rationale: .syncpackrc.json, knip.jsonc, docs/workspace-hygiene.md.
+    # its version rules are disabled so it never fights syncpack), unused
+    # files/exports/dependencies (knip), and module-boundary / import-direction
+    # rules (dependency-cruiser). All are also exposed as root package.json scripts
+    # (lint:deps / lint:workspaces / lint:knip / lint:boundaries). Config &
+    # rationale: .syncpackrc.json, knip.jsonc, .dependency-cruiser.cjs,
+    # docs/workspace-hygiene.md, docs/architecture-boundaries.md.
     "ci:hygiene" = {
       exec = ''
         echo "==> syncpack (dependency-version consistency + workspace: pinning)"
@@ -313,8 +315,10 @@ in
         bunx sherif -r multiple-dependency-versions -r unsync-similar-dependencies -r packages-without-package-json --fail-on-warnings
         echo "==> knip (unused files / exports / dependencies)"
         bunx knip
+        echo "==> dependency-cruiser (module boundaries / import direction)"
+        bunx depcruise services packages --config .dependency-cruiser.cjs
       '';
-      description = "Workspace hygiene: syncpack + sherif + knip (dependency & dead-code lints)";
+      description = "Workspace hygiene: syncpack + sherif + knip + dependency-cruiser (dependency, dead-code & boundary lints)";
     };
     "ci:e2e" = {
       # FULLY self-contained end-to-end Playwright run for web-ui-ssr: on a clean
