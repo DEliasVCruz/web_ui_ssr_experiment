@@ -126,16 +126,43 @@ and the dev node-http path):
   leading `"level":30` field (removing `level` — on its own, or together with
   `time` — trips a pino fast-path bug that emits malformed JSON). It does not
   affect correlation.
-- **Emission point**: the event is emitted when the **response stream
-  finishes** (an identity `TransformStream`'s `flush`), not when the handler
-  returns, so `duration_ms` covers the whole streamed render; response bytes
-  are untouched. A request whose handler throws emits with `status: 500` and
-  the projected `error`. Known gap: streams that end abnormally mid-body —
-  a client disconnect (truncated) **or** a source-stream error after the first
-  chunk (`flush` never fires on an errored pipe, and Bun 1.3.10 does not
-  invoke the transformer's `cancel()` either) — emit no event. Follow-up:
-  task web_ui_ssr_experiment-iq2.5 (manual reader pump emitting on
-  close/error/cancel alike).
+- **Emission point**: the event is emitted when the response body reaches a
+  **terminal outcome**, not when the handler returns, so `duration_ms` covers
+  the whole streamed render; response bytes are untouched. A request whose
+  handler throws (before any bytes leave) emits with `status: 500` and the
+  projected `error`. A **null-body** response (e.g. `204`) emits synchronously.
+  A **streamed** body is driven by a **manual reader pump** (task iq2.5) that
+  emits on all three of the stream's terminal transitions — see
+  `attributes.stream_outcome` below.
+- **`stream_outcome`** (task iq2.5): for a streamed body, the pump records how
+  the stream ended in `attributes.stream_outcome`. This CLOSES the two silent
+  paths the earlier identity-`TransformStream` design left open (a
+  `TransformStream`'s `flush` fires only on normal close, and Bun — pinned
+  1.3.10, re-verified 1.3.11 — does not invoke a transformer's `cancel()` on a
+  source error or reader cancel):
+  - `"completed"` — the source stream closed normally: the full render flushed.
+    `error` is `null`; `status` is the sent status. (A present-but-empty body
+    also flows through the pump and reports `"completed"`.)
+  - `"errored"` — the source stream **errored mid-body**, after the shell (and
+    thus `status` + headers) had already flushed. The event records the projected
+    `error` **and the already-sent `status`** — an errored stream cannot
+    retroactively rewrite a status the client already received, so (unlike a
+    handler that throws before any byte leaves, which is synthesized as `500`) an
+    HTTP `200` shell that then errors mid-stream is recorded as `status: 200`
+    with a populated `error`. The error is also surfaced downstream (the pump
+    errors its controller), so the client sees a truncated/aborted body.
+  - `"cancelled"` — the **downstream consumer cancelled** the body (client
+    disconnected mid-stream). Not a server fault, so `error` stays `null`; the
+    truncation is marked solely by this outcome. `status` is the sent status.
+    The cancel is propagated upstream to release the source.
+
+  Exactly-once holds by two independent mechanisms: the ReadableStream
+  controller enforces a single terminal transition (each of close/error/cancel
+  fires exactly one pump callback, and none fires after another), and an
+  `emitted` flag guards `logger.emit` as defense-in-depth (against Bun-version
+  drift). The pump is pull/demand-driven — one source chunk read and enqueued
+  per `pull` — so response bytes are never mutated and nothing buffers ahead of
+  the consumer (backpressure preserved).
 - **Trace context**: same strict `traceparent` parser as the Java side
   (`trace-context.ts`); ids minted with `crypto.getRandomValues`. The context
   rides per-request `AsyncLocalStorage`, and a connect-es interceptor on the
