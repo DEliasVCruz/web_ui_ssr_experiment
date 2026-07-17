@@ -29,10 +29,13 @@ public interface TodoMapper {
 
     /**
      * {@code CreateTodoRequest} -&gt; {@code CreateTodo}. {@code title} maps by
-     * name; {@code details} has explicit presence, so an unset field becomes
-     * {@code null} ("not provided") rather than the empty-string default — the
-     * same explicit-presence translation used for {@code UpdateTodoRequest}.
+     * name; {@code details} and {@code id} have explicit presence, so an unset
+     * field becomes {@code null} ("not provided") rather than the empty-string
+     * default — the same explicit-presence translation used for
+     * {@code UpdateTodoRequest}. A {@code null} id lets the repository mint a
+     * UUIDv7; a provided id is persisted verbatim (idempotent create).
      */
+    @Mapping(target = "id", expression = "java(request.hasId() ? request.getId() : null)")
     @Mapping(target = "details", expression = "java(request.hasDetails() ? request.getDetails() : null)")
     CreateTodo toCreateCommand(TodoOuterClass.CreateTodoRequest request);
 

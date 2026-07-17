@@ -126,6 +126,39 @@ curl -X POST http://localhost:3001/todo.v1.TodoService/CreateTodo \
 # {"todo":{"id":"…","title":"hello","createdAt":"…","updatedAt":"…"}}
 ```
 
+### Idempotent create (client-supplied id)
+
+`CreateTodoRequest` carries an optional `id` (explicit presence, uuid-validated —
+the same rule `GetTodoRequest.id` uses). Omit it and the server mints a lowercase
+UUIDv7 (the default; the only path the current UI takes). Supply it and the server
+persists it verbatim, which makes create **idempotent, first-write-wins**:
+
+```sh
+# First write persists the row.
+curl -X POST http://localhost:3001/todo.v1.TodoService/CreateTodo \
+    -H 'Content-Type: application/json' \
+    -d '{"title":"buy milk","id":"0190163d-8694-7afd-8912-1c3d4e5f6a7b"}'
+# {"todo":{"id":"0190163d-…","title":"buy milk",…}}
+
+# Re-sending the SAME id (a replayed offline-queue entry) returns the EXISTING
+# row as a 200 success and IGNORES the new payload — the stored "buy milk" wins,
+# "buy oat milk" is dropped. Never an upsert; created_at/updated_at unchanged.
+curl -X POST http://localhost:3001/todo.v1.TodoService/CreateTodo \
+    -H 'Content-Type: application/json' \
+    -d '{"title":"buy oat milk","id":"0190163d-8694-7afd-8912-1c3d4e5f6a7b"}'
+# {"todo":{"id":"0190163d-…","title":"buy milk",…}}   ← first-write-wins
+```
+
+This id is the replay key for the offline mutation queue
+(`web_ui_ssr_experiment-1w9`): a crash mid-flush re-sends the identical queued
+entry, and first-write-wins makes that re-send a no-op rather than a duplicate.
+The uuid rule keeps arbitrary text out of the `id` column, and because a colliding
+id resolves to a *read* of the existing row (never a write), a client cannot mutate
+another row by guessing its id. Cross-tenant owner-scoping of ids is a documented
+future concern — single-user experiment today. Implemented in
+`TodoRepository.createTodo` as `INSERT … ON CONFLICT (id) DO NOTHING RETURNING *`
+plus a conflict-fetch, both in one transaction (see its javadoc).
+
 ## Docker
 
 `Dockerfile` (multi-stage, used by the root `docker-compose.yml`):

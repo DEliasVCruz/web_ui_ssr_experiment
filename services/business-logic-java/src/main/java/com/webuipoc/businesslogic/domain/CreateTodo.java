@@ -18,8 +18,16 @@ import org.jspecify.annotations.Nullable;
  * rule is a length cap ({@code max_len = 1000}) already enforced by protovalidate
  * at the edge — duplicating it here would add nothing. {@code null} means "not
  * provided" (the request field was unset).
+ *
+ * <p>{@code id} is the optional client-supplied id (explicit presence): {@code
+ * null} means "not provided" (the server mints a UUIDv7), a non-null value is the
+ * client's chosen id, persisted verbatim for idempotent first-write-wins creates.
+ * Like {@code details} it carries NO domain constraint — the uuid shape is a wire
+ * rule protovalidate already enforces at the edge (400 invalid_argument), and
+ * there is no additional business rule beyond it.
  */
 @Valid
 public record CreateTodo(
+        @Nullable String id,
         @NotBlank(message = "must not be blank") String title,
         @Nullable String details) {}

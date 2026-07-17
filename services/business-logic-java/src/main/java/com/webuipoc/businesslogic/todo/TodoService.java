@@ -29,7 +29,7 @@ public class TodoService {
     }
 
     public Todo createTodo(CreateTodo command) {
-        return toDomain(repository.createTodo(command.title(), command.details()));
+        return toDomain(repository.createTodo(command.id(), command.title(), command.details()));
     }
 
     public List<Todo> listTodos() {

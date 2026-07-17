@@ -11,6 +11,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import org.jooq.DSLContext;
+import org.jooq.InsertSetMoreStep;
 import org.jooq.SQLDialect;
 import org.jooq.impl.DSL;
 import org.jspecify.annotations.Nullable;
@@ -52,7 +53,10 @@ import org.jspecify.annotations.Nullable;
  *   <li>INSERT/UPDATE use {@code RETURNING} to read the persisted row back in
  *       one round trip (no follow-up SELECT), and UPDATE null-merges absent
  *       fields in-statement via {@code COALESCE} (atomic — no read-merge-write
- *       race across pooled connections).</li>
+ *       race across pooled connections). The one exception is the idempotent
+ *       client-id create: on a primary-key conflict {@code ON CONFLICT DO
+ *       NOTHING} returns nothing, so a single follow-up SELECT reads the existing
+ *       row back — the two run in one transaction (see {@link #createTodo}).</li>
  *   <li>{@code id} is case-sensitive {@code text}: {@code TODOS.ID.eq(id)} is an
  *       exact text comparison, so an upper-cased UUID must still MISS.</li>
  * </ul>
@@ -93,21 +97,72 @@ public final class TodoRepository {
         return dsl.selectFrom(TODOS).where(TODOS.ID.eq(id)).fetchOptional(TodoRepository::toTodoRow);
     }
 
-    public TodoRow createTodo(String title, @Nullable String details) {
+    /**
+     * Creates a todo. When {@code id} is {@code null} the server mints a fresh
+     * UUIDv7 (the default path, and the only one the current UI exercises); a
+     * freshly minted id cannot collide, so this stays the original
+     * single-statement {@code INSERT ... RETURNING} (one round trip) — existing
+     * behavior, pinned.
+     *
+     * <p>When {@code id} is client-supplied the create is <b>idempotent,
+     * first-write-wins</b>: this id is the offline mutation queue's replay key
+     * (web_ui_ssr_experiment-1w9). If the id already exists — a queued entry
+     * re-sent after a crash mid-flush — the insert hits a primary-key conflict,
+     * {@code ON CONFLICT (id) DO NOTHING} writes nothing, and we return the
+     * EXISTING row unchanged. Any payload difference on the duplicate (a different
+     * title on the replay) is deliberately <b>IGNORED</b>: this is honest
+     * at-least-once replay (re-sending the identical queued entry is a no-op),
+     * NOT an upsert. {@code created_at}/{@code updated_at} therefore also stay as
+     * first written, so a replayed create never disturbs newest-first list order.
+     *
+     * <p>Atomicity: the insert and the conflict-fetch run in ONE transaction so
+     * the pair executes on a single connection as one logical unit — the "insert,
+     * else read the row that conflicted us" is not split across two pooled
+     * connections. A concurrent DELETE of the just-conflicted row between the two
+     * statements is out of scope (single-user experiment; documented in
+     * todo.proto), and would surface as an {@link IllegalStateException} mapped to
+     * INTERNAL rather than a silent wrong answer.
+     */
+    public TodoRow createTodo(@Nullable String id, String title, @Nullable String details) {
         OffsetDateTime now = nowMillis();
-        // details is bound as-is: null -> the column's NULL "no details" state,
-        // a non-null value (including "") -> stored verbatim. The column has no
-        // default, so an omitted set would also yield NULL; setting it explicitly
-        // keeps the create statement symmetric with title.
-        return toTodoRow(dsl.insertInto(TODOS)
-                .set(TODOS.ID, UuidV7.randomUuidV7())
+        if (id == null) {
+            return toTodoRow(insert(dsl, UuidV7.randomUuidV7(), title, details, now)
+                    .returning()
+                    .fetchSingle());
+        }
+        return dsl.transactionResult(cfg -> {
+            DSLContext txn = cfg.dsl();
+            return insert(txn, id, title, details, now)
+                    .onConflict(TODOS.ID)
+                    .doNothing()
+                    .returning()
+                    .fetchOptional()
+                    .map(TodoRepository::toTodoRow)
+                    .orElseGet(() -> txn.selectFrom(TODOS)
+                            .where(TODOS.ID.eq(id))
+                            .fetchOptional(TodoRepository::toTodoRow)
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "insert conflicted on id but the existing row was not found: " + id)));
+        });
+    }
+
+    /**
+     * The shared {@code INSERT ... SET} body for a create, ready for either
+     * {@code .returning()} (mint path) or {@code .onConflict(...)} (idempotent
+     * client-id path). {@code details} is bound as-is: null -&gt; the column's NULL
+     * "no details" state, a non-null value (including "") -&gt; stored verbatim. The
+     * column has no default, so an omitted set would also yield NULL; setting it
+     * explicitly keeps the create statement symmetric with title.
+     */
+    private static InsertSetMoreStep<TodosRecord> insert(
+            DSLContext ctx, String id, String title, @Nullable String details, OffsetDateTime now) {
+        return ctx.insertInto(TODOS)
+                .set(TODOS.ID, id)
                 .set(TODOS.TITLE, title)
                 .set(TODOS.COMPLETED, false)
                 .set(TODOS.DETAILS, details)
                 .set(TODOS.CREATED_AT, now)
-                .set(TODOS.UPDATED_AT, now)
-                .returning()
-                .fetchSingle());
+                .set(TODOS.UPDATED_AT, now);
     }
 
     /**
