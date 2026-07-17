@@ -149,6 +149,39 @@ didn't intend to ask yet.
 - **Prefer small, reversible changes.** This is a learning exercise; optimize for clarity and the ability to rip things out, not for robustness.
 - **Record learnings.** When you hit a surprise — something that worked, something that didn't, a gotcha in a library — write or update a note in the `web_ui` project so it isn't lost.
 
+## Wire contract: informational breaking-change check
+
+The Connect/proto definitions under `proto/` are the wire contract shared by
+`web-ui-ssr` (connect-es) and `business-logic-java`. The `ci:proto-breaking`
+devenv task surfaces contract drift so it never happens by accident.
+
+- **What it does**: runs `buf breaking --against '.git#branch=main'`, comparing
+  your current proto module (working tree included — uncommitted edits count)
+  against the tip of `main`, using buf's strictest `FILE` category
+  (configured in `buf.yaml` under `breaking:`).
+- **Informational, never blocking**: breaking changes are **allowed** in this
+  experiment. The task captures buf's exit code, prints any findings under a
+  loud banner, and **always exits 0**. A breaking change is fine — it just has
+  to be **deliberate and visible**, not a silent surprise for the other service.
+- **On `main` / no delta**: the comparison is against `main`'s committed protos,
+  so on `main` (or a branch with no proto changes) it reports a quiet one-line OK.
+
+Run it manually from your interactive devenv shell:
+
+```bash
+devenv tasks run ci:proto-breaking
+```
+
+Run it from an **interactive** shell (a terminal): `devenv tasks run` buffers a
+successful task's stdout, so the task writes its banner straight to the
+controlling terminal (`/dev/tty`). With no terminal (e.g. output piped to a
+file), it falls back to normal stdout, which devenv only replays if the task
+fails — so a plain non-interactive run of an always-exit-0 task can look silent.
+
+This is a soft gate only — it is intentionally **not** wired into git hooks and
+does not fail CI. If it warns, confirm the contract change was intended and that
+both services are updated accordingly.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:full hash:f65d5d33 -->
 ## Issue Tracking with bd (beads)
 

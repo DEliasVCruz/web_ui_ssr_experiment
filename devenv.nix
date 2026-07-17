@@ -379,6 +379,58 @@ in
       '';
       description = "Self-contained E2E: start+seed own backend (ephemeral DB), build+run web server, Playwright over CDP, full teardown";
     };
+    "ci:proto-breaking" = {
+      # INFORMATIONAL wire-contract check. Compares the current proto module
+      # (working tree included — uncommitted edits count) against the tip of
+      # `main` using buf's FILE breaking category (see buf.yaml `breaking:`).
+      #
+      # Breaking changes are ALLOWED in this experiment, so this task NEVER
+      # fails the pipeline: it captures buf's exit code, prints any findings
+      # under a loud, unmissable banner, and always exits 0. Its only job is to
+      # make contract drift impossible to miss so it stays deliberate.
+      #
+      # Edge case — running ON main (or when the branch has no proto delta vs
+      # main): `.git#branch=main` resolves to main's tip, so the comparison is
+      # against the same committed protos and buf reports no changes → quiet OK.
+      exec = ''
+        set -uo pipefail
+        # `devenv tasks run` BUFFERS a task's stdout and only replays it when the
+        # task FAILS (non-zero exit); on success it is hidden unless you pass
+        # --show-output. Since this task is informational and always exits 0, its
+        # findings would otherwise be invisible on a plain run. So we prefer the
+        # controlling terminal (/dev/tty) when one is actually writable, and fall
+        # back to stdout otherwise (visible via --show-output or on failure). The
+        # probe actually opens /dev/tty — on macOS `[ -w /dev/tty ]` can be true
+        # while writes still fail with "Device not configured". `say` centralizes
+        # this so every line lands on the best available sink.
+        if { : > /dev/tty; } 2>/dev/null; then TTY=/dev/tty; else TTY=/dev/stdout; fi
+        say() { echo "$@" > "$TTY"; }
+
+        say "==> Checking wire contract for breaking changes vs main (informational)"
+        # `set +e` around buf: it exits non-zero (100) when it finds breaking
+        # changes, which is an EXPECTED, non-fatal outcome here. devenv wraps the
+        # task body with errexit, so without this the script would abort at buf.
+        set +e
+        OUTPUT=$(buf breaking --against ".git#branch=main" 2>&1)
+        EXIT=$?
+        set -e
+        if [ "$EXIT" -eq 0 ]; then
+          say "✓ Wire contract OK — no breaking changes vs main."
+          exit 0
+        fi
+        say ""
+        say "⚠ ================================================================== ⚠"
+        say "⚠  WIRE CONTRACT BREAKING CHANGES vs main                            ⚠"
+        say "⚠  Allowed in this experiment — but make sure this is DELIBERATE.    ⚠"
+        say "⚠ ================================================================== ⚠"
+        say ""
+        say "$OUTPUT"
+        say ""
+        say "(informational only — pipeline NOT failed; buf exit was $EXIT)"
+        exit 0
+      '';
+      description = "INFORMATIONAL: show (never block on) proto wire-contract breaking changes vs main";
+    };
   };
 
   # Use prek as the git hooks engine (Rust rewrite, devenv 2.0 native)

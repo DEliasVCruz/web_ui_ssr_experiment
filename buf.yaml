@@ -7,3 +7,12 @@ lint:
   use:
     - STANDARD
     - COMMENTS
+breaking:
+  # FILE is buf's strictest breaking-change category: it flags anything that
+  # breaks a consumer relying on the generated code AND the on-the-wire layout
+  # (field number/type/name changes, removals, json_name shifts, etc.). We use
+  # it because the whole point of the informational `ci:proto-breaking` check is
+  # to make ANY contract drift visible — breaking changes are allowed in this
+  # experiment, they just have to be deliberate. See AGENTS.md.
+  use:
+    - FILE
