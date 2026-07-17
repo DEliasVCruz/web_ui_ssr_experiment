@@ -359,6 +359,21 @@ in
         WEB_PORT=$(pick_free_port)
         echo "==> Backend port: $BACKEND_PORT | web port: $WEB_PORT"
 
+        # ── Wide-event log capture (cross-service trace_id correlation) ────
+        # Both servers emit one wide-event JSON line per request to stdout;
+        # redirect each to its own file so the wide-events e2e spec can assert
+        # that an inbound trace_id flows through the SSR event into the backend
+        # event. MUST live outside services/web-ui-ssr/test-results: Playwright
+        # deletes its outputDir at suite start, which would unlink the live log
+        # files mid-run (the servers keep writing to the orphaned inodes and the
+        # spec reads an empty path). A per-run temp dir is wipe-proof and leak-free.
+        LOG_DIR="$(mktemp -d /tmp/wide-events-e2e.XXXXXX)"
+        SSR_LOG="$LOG_DIR/ssr-server.log"
+        BACKEND_LOG="$LOG_DIR/backend-server.log"
+        : > "$SSR_LOG"
+        : > "$BACKEND_LOG"
+        echo "==> Wide-event logs: SSR=$SSR_LOG | backend=$BACKEND_LOG"
+
         # ── Ephemeral Postgres (podman) on a free host port ───────────────
         # DATABASE_URL points the backend at this throwaway instance; Flyway
         # migrates it on startup. A per-run container name + --rm + a force-remove
@@ -421,7 +436,7 @@ in
         PORT=$BACKEND_PORT \
           DATABASE_URL="jdbc:postgresql://localhost:$PG_PORT/todos" \
           DATABASE_USERNAME=todos DATABASE_PASSWORD=todos \
-          java -jar services/business-logic-java/target/business-logic-java.jar &
+          java -jar services/business-logic-java/target/business-logic-java.jar > "$BACKEND_LOG" 2>&1 &
         BACKEND_PID=$!
 
         echo "==> Waiting for backend ListTodos to answer"
@@ -454,7 +469,7 @@ in
         PUBLIC_BUSINESS_LOGIC_URL="http://host.docker.internal:$BACKEND_PORT" bun run build
 
         echo "==> Starting prod server on :$WEB_PORT"
-        BUSINESS_LOGIC_URL="http://localhost:$BACKEND_PORT" PORT=$WEB_PORT bun run start &
+        BUSINESS_LOGIC_URL="http://localhost:$BACKEND_PORT" PORT=$WEB_PORT bun run start > "$SSR_LOG" 2>&1 &
         SERVER_PID=$!
 
         echo "==> Waiting for prod server"
@@ -479,6 +494,9 @@ in
         export E2E_BASE_URL="http://host.docker.internal:$WEB_PORT"
         export E2E_RAW_BASE_URL="http://localhost:$WEB_PORT"
         export E2E_BACKEND_URL="http://localhost:$BACKEND_PORT"
+        # Wide-event log files for the cross-service correlation spec.
+        export E2E_SSR_LOG="$SSR_LOG"
+        export E2E_BACKEND_LOG="$BACKEND_LOG"
 
         echo "==> Running Playwright E2E suite (CDP @ http://localhost:9222)"
         # Capture the suite's exit code without letting `set -e` abort before we

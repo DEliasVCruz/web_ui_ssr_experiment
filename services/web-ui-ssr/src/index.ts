@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import type { Rspack } from "@rsbuild/core";
 import type { Context } from "hono";
 import { Hono } from "hono";
+import { createWideEventMiddleware } from "./observability/request-logging";
+import { createWideEventLogger } from "./observability/wide-event-logger";
 import type { SsrContext } from "./router";
 
 const isDev = process.env.NODE_ENV === "development";
@@ -15,6 +17,12 @@ const port = Number(PORT) || DEFAULT_PORT;
 type RenderFn = (request: Request, ssrContext: SsrContext) => Promise<Response>;
 
 const app = new Hono();
+
+// Emit one wide event per request at the fetch boundary. `instrument` wraps a
+// fetch handler so both the prod (Bun.serve) and dev (node http) request paths
+// are instrumented coherently; the same handler runs inside per-request
+// AsyncLocalStorage so backend RPCs forward the trace context (see transport.ts).
+const instrument = createWideEventMiddleware(createWideEventLogger());
 
 let getRender: () => Promise<RenderFn>;
 let getSsrContext: () => SsrContext | Promise<SsrContext>;
@@ -67,7 +75,7 @@ if (isDev) {
 	// etc. The root path has no compiled HTML file (the root route generates the
 	// document), so route it directly to Hono's SSR handler. All other paths try
 	// Rsbuild first (static assets) and fall through to Hono for SSR on miss.
-	const honoListener = getRequestListener(app.fetch);
+	const honoListener = getRequestListener(instrument((request) => app.fetch(request)));
 	const server = createServer((req, res) => {
 		const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
 		if (pathname === "/" || pathname === "/index.html") {
@@ -100,7 +108,7 @@ if (isDev) {
 	// Use Bun.serve() explicitly — the `export default { port, fetch }`
 	// pattern doesn't survive rspack's async-module wrapping, so Bun
 	// can't detect it and the process exits immediately.
-	Bun.serve({ port, fetch: app.fetch });
+	Bun.serve({ port, fetch: instrument((request) => app.fetch(request)) });
 	// biome-ignore lint/suspicious/noConsole: startup log
 	console.log(`web-ui-ssr listening on http://localhost:${String(port)}`);
 }
