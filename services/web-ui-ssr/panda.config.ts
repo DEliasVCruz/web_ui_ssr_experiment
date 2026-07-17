@@ -12,6 +12,17 @@ export default defineConfig({
 	// `[...]` is additionally sealed by @pandacss/no-escape-hatch (eslint).
 	strictTokens: true,
 	strictPropertyValues: true,
+	// Optimistic-update pending state (a4a.3). Rows that reflect an in-flight
+	// mutation (an optimistic create not yet confirmed, or a toggle awaiting the
+	// server) set a plain `data-pending` DOM attribute; this condition lets styles
+	// reference it as `_pending` to dim the row and suppress interaction while the
+	// write is outstanding. Attribute-presence selector (value-agnostic): the row
+	// carries `data-pending` only while pending and drops it otherwise.
+	conditions: {
+		extend: {
+			pending: "&[data-pending]",
+		},
+	},
 	theme: {
 		extend: {
 			// Semantic color palette. Every value is the exact hex previously

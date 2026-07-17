@@ -23,6 +23,15 @@ export const item = css({
 	_last: {
 		borderBlockEnd: "none",
 	},
+	// Optimistic-update pending state (a4a.3): while a row reflects an unconfirmed
+	// mutation it carries `data-pending`, so it dims and stops accepting pointer
+	// input until the server settles (or an error rolls it back). opacity is a
+	// bare numeric (no token category → strictTokens-exempt, like the button
+	// recipe's `_disabled`); pointerEvents "none" is a strictPropertyValues keyword.
+	_pending: {
+		opacity: 0.6,
+		pointerEvents: "none",
+	},
 });
 
 export const titleText = css({

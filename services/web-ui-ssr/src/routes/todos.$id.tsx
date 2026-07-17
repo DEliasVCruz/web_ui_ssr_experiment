@@ -1,8 +1,6 @@
-import { createConnectQueryKey } from "@connectrpc/connect-query-core";
 import { createForm } from "@tanstack/solid-form";
 import { createMutation, createQuery } from "@tanstack/solid-query";
 import { createFileRoute, Link } from "@tanstack/solid-router";
-import { getTodo } from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService_connectquery";
 import { createSignal, Match, Show, Suspense, Switch } from "solid-js";
 import { Button } from "../components/ui/button";
 import { Field } from "../components/ui/field";
@@ -23,9 +21,14 @@ import {
 	title,
 	titleCompleted,
 } from "../pages/todo-detail.styles";
-import { todoQueryOptions, updateTodoMutation } from "../queries/todos";
+import {
+	type CachedTodo,
+	todoQueryKey,
+	todoQueryOptions,
+	updateTodoMutation,
+} from "../queries/todos";
 import { validateDetails } from "../validation/todo";
-import { viewTransitionName } from "../view-transition";
+import { viewTransitionName, withViewTransition } from "../view-transition";
 
 const MS_PER_SECOND = 1000;
 
@@ -56,22 +59,53 @@ function DetailsEditor(props: { id: string; initial: string | undefined; onDone:
 
 	const update = createMutation(() => ({
 		...updateTodoMutation(transport()),
-		onSuccess: (_data, vars) => {
-			toast.success("Details saved");
-			// Server stays source of truth: refetch this todo so the read view
-			// reflects the persisted value (optimistic updates are a4a.3, not here).
-			void queryClient().invalidateQueries({
-				queryKey: createConnectQueryKey({
-					schema: getTodo,
-					input: { id: vars.id },
-					transport: transport(),
-					cardinality: "finite",
-				}),
+		// Cache-snapshot rollback pattern (a4a.3, edit): snapshot → optimistic write
+		// → restore on error → invalidate on settle.
+		onMutate: async (vars) => {
+			const key = todoQueryKey(transport(), vars.id);
+			// Refetch race guard (field guide): cancel any in-flight GetTodo so a late
+			// response cannot clobber the optimistic detail write below.
+			await queryClient().cancelQueries({ queryKey: key });
+			const previous = queryClient().getQueryData<CachedTodo | null>(key);
+			// The optimistic write IS the DOM change (the details paragraph above the
+			// editor updates live) → wrap it (field guide #1). Spreading the cached
+			// todo into a CACHE write is safe; the presence hazard (an inherited
+			// details:"" silently clearing stored content) applies ONLY to REQUEST
+			// construction — and the request, built in onSubmit, still carries the
+			// edited `details` verbatim (field guide #2).
+			withViewTransition(() => {
+				queryClient().setQueryData<CachedTodo | null>(key, (old) =>
+					old ? { ...old, details: vars.details } : old,
+				);
+				return Promise.resolve();
 			});
+			return { previous, key };
+		},
+		onSuccess: () => {
+			toast.success("Details saved");
 			props.onDone();
 		},
-		onError: () => {
+		onError: (_err, _vars, context) => {
+			// Restore the pre-mutation snapshot — a second DOM change, so wrap it too;
+			// withViewTransition re-checks gating per call (field guide #1).
+			if (context?.previous !== undefined) {
+				withViewTransition(() => {
+					// Explicit generic: the connect-query key is typed to the RPC response
+					// (GetTodoResponse), but this cache actually stores the normalised
+					// CachedTodo | null the queryFn returns.
+					queryClient().setQueryData<CachedTodo | null>(context.key, context.previous);
+					return Promise.resolve();
+				});
+			}
 			toast.error("Failed to save details", "Please try again.");
+		},
+		onSettled: (_data, _err, vars) => {
+			// Server stays source of truth: refetch this todo so the persisted value
+			// lands. NOT wrapped — onMutate already applied the optimistic write, so
+			// old==new by settle time (field guide #1). Scope stays GetTodo-only:
+			// details are not shown in the list, so no list invalidation is warranted
+			// (field guide #5).
+			void queryClient().invalidateQueries({ queryKey: todoQueryKey(transport(), vars.id) });
 		},
 	}));
 
