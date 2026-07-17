@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
 	type BrowserWideEvent,
+	beginAction,
 	createTraceParentInterceptor,
 	currentAction,
+	endAction,
 	runAction,
 	setActionEventSink,
 } from "./browser-events";
@@ -138,5 +140,89 @@ describe("traceparent interceptor", () => {
 
 		expect(headers).toEqual([""]);
 		expect(events).toHaveLength(0);
+	});
+});
+
+// Review F1: overlapping actions may settle in ANY order, not just LIFO. A dead
+// (already-emitted) action must never become active again — otherwise every
+// later out-of-action RPC (e.g. the invalidation refetch after a mutation
+// settles) would be stamped with the dead action's trace.
+describe("non-LIFO (FIFO) overlap safety", () => {
+	test("A begins, B begins, A settles first: B stays active, then nothing is", async () => {
+		const headers: string[] = [];
+		const next = invokeInterceptor(capturingNext(headers));
+
+		const a = beginAction("navigate");
+		const b = beginAction("create_todo");
+
+		// FIFO: the earlier action settles first. B must remain the active action.
+		endAction(a);
+		expect(currentAction()).toBe(b.ctx);
+
+		// An RPC issued now belongs to B, not to the dead A.
+		await next({ header: new Headers() });
+		const during = parseTraceParent(headers[0]);
+		if (during === null) throw new Error(`malformed traceparent: ${String(headers[0])}`);
+		expect(during.traceId).toBe(b.ctx.traceId);
+		expect(during.traceId).not.toBe(a.ctx.traceId);
+
+		// B settles: the restore walk skips the dead A — nothing is active.
+		endAction(b);
+		expect(currentAction()).toBeUndefined();
+
+		// An out-of-action RPC (a background refetch) carries NO header.
+		await next({ header: new Headers() });
+		expect(headers[1]).toBe("");
+
+		// Both actions emitted exactly once.
+		const emittedActions = events.map((e) => e.action);
+		emittedActions.sort((x, y) => x.localeCompare(y));
+		expect(emittedActions).toEqual(["create_todo", "navigate"]);
+	});
+
+	test("mutation overlapping a navigation that settles first leaks nothing", async () => {
+		const headers: string[] = [];
+		const next = invokeInterceptor(capturingNext(headers));
+
+		// A navigation scope opens; a mutation begins while it is unresolved.
+		const nav = beginAction("navigate");
+		let release: (() => void) | undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const mutation = runAction("create_todo", async () => {
+			await next({ header: new Headers() });
+			await gate;
+		});
+
+		// The navigation resolves while the mutation is still in flight (FIFO).
+		endAction(nav);
+
+		// The mutation settles; its `previous` (the nav) is dead, so nothing
+		// becomes active — the post-settle invalidation refetch is unattributed.
+		if (release === undefined) throw new Error("gate not initialised");
+		release();
+		await mutation;
+		expect(currentAction()).toBeUndefined();
+
+		await next({ header: new Headers() });
+		expect(headers[1]).toBe("");
+
+		// The mutation's RPC was attributed to the mutation, not the navigation.
+		const mutationHeader = parseTraceParent(headers[0]);
+		if (mutationHeader === null) throw new Error(`malformed traceparent: ${String(headers[0])}`);
+		const mutationEvent = events.find((e) => e.action === "create_todo");
+		if (mutationEvent === undefined) throw new Error("no create_todo event");
+		expect(mutationHeader.traceId).toBe(mutationEvent.trace_id);
+	});
+
+	test("endAction is idempotent: a double close emits once and restores nothing stale", () => {
+		const nav = beginAction("navigate");
+		endAction(nav);
+		// Second close (e.g. supersede + onResolved/onRendered backstops in
+		// entry-client) is a no-op: no second event, no reactivation.
+		endAction(nav);
+		expect(events).toHaveLength(1);
+		expect(currentAction()).toBeUndefined();
 	});
 });

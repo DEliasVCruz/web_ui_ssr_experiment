@@ -317,6 +317,15 @@ class ConnectUnaryAdapterTest {
             assertTrue(
                     allowHeaders.contains(header.toLowerCase(Locale.ROOT)), "allow-headers should contain " + header);
         }
+
+        // Literal (non-self-referential) assertion: the loop above iterates
+        // ConnectCors.ALLOWED_HEADERS, so removing an entry from the constant
+        // would silently shrink the loop rather than fail. The browser client
+        // stamps a `traceparent` on every RPC (task iq2.4) and the preflight
+        // MUST advertise it, independent of what the constant happens to hold.
+        assertTrue(
+                allowHeaders.contains("traceparent"),
+                "allow-headers must contain traceparent (browser trace propagation, iq2.4)");
     }
 
     @Test

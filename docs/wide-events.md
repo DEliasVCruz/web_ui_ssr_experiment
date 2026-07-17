@@ -238,14 +238,28 @@ HTTP/RPC fields are dropped and action fields are added. `component` is always
 - **No AsyncLocalStorage in the browser.** The active action is a module-level
   reference; JS being single-threaded, the interceptor (which runs synchronously
   when a call is issued) always reads the correct action for any *synchronously
-  issued* RPC. Two *concurrent* top-level actions that interleave their awaits
-  are attributed last-writer-wins — not hit in practice (the app's actions are
-  effectively serial: a click's single RPC is issued synchronously, and
-  navigations supersede one another).
+  issued* RPC. While two actions actually *overlap*, an RPC is attributed to the
+  most recently begun action still active at the instant it is issued.
+- **Overlap completion is order-safe (FIFO-safe).** Overlapping actions may
+  settle in ANY order (A begins, B begins, A settles first — reachable via
+  mutation-during-navigation). `endAction` marks a context *ended*, restores
+  activation only when the ending context is itself the active one, and walks
+  the `previous` chain past ended contexts — so a dead, already-emitted action
+  can never become active again, and once all overlapping actions settle no
+  action is active. `endAction` is also idempotent (a scope closed twice emits
+  once), which is what makes the navigation scope's redundant close paths safe.
 - **Background refetches are unattributed.** An RPC issued outside any action
   (e.g. a TanStack Query settle-refetch that fires after the mutation resolves)
   carries no `traceparent`; the backend simply starts a fresh trace. This is
-  correct — such refetches are not user actions.
+  correct — such refetches are not user actions — and it holds in the overlap
+  case too (guaranteed by the FIFO-safety above).
+- **Navigation error path.** This router version's `RouterEvents` has no error
+  event. The navigate scope is closed on every terminal signal available:
+  supersede (a new navigation closes the previous scope), `onResolved` — which
+  the Solid Transitioner emits purely off the router's pending→idle flip, NOT
+  off load success, so it also fires when a navigation's loader errors — and an
+  `onRendered` backstop (harmless double-close thanks to idempotent
+  `endAction`).
 
 ### Later shipping path (design note, not implemented)
 

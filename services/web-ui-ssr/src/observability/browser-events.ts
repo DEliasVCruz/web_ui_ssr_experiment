@@ -70,23 +70,36 @@ interface ActionContext {
 	rpcCount: number;
 	rpcFailures: number;
 	error: BrowserWideEventError | null;
+	/**
+	 * Set by {@link endAction}. An ended context is dead: it is never restored as
+	 * the active action (the restore walk skips it), and ending it again is a
+	 * no-op — which makes `endAction` idempotent and FIFO-overlap safe.
+	 */
+	ended: boolean;
+	/** The action that was active when this one began (the restore chain). */
+	readonly previous: ActionContext | undefined;
 }
 
 // The single active action. JS is single-threaded, so the transport interceptor
 // (which runs synchronously when a call is issued) reads exactly the action
-// under which the call was made. `runAction`/`beginAction` save-and-restore the
-// previous value so an action nested inside another (e.g. a mutation fired while
-// a navigation's loaders are in flight) restores its parent on completion.
+// under which the call was made.
 //
-// Pragmatic boundary (documented in docs/wide-events.md): two *concurrent*
-// top-level actions that interleave their awaits are attributed last-writer-wins.
-// The app's actions are effectively serial (a click's single RPC is issued
-// synchronously; navigations supersede one another), so this is not hit in
-// practice, and correctness of the header for any *synchronously issued* RPC is
-// unaffected regardless.
+// Overlap safety (reviewed, F1): actions may complete in ANY order, not just
+// LIFO. Each context records the `previous` action active when it began, and
+// `endAction` (a) marks the context `ended`, (b) restores activation ONLY when
+// the ending context is itself the active one, and (c) walks the `previous`
+// chain past already-ended contexts. So in the FIFO case (A begins, B begins,
+// A settles first) ending A leaves B active, and ending B restores `undefined`
+// — a dead, already-emitted action can never become active again, and RPCs
+// issued outside any action stay honestly unattributed (no traceparent).
+//
+// Remaining pragmatic boundary (documented in docs/wide-events.md): while two
+// actions actually OVERLAP, an RPC is attributed to the most recently begun
+// action still active at the instant it is issued. Attribution of any
+// synchronously issued RPC is exact regardless.
 let activeAction: ActionContext | undefined;
 
-function createActionContext(name: string): ActionContext {
+function createActionContext(name: string, previous: ActionContext | undefined): ActionContext {
 	return {
 		traceId: mintTraceId(),
 		spanId: mintSpanId(),
@@ -96,6 +109,8 @@ function createActionContext(name: string): ActionContext {
 		rpcCount: 0,
 		rpcFailures: 0,
 		error: null,
+		ended: false,
+		previous,
 	};
 }
 
@@ -166,7 +181,6 @@ export function currentAction(): ActionContext | undefined {
 /** A begun action's restore token, closed out by {@link endAction}. */
 export interface ActionHandle {
 	readonly ctx: ActionContext;
-	readonly previous: ActionContext | undefined;
 }
 
 /**
@@ -176,19 +190,38 @@ export interface ActionHandle {
  * where the action is a single async function.
  */
 export function beginAction(name: string): ActionHandle {
-	const previous = activeAction;
-	const ctx = createActionContext(name);
+	const ctx = createActionContext(name, activeAction);
 	activeAction = ctx;
-	return { ctx, previous };
+	return { ctx };
 }
 
-/** Closes an action opened by {@link beginAction}, emitting its wide event. */
+/**
+ * Closes an action opened by {@link beginAction}, emitting its wide event.
+ * Idempotent: a second close of the same handle is a no-op (no double emit), so
+ * redundant close paths (e.g. a navigation closed by both supersede and the
+ * resolve/render subscriptions) are safe.
+ *
+ * FIFO-overlap safe (review F1): activation is restored ONLY if this context is
+ * the currently active one, and the restore walks the `previous` chain past
+ * already-ended contexts — a dead action can never become active again.
+ */
 export function endAction(handle: ActionHandle, error?: unknown): void {
-	if (error !== undefined) {
-		handle.ctx.error = toBrowserError(error);
+	const ctx = handle.ctx;
+	if (ctx.ended) {
+		return;
 	}
-	activeAction = handle.previous;
-	emit(handle.ctx);
+	if (error !== undefined) {
+		ctx.error = toBrowserError(error);
+	}
+	ctx.ended = true;
+	if (activeAction === ctx) {
+		let next = ctx.previous;
+		while (next !== undefined && next.ended) {
+			next = next.previous;
+		}
+		activeAction = next;
+	}
+	emit(ctx);
 }
 
 /**
