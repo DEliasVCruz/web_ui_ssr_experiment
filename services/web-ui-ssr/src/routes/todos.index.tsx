@@ -53,6 +53,16 @@ function nextTempId(): string {
 	return `temp-${String(tempIdCounter)}`;
 }
 
+/**
+ * True for the client-minted optimistic-create placeholder ids above. Server ids
+ * are UUIDv7, so the `temp-` prefix can never collide with a real id. Rows with
+ * a temp id render pending (dimmed, non-interactive) until the settle refetch
+ * atomically swaps the cached list for the server's (temp row → real row).
+ */
+function isTempId(id: string): boolean {
+	return id.startsWith("temp-");
+}
+
 function AddTodoForm() {
 	// transport/queryClient come from the TanStack router context (which crosses
 	// the code-split/streaming boundary), not Solid context — see __root.tsx.
@@ -61,41 +71,64 @@ function AddTodoForm() {
 
 	const create = createMutation(() => ({
 		...createTodoMutation(transport()),
-		// Mutation-state pattern (a4a.3): keyed so TodoList can read every in-flight
-		// create back via useMutationState and render each as a pending row before
-		// the server confirms — no cache write here.
-		mutationKey: ["createTodo"],
-		onMutate: () => {
-			// A client temp id gives the pending row a stable key AND a stable
-			// view-transition-name for its whole pending lifetime. UUIDv7 ids are
-			// server-generated, so this `temp-` placeholder never collides with a real
-			// one. Reconciliation strategy: rely on the settle invalidation — on
-			// success the real server row (real id → a NEW view-transition-name)
-			// replaces this pending row, so that one row cross-fades rather than
-			// morphs. Acceptable: a just-created row has no prior on-screen identity
-			// to preserve, and swapping ids in place would mean a bespoke cache write
-			// we deliberately avoid for the mutation-state path (field guide #4).
-			return { tempId: nextTempId() };
+		// Cache-write optimistic CREATE (a4a.3 fix pass, review F1/F3). The earlier
+		// mutation-state approach had two empirically proven de-optimizing windows:
+		// the pending row vanished for the settle-refetch RTT when the mutation
+		// flipped to success (F1), and a refetch landing while a post-commit create
+		// was still pending could show the row twice (F3). Writing a temp row into
+		// the LIST cache at onMutate dissolves both: the cache is the single source
+		// of truth from click to reconciliation, and a landing refetch atomically
+		// replaces the whole cached array — temp row → real row in one write, so
+		// the row can neither vanish nor duplicate.
+		onMutate: async (title) => {
+			const listKey = listTodosQueryKey(transport());
+			// Refetch race guard: cancel any in-flight list fetch so a late stale
+			// response cannot clobber the temp row below.
+			await queryClient().cancelQueries({ queryKey: listKey });
+			const previous = queryClient().getQueryData<CachedTodo[]>(listKey);
+			// The temp id (see nextTempId) is the row key AND its view-transition-name
+			// for the whole pending lifetime; the real server row gets a NEW name after
+			// reconciliation, so that one row swaps rather than morphs — acceptable, a
+			// just-created row has no prior on-screen identity to preserve.
+			const tempId = nextTempId();
+			// The optimistic append IS the DOM change → VT-wrapped at the write moment
+			// (field guide #1). The update is synchronous (resolved promise), so the
+			// transition NEVER spans a network await and input is not suppressed
+			// beyond the capture itself.
+			withViewTransition(() => {
+				queryClient().setQueryData<CachedTodo[]>(listKey, (old) => [
+					...(old ?? []),
+					{ $typeName: "todo.v1.Todo", id: tempId, title, completed: false },
+				]);
+				return Promise.resolve();
+			});
+			return { previous, listKey };
 		},
 		onSuccess: () => {
 			// Clear the form on success (was a manual setTitle(""); now form.reset()).
 			form.reset();
 			toast.success("Todo added");
 		},
-		onError: () => {
+		onError: (_err, _title, context) => {
+			// Restore the pre-mutation snapshot — a second DOM change, so wrap it too
+			// (the temp row exit-animates); withViewTransition re-checks gating per call.
+			if (context?.previous !== undefined) {
+				withViewTransition(() => {
+					queryClient().setQueryData<CachedTodo[]>(context.listKey, context.previous);
+					return Promise.resolve();
+				});
+			}
 			toast.error("Failed to add todo", "Please try again.");
 		},
-		onSettled: () => {
-			// Server stays source of truth: refetch so the pending row is replaced by
-			// the confirmed row (success) or simply drops with the failed mutation
-			// (error). Wrapped in a view transition because, unlike the edit/delete
-			// cache-write path, onMutate did NOT touch the cache — so THIS invalidation
-			// is the meaningful DOM change (new row in / pending row out), not a
-			// redundant post-success no-op (field guide #1).
-			withViewTransition(() =>
-				queryClient().invalidateQueries({ queryKey: listTodosQueryKey(transport()) }),
-			);
-		},
+		// Server stays source of truth. RETURN the invalidation promise (TanStack's
+		// keep-pending-until-refetch pattern): query-core awaits it before
+		// dispatching the terminal state, so "settled" means the fresh list has
+		// actually landed. The temp row's persistence does not depend on mutation
+		// status (it lives in the cache), but the returned promise pins the row's
+		// pending styling to real reconciliation. NOT VT-wrapped: onMutate already
+		// applied the row, the temp→real swap renders near-identical content, and a
+		// transition here would suppress input across a network await (review F1).
+		onSettled: () => queryClient().invalidateQueries({ queryKey: listTodosQueryKey(transport()) }),
 	}));
 
 	// Form state now lives in @tanstack/solid-form (no createSignal for the title).
@@ -224,25 +257,14 @@ function TodoList() {
 	const queryClient = Route.useRouteContext({ select: (c) => c.queryClient });
 	const query = createQuery(() => todosQueryOptions(transport()));
 
-	// Mutation-state pattern (create): every in-flight CreateTodo surfaced as a
-	// pending row. `variables` is the submitted title; `context.tempId` is the
-	// stable temp id minted in onMutate (row key + view-transition-name). Filtered
-	// to status "pending", so a row exists exactly while the create is outstanding
-	// — it drops on success (replaced by the invalidation refetch's real row) or on
-	// error (nothing to undo; it was never written to the cache).
-	const pendingCreates = useMutationState(() => ({
-		filters: { mutationKey: ["createTodo"], status: "pending" as const },
-		select: (m) => ({
-			tempId: (m.state.context as { tempId?: string } | undefined)?.tempId,
-			title: m.state.variables as string,
-		}),
-	}));
-
 	// Mutation-state pattern (toggle): in-flight TOGGLE variables, so each row can
-	// reflect its target completed state immediately while the server confirms,
-	// then fall back to the cached truth once the mutation settles. Rollback on
-	// failure is implicit — the reflection only exists while the mutation is
-	// pending, so a rejected toggle simply reverts, no snapshot needed.
+	// reflect its target completed state immediately while the server confirms.
+	// Rollback on failure is implicit — the reflection only exists while the
+	// mutation is unsettled, so a rejected toggle simply reverts, no snapshot
+	// needed. Filtered to status "pending": because onSuccess below RETURNS the
+	// invalidation promises, query-core keeps the mutation pending until the
+	// refetched truth is in the cache, so this reflection persists exactly until
+	// the cache agrees with it (review F2 — no bounce-back window).
 	const pendingToggles = useMutationState(() => ({
 		filters: { mutationKey: ["toggleTodo"], status: "pending" as const },
 		select: (m) => m.state.variables as { id: string; completed?: boolean },
@@ -256,13 +278,19 @@ function TodoList() {
 		mutationKey: ["toggleTodo"],
 		// No success toast on toggle: toggling is frequent and a confirmation
 		// toast each time is noise. Failures still surface (onError below).
-		onSuccess: (_data, vars) => {
-			// No optimistic cache write (mutation-state pattern) — invalidate on
-			// success so the server value lands in both the list and this todo's
-			// detail view.
-			void queryClient().invalidateQueries({ queryKey: listTodosQueryKey(transport()) });
-			void queryClient().invalidateQueries({ queryKey: todoQueryKey(transport(), vars.id) });
-		},
+		//
+		// RETURNING the invalidation promises is what makes this bounce-free
+		// (review F2): query-core awaits onSuccess before flipping the mutation to
+		// success, so the pending reflection above outlives the refetch — the
+		// checkbox never falls back to stale cache for the RTT, and it stays
+		// disabled until the server truth has landed (no second click mutating
+		// from stale state). The GetTodo invalidation resolves immediately when
+		// that query is inactive (detail page unmounted) and refetches otherwise.
+		onSuccess: (_data, vars) =>
+			Promise.all([
+				queryClient().invalidateQueries({ queryKey: listTodosQueryKey(transport()) }),
+				queryClient().invalidateQueries({ queryKey: todoQueryKey(transport(), vars.id) }),
+			]),
 		onError: () => {
 			toast.error("Failed to update todo", "Please try again.");
 		},
@@ -305,34 +333,35 @@ function TodoList() {
 			}
 			toast.error("Failed to delete todo", "Please try again.");
 		},
-		onSettled: () => {
-			// Server stays source of truth. NOT wrapped: onMutate already applied the
-			// removal, so by settle time old==new and a transition would only waste a
-			// snapshot capture (field guide #1).
-			void queryClient().invalidateQueries({ queryKey: listTodosQueryKey(transport()) });
-		},
+		// Server stays source of truth. RETURNED (keep-pending-until-refetch, review
+		// F1 pattern) so "settled" means the refreshed list actually landed. NOT
+		// VT-wrapped: onMutate already applied the removal, so by settle time
+		// old==new and a transition would only waste a snapshot capture and
+		// suppress input across a network await (field guide #1).
+		onSettled: () => queryClient().invalidateQueries({ queryKey: listTodosQueryKey(transport()) }),
 	}));
-
-	const hasContent = () => (query.data?.length ?? 0) > 0 || pendingCreates().length > 0;
 
 	return (
 		<Show when={!query.error} fallback={<p class={emptyState}>Failed to load todos.</p>}>
-			<Show when={hasContent()} fallback={<p class={emptyState}>No todos yet.</p>}>
+			<Show when={query.data?.length} fallback={<p class={emptyState}>No todos yet.</p>}>
 				<ul class={list}>
 					<For each={query.data}>
 						{(todo) => {
 							// Optimistic toggle reflection: while a toggle for this row is
-							// in-flight, show its target completed state; otherwise the cached
-							// value. The same signal drives the pending dim/disable styling.
+							// unsettled, show its target completed state; otherwise the cached
+							// value. A row is pending while a toggle for it is outstanding OR
+							// while it is an optimistic (temp-id) create awaiting the settle
+							// refetch — both drive the dim/disable styling below.
 							const pendingToggle = () => pendingToggleFor(todo.id);
+							const pending = () => Boolean(pendingToggle()) || isTempId(todo.id);
 							const completed = () => pendingToggle()?.completed ?? todo.completed;
 							return (
 								<li
 									class={item}
 									// `data-pending` (attribute presence) drives Panda's `_pending`
-									// condition — dim + pointerEvents:none while the toggle is
-									// outstanding.
-									data-pending={pendingToggle() ? "true" : undefined}
+									// condition — dim + pointerEvents:none while the row reflects
+									// an unconfirmed mutation.
+									data-pending={pending() ? "true" : undefined}
 									// Plain DOM style (outside Panda's scope, so strictTokens does
 									// not apply): a stable per-todo view-transition-name makes each
 									// row its own transition group, so add/remove animate and
@@ -348,19 +377,32 @@ function TodoList() {
 										onCheckedChange={(details) => {
 											update.mutate({ id: todo.id, completed: details.checked === true });
 										}}
-										disabled={Boolean(pendingToggle())}
+										disabled={pending()}
 									/>
-									<Link
-										to="/todos/$id"
-										params={{ id: todo.id }}
-										class={completed() ? titleCompleted : titleText}
+									{/* A temp row has no server id to link to (the detail route
+									    would 404), so it renders a plain span until reconciled;
+									    pointerEvents:none already blocks clicks, this also keeps
+									    keyboard focus honest. */}
+									<Show
+										when={!isTempId(todo.id)}
+										fallback={
+											<span class={completed() ? titleCompleted : titleText}>{todo.title}</span>
+										}
 									>
-										{todo.title}
-									</Link>
+										<Link
+											to="/todos/$id"
+											params={{ id: todo.id }}
+											class={completed() ? titleCompleted : titleText}
+										>
+											{todo.title}
+										</Link>
+									</Show>
 									<span class={timestamp}>{formatDate(todo.createdAt)}</span>
 									<DeleteTodoDialog
 										title={todo.title}
-										pending={remove.isPending && remove.variables === todo.id}
+										pending={
+											(remove.isPending && remove.variables === todo.id) || isTempId(todo.id)
+										}
 										onConfirm={() => {
 											remove.mutate(todo.id);
 										}}
@@ -368,23 +410,6 @@ function TodoList() {
 								</li>
 							);
 						}}
-					</For>
-					{/* Mutation-state pattern (create): pending rows for in-flight creates.
-					    Rendered after the confirmed rows; each is dimmed (data-pending) and
-					    non-interactive, and carries a temp view-transition-name so it is its
-					    own transition group. Replaced by the real row on settle. */}
-					<For each={pendingCreates()}>
-						{(pending) => (
-							<li
-								class={item}
-								data-pending="true"
-								style={{ "view-transition-name": viewTransitionName(pending.tempId ?? "pending") }}
-							>
-								<Checkbox checked={false} disabled aria-label={pending.title} />
-								<span class={titleText}>{pending.title}</span>
-								<span class={timestamp} />
-							</li>
-						)}
 					</For>
 				</ul>
 			</Show>

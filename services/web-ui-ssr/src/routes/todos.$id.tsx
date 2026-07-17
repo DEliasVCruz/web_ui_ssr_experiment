@@ -99,14 +99,15 @@ function DetailsEditor(props: { id: string; initial: string | undefined; onDone:
 			}
 			toast.error("Failed to save details", "Please try again.");
 		},
-		onSettled: (_data, _err, vars) => {
-			// Server stays source of truth: refetch this todo so the persisted value
-			// lands. NOT wrapped — onMutate already applied the optimistic write, so
-			// old==new by settle time (field guide #1). Scope stays GetTodo-only:
-			// details are not shown in the list, so no list invalidation is warranted
-			// (field guide #5).
-			void queryClient().invalidateQueries({ queryKey: todoQueryKey(transport(), vars.id) });
-		},
+		// Server stays source of truth: refetch this todo so the persisted value
+		// lands. RETURNED (keep-pending-until-refetch) so "settled" means the fresh
+		// value actually landed. NOT VT-wrapped — onMutate already applied the
+		// optimistic write, so old==new by settle time, and a transition here would
+		// suppress input across a network await (field guide #1). Scope stays
+		// GetTodo-only: details are not shown in the list, so no list invalidation
+		// is warranted (field guide #5).
+		onSettled: (_data, _err, vars) =>
+			queryClient().invalidateQueries({ queryKey: todoQueryKey(transport(), vars.id) }),
 	}));
 
 	const form = createForm(() => ({
