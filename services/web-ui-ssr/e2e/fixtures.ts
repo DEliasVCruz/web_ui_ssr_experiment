@@ -65,6 +65,11 @@ export interface BackendTodo {
 	id: string;
 	title: string;
 	completed?: boolean;
+	// Present only when the todo carries details. Over Connect JSON an unset
+	// (never-set / NULL) details field is omitted from the response entirely,
+	// while a set value — including the empty string that a clear writes — is
+	// serialised. So `undefined` here means "no details field on the wire".
+	details?: string;
 }
 
 /** Lists todos straight from the business-logic backend (Connect RPC over JSON). */
@@ -76,6 +81,47 @@ export async function listBackendTodos(): Promise<BackendTodo[]> {
 	});
 	const json = (await res.json()) as { todos?: BackendTodo[] };
 	return json.todos ?? [];
+}
+
+/**
+ * Creates a todo straight on the backend (Connect RPC over JSON), optionally with
+ * details. Lets a spec seed exact state (e.g. a todo that already has details)
+ * without driving the create UI. Over JSON, omitting `details` leaves it unset;
+ * passing a string (including "") sets it.
+ */
+export async function createBackendTodo(title: string, details?: string): Promise<BackendTodo> {
+	const body: { title: string; details?: string } = { title };
+	if (details !== undefined) body.details = details;
+	const res = await fetch(`${BACKEND_URL}/todo.v1.TodoService/CreateTodo`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body),
+	});
+	expect(res.status).toBe(HTTP_OK);
+	const json = (await res.json()) as { todo: BackendTodo };
+	return json.todo;
+}
+
+/** Fetches a single todo from the backend by id (Connect RPC over JSON). */
+export async function getBackendTodo(id: string): Promise<BackendTodo> {
+	const res = await fetch(`${BACKEND_URL}/todo.v1.TodoService/GetTodo`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ id }),
+	});
+	expect(res.status).toBe(HTTP_OK);
+	const json = (await res.json()) as { todo: BackendTodo };
+	return json.todo;
+}
+
+/** Deletes a todo on the backend by id, so a spec can self-clean its fixtures. */
+export async function deleteBackendTodo(id: string): Promise<void> {
+	const res = await fetch(`${BACKEND_URL}/todo.v1.TodoService/DeleteTodo`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ id }),
+	});
+	expect(res.status).toBe(HTTP_OK);
 }
 
 /**
