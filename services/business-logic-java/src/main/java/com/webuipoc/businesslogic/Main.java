@@ -35,6 +35,24 @@ public final class Main {
     private Main() {}
 
     public static void main(String[] args) {
+        WebServer server = start();
+        System.out.println("business-logic-java listening on http://localhost:" + server.port());
+    }
+
+    /**
+     * Boots the full service: builds the compile-time DI graph (which runs the
+     * Flyway migrations in the {@code TodoDb} constructor) and starts the Helidon
+     * {@code WebServer} on the configured port, returning the started server.
+     *
+     * <p>Package-private composition seam for the integration tests: they set the
+     * public env-var contract ({@code PORT=0}, {@code DATABASE_URL} etc.) as
+     * system properties pointing at a Testcontainers Postgres and then boot the
+     * <em>real</em> service through this method — no test-only wiring, the exact
+     * path {@link #main} takes. The {@code shutdownHook(true)} scope closes the
+     * bean graph (and the HikariCP pool) on JVM exit, so callers keep only the
+     * {@code WebServer} handle (to read its ephemeral port and to {@code stop()} it).
+     */
+    static WebServer start() {
         // Compile-time DI graph; building it runs Flyway migrations (TodoDb ctor).
         // shutdownHook(true) closes the scope (and the HikariCP pool) on JVM shutdown.
         BeanScope scope = BeanScope.builder().shutdownHook(true).build();
@@ -44,12 +62,11 @@ public final class Main {
         // fed explicitly into the Helidon WebServer builder. Helidon SE never
         // reads avaje-config directly — this is the only crossing point.
         ServiceConfig config = scope.get(ServiceConfig.class);
-        WebServer server = WebServer.builder()
+        return WebServer.builder()
                 .port(config.serverPort())
                 .routing(routing -> routing(routing, bridge))
                 .build()
                 .start();
-        System.out.println("business-logic-java listening on http://localhost:" + server.port());
     }
 
     /** The production routing: Connect adapter over {@code todoService} + {@code GET /health}. */
