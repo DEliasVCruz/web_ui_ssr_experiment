@@ -113,3 +113,36 @@ The TS service must emit the identical key set, types, snake_case naming, and
 nullability so the two services' logs are queryable as one stream. Emit
 `component: "business-logic"` (or the TS service's name) and reuse the same
 `traceparent` resolution semantics.
+
+Implemented in `services/web-ui-ssr/src/observability/` (task iq2.3), wired at
+the server's fetch boundary in `src/index.ts` (both the prod `Bun.serve` path
+and the dev node-http path):
+
+- **Stack**: LogLayer (`loglayer`) over `@loglayer/transport-pino` over `pino`,
+  using pino's default **synchronous stdout** destination — no pino transports
+  (the worker-thread transport path breaks under Bun bundling). A thin
+  `PinoTransport` subclass omits LogLayer's empty message so each line is a
+  bare schema object. One divergence from the Java lines: pino's mandatory
+  leading `"level":30` field (removing both `level` and `time` trips a pino
+  fast-path bug that emits malformed JSON). It does not affect correlation.
+- **Emission point**: the event is emitted when the **response stream
+  finishes** (an identity `TransformStream`'s `flush`), not when the handler
+  returns, so `duration_ms` covers the whole streamed render; response bytes
+  are untouched. A request whose handler throws emits with `status: 500` and
+  the projected `error`.
+- **Trace context**: same strict `traceparent` parser as the Java side
+  (`trace-context.ts`); ids minted with `crypto.getRandomValues`. The context
+  rides per-request `AsyncLocalStorage`, and a connect-es interceptor on the
+  SSR transport forwards the child `traceparent` (this hop's span as
+  parent-id) on every backend RPC — that is what makes the SSR and Java events
+  share a `trace_id`, with the backend's `parent_span_id` = the SSR `span_id`.
+- **`connect_code` / `rpc_method`**: always `null` on the SSR side (it serves
+  HTML routes, not Connect RPCs); the key set stays identical.
+- **Stack cap**: `error.stack` is capped to **20 frames and 8KB** (with
+  truncation markers). Rationale: container log drivers chunk one stdout write
+  at ~16KB and each chunk becomes its own log record, which would shred the
+  JSON line — the Java side's known caveat, closed here by construction.
+- **Redaction**: pino `redact` censors `attributes.authorization` /
+  `attributes.cookie` / `attributes.password` / `attributes.token`. The
+  current schema carries no sensitive values; the paths are a forward-looking
+  guard for anything future code adds to `attributes`.
