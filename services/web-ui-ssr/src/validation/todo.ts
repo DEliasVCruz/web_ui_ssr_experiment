@@ -1,5 +1,8 @@
 import { jsonSchemaToType } from "@ark/json-schema";
-import { createTodoRequestSchema } from "@web-ui-poc/rpc/gen/jsonschema/schemas";
+import {
+	createTodoRequestSchema,
+	updateTodoRequestSchema,
+} from "@web-ui-poc/rpc/gen/jsonschema/schemas";
 import { type } from "arktype";
 
 // The title field's JSON Schema, derived from the proto's buf.validate rules
@@ -46,6 +49,39 @@ export function validateTitle(value: string): string | undefined {
 		return value.length > MAX_TITLE_LENGTH
 			? `Title must be at most ${String(MAX_TITLE_LENGTH)} characters`
 			: `Title must be at least ${String(MIN_TITLE_LENGTH)} characters`;
+	}
+	return undefined;
+}
+
+// The details field's JSON Schema, from the UpdateTodoRequest proto (the edit
+// form issues an UpdateTodo). Unlike title, details carries a maxLength (1000)
+// but NO minLength — the empty string is legal and is the deliberate "clear"
+// value (explicit presence: an omitted field keeps stored details, a set `""`
+// clears them). As with title, the bound is a literal type off the generated
+// `as const` module, so a proto max_len change flows through regeneration and
+// breaks any test asserting the old number.
+const detailsSchema = updateTodoRequestSchema.properties.details;
+
+/** Max details length, straight from the proto constraint (currently 1000). */
+export const MAX_DETAILS_LENGTH = detailsSchema.maxLength;
+
+/**
+ * The proto-derived length validator for details: an arktype Type built from the
+ * generated JSON Schema. Single source of truth for the upper bound (see
+ * todo.test.ts). Constructed at module scope — pure, SSR/hydration safe.
+ */
+export const detailsBounds = jsonSchemaToType(detailsSchema);
+
+/**
+ * Validates raw details text for the edit form. Details have no lower bound, so
+ * the empty string is always valid (it is the clear mechanism); only the proto's
+ * maxLength can fail. Returns the message string on failure, or `undefined` when
+ * valid — the shape @tanstack/solid-form's field validators expect.
+ */
+export function validateDetails(value: string): string | undefined {
+	const result = detailsBounds(value);
+	if (result instanceof type.errors) {
+		return `Details must be at most ${String(MAX_DETAILS_LENGTH)} characters`;
 	}
 	return undefined;
 }
