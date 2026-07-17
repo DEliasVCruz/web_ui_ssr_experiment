@@ -44,3 +44,4 @@ data/
 services/**/.classpath
 services/**/.project
 services/**/.settings/
+/target/
