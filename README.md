@@ -43,7 +43,7 @@ bun run build
 ### business-logic-java
 - Runtime: JVM (JDK 25)
 - Framework: Helidon SE (+ in-repo Connect-unary adapter)
-- Purpose: Backend stub with SQLite, serving the same Connect RPC contract
+- Purpose: Backend stub with PostgreSQL, serving the same Connect RPC contract
   the connect-es clients speak (see `services/business-logic-java/README.md`)
 
 ## Development

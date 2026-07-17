@@ -4,13 +4,29 @@ The backend service: Java (Helidon SE) port of the retired Bun/TS
 `services/business-logic` service (Connect protocol), with full behavioral
 parity.
 
-`Main` serves `todo.v1.TodoService` (SQLite-backed, `com.webuipoc.businesslogic.todo`)
-over the service-agnostic Connect-unary HTTP adapter — a shared reactor module
-(`packages/java/connect-unary-adapter`, package `com.webuipoc.connect`, see
-below) — plus `GET /health`. One
-`TodoDb` (one SQLite connection) per process — two connections on the same
-WAL-mode file risk `SQLITE_BUSY`. Env: `PORT` (default 3001) and
-`DATABASE_PATH` (default `./data/todos.db`).
+`Main` serves `todo.v1.TodoService` (PostgreSQL-backed,
+`com.webuipoc.businesslogic.todo`) over the service-agnostic Connect-unary HTTP
+adapter — a shared reactor module (`packages/java/connect-unary-adapter`, package
+`com.webuipoc.connect`, see below) — plus `GET /health`. Persistence is a
+HikariCP-pooled pgjdbc connection; `TodoDb` runs the Flyway migrations
+(`src/main/resources/db/migration`, V1 baseline `todos` table) on startup before
+the server binds.
+
+Env contract (avaje-config `application.yaml`):
+
+| Env var | Config key | Default |
+| --- | --- | --- |
+| `PORT` | `server.port` | `3001` |
+| `DATABASE_URL` | `db.url` | `jdbc:postgresql://localhost:5432/todos` |
+| `DATABASE_USERNAME` | `db.username` | `todos` |
+| `DATABASE_PASSWORD` | `db.password` | _(empty; env-only secret)_ |
+| `DB_POOL_MAX_SIZE` | `db.pool.max-size` | `16` |
+| `DB_POOL_MIN_IDLE` | `db.pool.min-idle` | `4` |
+
+The `docker` profile (`application-docker.yaml`, `CONFIG_PROFILES=docker`) shifts
+the default `db.url` host to the compose-network `postgres` service. pgjdbc
+tuning (`prepareThreshold=1`, statement-cache) is applied in `AppFactory` as
+datasource properties, so a bare operator-supplied `DATABASE_URL` cannot drop it.
 
 ## Toolchain (provided by devenv)
 
@@ -67,7 +83,10 @@ jar — so the jar must stay next to its `libs/` directory):
 
 ```sh
 mvn -q -f pom.xml -DskipTests package
-PORT=3001 DATABASE_PATH=./data/todos.db \
+# Needs a reachable Postgres (see docker-compose.yml `postgres` service);
+# Flyway migrates it on startup.
+PORT=3001 DATABASE_URL=jdbc:postgresql://localhost:5432/todos \
+    DATABASE_USERNAME=todos DATABASE_PASSWORD=todos \
     java -jar services/business-logic-java/target/business-logic-java.jar
 ```
 
@@ -105,8 +124,9 @@ curl -X POST http://localhost:3001/todo.v1.TodoService/CreateTodo \
    `connect-unary-adapter` before this service. The build is self-contained:
    host-generated `generated-sources/` and `target/` are excluded by the root
    `.dockerignore`, so the image never depends on gitignored host state.
-2. **runtime** (`eclipse-temurin:25-jre`): jar + `libs/`, `ENV PORT=3001`;
-   set `DATABASE_PATH` to put the SQLite file on a volume.
+2. **runtime** (`eclipse-temurin:25-jre`): jar + `libs/`, `ENV PORT=3001`,
+   `ENV CONFIG_PROFILES=docker`; set `DATABASE_URL` / `DATABASE_USERNAME` /
+   `DATABASE_PASSWORD` to point at the Postgres service (compose does this).
 
 ```sh
 docker build -f services/business-logic-java/Dockerfile .

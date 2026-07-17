@@ -301,10 +301,11 @@ in
     };
     "ci:e2e" = {
       # FULLY self-contained end-to-end Playwright run for web-ui-ssr: on a clean
-      # machine with NOTHING pre-running, this task starts its OWN business-logic
-      # backend against a fresh ephemeral seeded SQLite DB, builds + starts the
-      # web-ui-ssr prod server, runs the whole suite, and tears EVERYTHING down
-      # (backend + web server + temp DB dir), even on failure.
+      # machine with NOTHING pre-running, this task starts its OWN ephemeral
+      # Postgres (podman) + business-logic backend (Flyway migrates on boot),
+      # seeds it, builds + starts the web-ui-ssr prod server, runs the whole
+      # suite, and tears EVERYTHING down (backend + web server + Postgres
+      # container), even on failure.
       #
       # Ports: BOTH the backend and the web server bind free ephemeral ports
       # picked at task start (not fixed :3001/:3000). This removes the class of
@@ -312,7 +313,7 @@ in
       # (the original failure mode) or where a developer's own dev server on
       # :3000/:3001 collides with — or gets killed by — this task. The ports are
       # threaded through every consumer:
-      #   * backend:      PORT=$BACKEND_PORT DATABASE_PATH=<ephemeral> java -jar …/business-logic-java.jar
+      #   * backend:      PORT=$BACKEND_PORT DATABASE_URL=<ephemeral pg> java -jar …/business-logic-java.jar
       #   * client build: PUBLIC_BUSINESS_LOGIC_URL=http://host.docker.internal:$BACKEND_PORT
       #   * prod server:  BUSINESS_LOGIC_URL=http://localhost:$BACKEND_PORT PORT=$WEB_PORT
       #   * test runner:  E2E_BASE_URL / E2E_RAW_BASE_URL (web) + E2E_BACKEND_URL
@@ -337,10 +338,13 @@ in
         WEB_PORT=$(pick_free_port)
         echo "==> Backend port: $BACKEND_PORT | web port: $WEB_PORT"
 
-        # ── Ephemeral, isolated, absolute DB path ─────────────────────────
-        DB_DIR=$(mktemp -d)
-        DB_PATH="$DB_DIR/todos.db"
-        echo "==> Ephemeral DB: $DB_PATH"
+        # ── Ephemeral Postgres (podman) on a free host port ───────────────
+        # DATABASE_URL points the backend at this throwaway instance; Flyway
+        # migrates it on startup. A per-run container name + --rm + a force-remove
+        # in teardown keeps the task self-contained, idempotent and leak-free.
+        PG_PORT=$(pick_free_port)
+        PG_NAME="pg-e2e-$$-$RANDOM"
+        echo "==> Ephemeral Postgres: container $PG_NAME on :$PG_PORT"
 
         BACKEND_PID=""
         SERVER_PID=""
@@ -352,24 +356,48 @@ in
         }
 
         cleanup() {
-          echo "==> Teardown: stopping web server + backend, removing temp DB"
+          echo "==> Teardown: stopping web server + backend, removing Postgres container"
           if [ -n "$SERVER_PID" ]; then kill "$SERVER_PID" 2>/dev/null || true; fi
           if [ -n "$BACKEND_PID" ]; then kill "$BACKEND_PID" 2>/dev/null || true; fi
           # Belt-and-braces: free the ports even if the tracked PIDs were only
           # wrappers around the real listeners.
           kill_port "$WEB_PORT"
           kill_port "$BACKEND_PORT"
-          rm -rf "$DB_DIR" 2>/dev/null || true
+          # Force-remove the ephemeral Postgres (no leak even on failure).
+          podman rm -f "$PG_NAME" >/dev/null 2>&1 || true
         }
         trap cleanup EXIT
+
+        # ── Boot the ephemeral Postgres and wait for readiness ────────────
+        # First run pulls postgres:17-alpine through gvproxy — generous budget.
+        podman run -d --rm --name "$PG_NAME" \
+          -e POSTGRES_DB=todos -e POSTGRES_USER=todos -e POSTGRES_PASSWORD=todos \
+          -p "127.0.0.1:$PG_PORT:5432" postgres:17-alpine
+        echo "==> Waiting for Postgres to accept connections"
+        PG_READY=0
+        for _ in $(seq 1 60); do
+          if podman exec "$PG_NAME" pg_isready -U todos -d todos >/dev/null 2>&1; then
+            PG_READY=1
+            break
+          fi
+          sleep 1
+        done
+        if [ "$PG_READY" -ne 1 ]; then
+          echo "ERROR: ephemeral Postgres never became ready on :$PG_PORT" >&2
+          podman logs "$PG_NAME" 2>&1 | tail -20 >&2 || true
+          exit 1
+        fi
 
         # ── Build + start the business-logic-java backend ─────────────────
         echo "==> Generating protobuf sources (buf) and building the Java reactor (connect-unary-adapter + business-logic-java)"
         bun run generate
         mvn -q -f pom.xml package
 
-        echo "==> Starting business-logic-java backend on :$BACKEND_PORT (fresh ephemeral DB)"
-        PORT=$BACKEND_PORT DATABASE_PATH="$DB_PATH" java -jar services/business-logic-java/target/business-logic-java.jar &
+        echo "==> Starting business-logic-java backend on :$BACKEND_PORT (ephemeral Postgres, Flyway migrates on boot)"
+        PORT=$BACKEND_PORT \
+          DATABASE_URL="jdbc:postgresql://localhost:$PG_PORT/todos" \
+          DATABASE_USERNAME=todos DATABASE_PASSWORD=todos \
+          java -jar services/business-logic-java/target/business-logic-java.jar &
         BACKEND_PID=$!
 
         echo "==> Waiting for backend ListTodos to answer"
@@ -442,7 +470,7 @@ in
         echo "==> Playwright report (JUnit): $PWD/test-results/junit.xml"
         exit "$PW_EXIT"
       '';
-      description = "Self-contained E2E: start+seed own backend (ephemeral DB), build+run web server, Playwright over CDP, full teardown";
+      description = "Self-contained E2E: ephemeral Postgres (podman) + start+seed own backend, build+run web server, Playwright over CDP, full teardown";
     };
     "ci:proto-breaking" = {
       # INFORMATIONAL wire-contract check. Compares the current proto module

@@ -99,8 +99,8 @@ Two services orchestrated by Docker Compose:
    business-logic server via connect-es during SSR. Owns no data.
 2. **business-logic-java** — Java (Helidon SE) stub of the real backend
    (compose service name stays `business-logic`). Exposes the Connect
-   RPC endpoints connect-es clients speak. Persists data in SQLite
-   (file mounted as a Docker volume).
+   RPC endpoints connect-es clients speak. Persists data in PostgreSQL
+   (a `postgres` compose service; schema managed by Flyway migrations).
 
 The browser, after hydration, talks to the business-logic server
 **directly** via connect-es. The rendering server is not a proxy for
@@ -118,7 +118,7 @@ post-hydration traffic.
 - **Bundler**: Rsbuild (Rspack), with `web` and `node` environments in one build
 - **Code splitting**: `lazy()` on route components, producing paired JS+CSS chunks; manifest-driven preload + stylesheet injection
 - **Styling**: Panda CSS (zero-runtime CSS-in-JS via PostCSS, utility + recipe patterns)
-- **Data store**: SQLite (business-logic server only)
+- **Data store**: PostgreSQL (business-logic server only; Flyway + HikariCP + pgjdbc)
 - **Orchestration**: Docker + Docker Compose
 
 ## Out of scope (do not add)
@@ -143,7 +143,7 @@ didn't intend to ask yet.
 
 - **Read Basic Memory first.** For anything touching the render pipeline, service split, RPC, or build, skim the relevant note(s) before changing code.
 - **Match the notes.** If the code diverges from a note, decide whether the code is wrong or the note is stale. Update one or the other; don't leave them inconsistent.
-- **Keep the two services honest.** The rendering server must not own data or proxy post-hydration traffic. The business-logic server must be the only SQLite client.
+- **Keep the two services honest.** The rendering server must not own data or proxy post-hydration traffic. The business-logic server must be the only database client.
 - **Same RPC contract on both sides.** Both SSR code and browser code should import the same generated connect-es client and call the same methods.
 - **Streaming requires Suspense.** Any async boundary must be under `<Suspense>` or streaming breaks.
 - **Prefer small, reversible changes.** This is a learning exercise; optimize for clarity and the ability to rip things out, not for robustness.
