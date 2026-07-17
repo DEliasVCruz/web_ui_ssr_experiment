@@ -78,5 +78,12 @@
       <artifactId>junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- ArchUnit: enforces that this adapter stays service-agnostic (no
+         dependency on any concrete service's business logic). Test scope. -->
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

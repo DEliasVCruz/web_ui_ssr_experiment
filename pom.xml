@@ -55,6 +55,11 @@
     <version.grpc>1.82.2</version.grpc>
     <version.protovalidate>1.2.2</version.protovalidate>
     <version.junit>5.14.4</version.junit>
+    <!-- ArchUnit: machine-enforced architecture rules (JUnit 5 flavour). Test
+         scope only — it has no runtime consumers, so it does not participate in
+         the runtime scope-mediation trap that governs the shared compile-scope
+         pins above. -->
+    <version.archunit>1.4.1</version.archunit>
 
     <!-- Compile-time DI, domain mapping and business-rule validation. Standalone
          (not managed by any imported BOM); used only by business-logic-java, but
@@ -156,6 +161,17 @@
         <groupId>com.webuipoc</groupId>
         <artifactId>connect-unary-adapter</artifactId>
         <version>${project.version}</version>
+      </dependency>
+
+      <!-- ArchUnit (test scope in the consuming modules). Standalone pin, like
+           the other BOM-unmanaged libs; the archunit-junit5 artifact manages its
+           own transitive graph, so a single version here keeps both modules aligned.
+           Declared AFTER the BOM imports so the load-bearing junit-bom ordering
+           (grpc/junit BEFORE helidon) is untouched. -->
+      <dependency>
+        <groupId>com.tngtech.archunit</groupId>
+        <artifactId>archunit-junit5</artifactId>
+        <version>${version.archunit}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

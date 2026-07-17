@@ -134,6 +134,13 @@
       <artifactId>junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- ArchUnit: encodes this module's layering (domain purity, JDBC/StreamObserver
+         confinement, Helidon-in-bootstrap-only) as failing JUnit tests. Test scope. -->
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <scope>test</scope>
+    </dependency>
     <!-- In-process gRPC transport for exercising TodoGrpcBridge through real
          generated stubs in unit tests -->
     <dependency>
