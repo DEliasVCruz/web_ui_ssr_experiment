@@ -119,6 +119,13 @@ final class ConnectUnaryHandler implements Handler {
     private static final String ENCODING_PROTO = "proto";
     private static final String ENCODING_JSON = "json";
 
+    /**
+     * The HTTP "no transformation" content-coding token (RFC 9110 §8.4.1): the default
+     * for both the GET {@code compression} query param and the Content-Encoding header,
+     * and the only coding this adapter supports.
+     */
+    private static final String ENCODING_IDENTITY = "identity";
+
     private enum Codec {
         PROTO,
         JSON
@@ -199,8 +206,8 @@ final class ConnectUnaryHandler implements Handler {
         }
 
         // compression defaults to identity; only identity is supported.
-        String compression = query.first(PARAM_COMPRESSION).map(String::trim).orElse("identity");
-        if (!"identity".equalsIgnoreCase(compression)) {
+        String compression = query.first(PARAM_COMPRESSION).map(String::trim).orElse(ENCODING_IDENTITY);
+        if (!ENCODING_IDENTITY.equalsIgnoreCase(compression)) {
             sendError(
                     res,
                     ConnectCode.UNIMPLEMENTED,
@@ -260,8 +267,8 @@ final class ConnectUnaryHandler implements Handler {
         // other encoding must be rejected with code unimplemented, with a
         // message listing the supported encodings (spec, "Unary Request").
         String encoding =
-                req.headers().first(CONTENT_ENCODING).orElse("identity").trim();
-        if (!"identity".equalsIgnoreCase(encoding)) {
+                req.headers().first(CONTENT_ENCODING).orElse(ENCODING_IDENTITY).trim();
+        if (!ENCODING_IDENTITY.equalsIgnoreCase(encoding)) {
             sendError(
                     res,
                     ConnectCode.UNIMPLEMENTED,

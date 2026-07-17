@@ -100,7 +100,10 @@
        raw thread for concurrency — work runs on the server's executors. This targets
        a STARTED thread (new Thread(...).start()); a Thread handed to
        Runtime.addShutdownHook(...) (as PostgresSupport does for container cleanup) is
-       a legitimate JVM lifecycle callback, not a spawned worker, and is NOT matched. -->
+       a legitimate JVM lifecycle callback, not a spawned worker, and is NOT matched.
+       KNOWN LIMITATION: only the inline `new Thread(...).start()` form is caught; a
+       thread stored in a variable and started later, or one obtained from a factory,
+       slips through. This is a convention net, not an airtight guarantee. -->
   <rule name="DoNotStartRawThreads"
         language="java"
         message="Do not start raw threads — Helidon SE owns threading. Submit work to a server-managed executor instead of new Thread(...).start()."
@@ -151,7 +154,10 @@
   <!-- Convention: only the Main entry point may terminate the JVM. Services, the
        adapter and libraries must signal failure by throwing, never by calling
        System.exit / Runtime.exit / Runtime.halt (which would strand shutdown hooks and
-       skip the avaje BeanScope close). System.exit IS permitted inside Main. -->
+       skip the avaje BeanScope close). System.exit IS permitted inside Main.
+       KNOWN LIMITATION: the carve-out keys on the SIMPLE class name `Main`, so any
+       class named Main (in any package) dodges the rule — it encodes a convention,
+       not a security boundary. -->
   <rule name="DoNotCallSystemExitOutsideMain"
         language="java"
         message="Only Main may terminate the JVM — throw instead of calling System.exit/Runtime.exit/Runtime.halt outside the Main entry point."
