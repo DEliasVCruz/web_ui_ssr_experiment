@@ -83,6 +83,16 @@
       <groupId>org.flywaydb</groupId>
       <artifactId>flyway-database-postgresql</artifactId>
     </dependency>
+    <!-- jOOQ runtime: the typed DSL TodoRepository executes, and the library the
+         generated metamodel (target/generated-sources/jooq, emitted by the
+         testcontainers-jooq-codegen plugin below) compiles against. Runtime dep
+         (default scope, NEVER test — the scope-mediation trap). Version from the
+         parent's dependencyManagement; the codegen plugin is pinned to the same
+         version there, so generated code and runtime cannot drift. -->
+    <dependency>
+      <groupId>org.jooq</groupId>
+      <artifactId>jooq</artifactId>
+    </dependency>
 
     <!-- Compile-time dependency injection (no runtime reflection/proxies): the
          avaje-inject-generator (wired in annotationProcessorPaths below) emits
@@ -243,6 +253,67 @@
                 <source>${project.basedir}/generated-sources/protobuf</source>
                 <source>${project.basedir}/generated-sources/grpc</source>
               </sources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- jOOQ codegen against the REAL schema (task wdt.4): at generate-sources
+           the plugin starts a throwaway postgres:17-alpine via Testcontainers (on
+           the podman machine — DOCKER_HOST etc. come from the devenv shell, same
+           wiring the repository tests use), applies THIS module's actual Flyway
+           migrations (filesystem location below; the plugin-classpath Flyway is
+           force-aligned to the repo's 12.11 pin in the parent's pluginManagement),
+           and generates the typed metamodel from the live catalog. Consequences,
+           accepted deliberately:
+             * `mvn verify` (and even `mvn compile`) now REQUIRES a running
+               container runtime, exactly like the repository tests already do.
+             * Generated sources land under target/generated-sources/jooq — inside
+               target/, so they are gitignored by the existing
+               services/business-logic-java/target/ entry and invisible to
+               Spotless (whose globs cover src/{main,test}/java only). The plugin
+               calls project.addCompileSourceRoot() itself (verified in its
+               sources), so no build-helper wiring is needed for compilation.
+             * TARGET PACKAGE com.webuipoc.jooq is chosen DELIBERATELY outside
+               both ArchUnit analysis roots (com.webuipoc.businesslogic here,
+               com.webuipoc.connect in the adapter), so no architecture rule can
+               fire ON generated classes — the same by-construction exclusion the
+               buf-generated todo.v1 sources rely on. Rules still police
+               DEPENDENCIES ON it (see ArchitectureTest's jOOQ confinement rule).
+             * flyway_schema_history is excluded from generation: it is Flyway's
+               bookkeeping table, not part of the domain schema. -->
+      <plugin>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>testcontainers-jooq-codegen-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>generate-jooq-sources</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>generate</goal>
+            </goals>
+            <configuration>
+              <database>
+                <type>POSTGRES</type>
+                <containerImage>postgres:17-alpine</containerImage>
+              </database>
+              <flyway>
+                <locations>filesystem:${project.basedir}/src/main/resources/db/migration</locations>
+              </flyway>
+              <jooq>
+                <generator>
+                  <database>
+                    <name>org.jooq.meta.postgres.PostgresDatabase</name>
+                    <inputSchema>public</inputSchema>
+                    <includes>.*</includes>
+                    <excludes>flyway_schema_history</excludes>
+                  </database>
+                  <target>
+                    <packageName>com.webuipoc.jooq</packageName>
+                    <directory>${project.build.directory}/generated-sources/jooq</directory>
+                  </target>
+                </generator>
+              </jooq>
             </configuration>
           </execution>
         </executions>
