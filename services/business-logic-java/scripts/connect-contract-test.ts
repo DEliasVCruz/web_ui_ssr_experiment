@@ -28,7 +28,12 @@ import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { TodoService } from "@web-ui-poc/rpc/gen/todo/v1/todo_pb";
 
-const baseUrl = process.env.BASE_URL ?? "http://localhost:3911";
+// Destructure with default: satisfies both noPropertyAccessFromIndexSignature
+// (TS4111, forbids dot access on the env index signature) and biome's
+// useLiteralKeys (forbids bracket access). Env values are never null, so the
+// undefined-only destructuring default matches the original `?? default`.
+const { BASE_URL = "http://localhost:3911" } = process.env;
+const baseUrl = BASE_URL;
 
 // Magic StubTodoService ids (see StubTodoService.java). Syntactically valid
 // UUIDs so they pass the protovalidate string.uuid constraint on GetTodoRequest.id.

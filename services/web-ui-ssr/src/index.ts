@@ -6,7 +6,11 @@ import type { SsrContext } from "./router";
 
 const isDev = process.env.NODE_ENV === "development";
 const DEFAULT_PORT = 3000;
-const port = Number(process.env.PORT) || DEFAULT_PORT;
+// Destructure rather than `process.env.PORT`: dot access is barred by
+// noPropertyAccessFromIndexSignature (TS4111) and bracket access by biome's
+// useLiteralKeys — destructuring is exempt from both.
+const { PORT } = process.env;
+const port = Number(PORT) || DEFAULT_PORT;
 
 type RenderFn = (request: Request, ssrContext: SsrContext) => Promise<Response>;
 
@@ -44,7 +48,10 @@ if (isDev) {
 
 	getRender = async () => {
 		if (!cachedRender) {
-			const mod = await rsbuildServer.environments.ssr.loadBundle<{
+			// biome-ignore lint/complexity/useLiteralKeys: `environments` is an index signature; noPropertyAccessFromIndexSignature (TS4111) requires bracket access here.
+			const ssrEnv = rsbuildServer.environments["ssr"];
+			if (!ssrEnv) throw new Error("rsbuild dev server has no 'ssr' environment");
+			const mod = await ssrEnv.loadBundle<{
 				render: RenderFn;
 			}>("index");
 			cachedRender = mod.render;
@@ -124,7 +131,9 @@ function extractSsrContextFromStats(
 
 	const children = json.children ?? [json];
 	const web = children.find((child) => child.name === "web") ?? children[0];
-	const assets = (web.entrypoints?.index.assets ?? []).map((asset) => asset.name);
+	if (!web) return empty;
+	// biome-ignore lint/complexity/useLiteralKeys: `entrypoints` is Rspack's index signature; noPropertyAccessFromIndexSignature (TS4111) requires bracket access here.
+	const assets = (web.entrypoints?.["index"]?.assets ?? []).map((asset) => asset.name);
 
 	return {
 		cssUrls: assets.filter((name) => name.endsWith(".css")).map((name) => `/${name}`),
@@ -146,13 +155,16 @@ function loadManifestSsrContext(): SsrContext {
 	let async: { js?: string[] } | undefined;
 	try {
 		const manifest = JSON.parse(readFileSync("dist/web/manifest.json", "utf-8")) as {
-			entries?: Record<
-				string,
-				{ initial?: { js?: string[]; css?: string[] }; async?: { js?: string[] } }
-			>;
+			// `index` typed as a named optional property (not a Record index
+			// signature): this code only ever reads the "index" entrypoint, so a
+			// named key is both more precise and keeps dot access — avoiding the
+			// noPropertyAccessFromIndexSignature (TS4111) vs biome useLiteralKeys clash.
+			entries?: {
+				index?: { initial?: { js?: string[]; css?: string[] }; async?: { js?: string[] } };
+			};
 		};
-		initial = manifest.entries?.index.initial;
-		async = manifest.entries?.index.async;
+		initial = manifest.entries?.index?.initial;
+		async = manifest.entries?.index?.async;
 	} catch (error) {
 		throw new Error(
 			`Failed to load SSR context from dist/web/manifest.json (missing, malformed, or entries.index absent): ${String(error)}`,

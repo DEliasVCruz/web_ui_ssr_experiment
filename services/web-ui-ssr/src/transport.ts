@@ -1,7 +1,12 @@
 import { addStaticKeyToTransport } from "@connectrpc/connect-query-core";
 import { createConnectTransport } from "@connectrpc/connect-web";
 
-const BUSINESS_LOGIC_URL = process.env.BUSINESS_LOGIC_URL ?? "http://localhost:3001";
+// Destructure with a default rather than `process.env.BUSINESS_LOGIC_URL`:
+// noPropertyAccessFromIndexSignature (TS4111) forbids dot access on the env index
+// signature, while biome's useLiteralKeys forbids `process.env["…"]`. Destructuring
+// with a default is exempt from both and preserves the `?? default` semantics
+// (env values are never null, so undefined-only defaulting is equivalent).
+const { BUSINESS_LOGIC_URL = "http://localhost:3001" } = process.env;
 
 /**
  * SSR transport — the same fetch-based connect-web transport the browser uses,

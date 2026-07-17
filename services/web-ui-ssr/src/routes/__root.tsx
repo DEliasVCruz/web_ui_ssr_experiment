@@ -8,7 +8,7 @@ import type { SsrContext } from "../router";
 interface RouterContext {
 	queryClient: QueryClient;
 	transport: Transport;
-	ssr?: SsrContext;
+	ssr?: SsrContext | undefined;
 }
 
 // Document assembly, given @tanstack/solid-router's RouterServer/RouterClient:

@@ -35,8 +35,10 @@ test.describe("SSR raw HTML", () => {
 
 		// At least one actual backend todo title appears as row text in the SSR HTML.
 		const todos = await listBackendTodos();
-		expect(todos.length).toBeGreaterThan(0);
-		expect(html).toContain(todos[0].title);
+		const firstTodo = todos[0];
+		expect(firstTodo).toBeDefined();
+		if (!firstTodo) throw new Error("expected at least one backend todo");
+		expect(html).toContain(firstTodo.title);
 	});
 
 	test("/todos preloads every async chunk from the build manifest in <head>", async () => {
@@ -63,8 +65,9 @@ test.describe("SSR raw HTML", () => {
 
 	test("/todos/:id renders the todo's dynamic title and status badge", async () => {
 		const todos = await listBackendTodos();
-		expect(todos.length).toBeGreaterThan(0);
 		const todo = todos[0];
+		expect(todo).toBeDefined();
+		if (!todo) throw new Error("expected at least one backend todo");
 
 		const html = await fetchSsrHtml(`/todos/${todo.id}`);
 

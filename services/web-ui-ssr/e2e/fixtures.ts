@@ -5,14 +5,19 @@ const HTTP_OK = 200;
 // The browser is a headless Chromium running in a Colima container, exposing CDP
 // on this endpoint. Playwright connects to it over CDP instead of launching a
 // local browser (see playwright.config.ts / devenv `playwright:up`).
-const CDP_ENDPOINT = process.env.CDP_ENDPOINT ?? "http://localhost:9222";
+// Destructured with defaults: dot access on process.env is barred by
+// noPropertyAccessFromIndexSignature (TS4111) and bracket access by biome's
+// useLiteralKeys; destructuring-with-default is exempt from both.
+const { CDP_ENDPOINT = "http://localhost:9222" } = process.env;
 
 // URLs reachable from the Playwright *runner* (the host), used for raw HTTP
 // assertions. The in-container browser reaches the app via baseURL
 // (host.docker.internal:3000); the runner on macOS cannot resolve that name, so
 // host-side fetches target localhost instead.
-export const RAW_BASE_URL = process.env.E2E_RAW_BASE_URL ?? "http://localhost:3000";
-export const BACKEND_URL = process.env.E2E_BACKEND_URL ?? "http://localhost:3001";
+const { E2E_RAW_BASE_URL = "http://localhost:3000", E2E_BACKEND_URL = "http://localhost:3001" } =
+	process.env;
+export const RAW_BASE_URL = E2E_RAW_BASE_URL;
+export const BACKEND_URL = E2E_BACKEND_URL;
 
 // The Add-todo input, server-rendered on /todos. Used as the hydration probe:
 // once Solid attaches its delegated `onInput` handler the app is interactive.

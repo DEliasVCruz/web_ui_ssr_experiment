@@ -18,8 +18,8 @@ interface CapturedRpc {
 	rpc: string;
 	method: string;
 	url: string;
-	requestContentType?: string;
-	responseContentType?: string;
+	requestContentType?: string | undefined;
+	responseContentType?: string | undefined;
 }
 
 test.describe("RPC wire format", () => {
