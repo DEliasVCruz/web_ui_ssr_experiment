@@ -71,6 +71,14 @@ class TodoGrpcBridgeTest {
                 .getTodo();
     }
 
+    private Todo createWithDetails(String title, String details) {
+        return stub.createTodo(CreateTodoRequest.newBuilder()
+                        .setTitle(title)
+                        .setDetails(details)
+                        .build())
+                .getTodo();
+    }
+
     private Todo get(String id) {
         return stub.getTodo(GetTodoRequest.newBuilder().setId(id).build()).getTodo();
     }
@@ -161,6 +169,90 @@ class TodoGrpcBridgeTest {
                 .getTodo();
         assertEquals("keep me", updated.getTitle(), "completed-only update must preserve title");
         assertTrue(updated.getCompleted());
+    }
+
+    // --- details: presence-based create + partial update ------------------------
+
+    @Test
+    void createWithoutDetailsLeavesDetailsUnset() {
+        // Explicit presence: a create that omits details persists NULL, so the
+        // read-back todo has the details field unset ("no details").
+        Todo created = create("no notes");
+        assertFalse(created.hasDetails(), "details must be unset when not provided on create");
+
+        Todo fetched = get(created.getId());
+        assertFalse(fetched.hasDetails(), "read-back todo must also report details unset");
+    }
+
+    @Test
+    void createWithDetailsRoundTrips() {
+        Todo created = createWithDetails("with notes", "remember the milk");
+        assertTrue(created.hasDetails());
+        assertEquals("remember the milk", created.getDetails());
+
+        Todo fetched = get(created.getId());
+        assertEquals("remember the milk", fetched.getDetails(), "details must survive the round trip");
+    }
+
+    @Test
+    void detailsOnlyUpdateSetsDetailsAndPreservesTitleAndCompleted() {
+        // TEETH: this is the test that goes red if the details COALESCE is dropped
+        // from TodoRepository.updateTodo — without it, a details-only update never
+        // writes the column, so getDetails() would come back empty/unset.
+        Todo todo = createWithDetails("keep title", "old notes");
+        stub.updateTodo(UpdateTodoRequest.newBuilder()
+                .setId(todo.getId())
+                .setCompleted(true)
+                .build());
+
+        Todo updated = stub.updateTodo(UpdateTodoRequest.newBuilder()
+                        .setId(todo.getId())
+                        .setDetails("new notes")
+                        .build())
+                .getTodo();
+        assertEquals("new notes", updated.getDetails(), "details-only update must write the new details");
+        assertEquals("keep title", updated.getTitle(), "details-only update must preserve title");
+        assertTrue(updated.getCompleted(), "details-only update must preserve completed=true");
+    }
+
+    @Test
+    void titleOnlyUpdatePreservesDetails() {
+        Todo todo = createWithDetails("task", "keep these notes");
+
+        Todo updated = stub.updateTodo(UpdateTodoRequest.newBuilder()
+                        .setId(todo.getId())
+                        .setTitle("renamed")
+                        .build())
+                .getTodo();
+        assertEquals("renamed", updated.getTitle());
+        assertEquals("keep these notes", updated.getDetails(), "title-only update must preserve details");
+    }
+
+    @Test
+    void explicitEmptyDetailsClearsContent() {
+        // Explicit presence: providing "" is distinct from not providing details;
+        // it clears the content (has_details == true, value == "").
+        Todo todo = createWithDetails("task", "some notes");
+
+        Todo updated = stub.updateTodo(UpdateTodoRequest.newBuilder()
+                        .setId(todo.getId())
+                        .setDetails("")
+                        .build())
+                .getTodo();
+        assertTrue(updated.hasDetails(), "cleared details is still 'set' on the wire");
+        assertEquals("", updated.getDetails(), "explicit empty details must clear the content");
+    }
+
+    @Test
+    void updateWithoutDetailsPreservesExistingDetails() {
+        Todo todo = createWithDetails("task", "unchanged notes");
+
+        Todo updated = stub.updateTodo(UpdateTodoRequest.newBuilder()
+                        .setId(todo.getId())
+                        .setCompleted(true)
+                        .build())
+                .getTodo();
+        assertEquals("unchanged notes", updated.getDetails(), "update that omits details must leave them unchanged");
     }
 
     @Test

@@ -92,6 +92,7 @@ class TodoServiceContractIT {
     private static final String LIST_TODOS = "/todo.v1.TodoService/ListTodos";
 
     private static final int TITLE_MAX_LEN = 100;
+    private static final int DETAILS_MAX_LEN = 1000;
     /** The exact message the domain NotFoundException carries (TodoService.NOT_FOUND_MESSAGE). */
     private static final String NOT_FOUND_MESSAGE = "todo not found";
 
@@ -304,6 +305,110 @@ class TodoServiceContractIT {
                         .setTitle("")
                         .build());
         assertInvalidArgumentNaming(response, "title");
+    }
+
+    // ---- details field: round-trip, partial-update semantics, and validation ----
+
+    @Test
+    void createWithDetailsRoundTripsOverBinaryPost() throws Exception {
+        // A binary POST create carrying details returns them on the persisted todo.
+        TodoOuterClass.CreateTodoRequest request = TodoOuterClass.CreateTodoRequest.newBuilder()
+                .setTitle("with-details")
+                .setDetails("remember the milk")
+                .build();
+        HttpResponse<byte[]> response = postProto(CREATE_TODO, request);
+
+        assertEquals(200, response.statusCode());
+        TodoOuterClass.Todo todo =
+                TodoOuterClass.CreateTodoResponse.parseFrom(response.body()).getTodo();
+        assertTrue(todo.hasDetails(), "details provided on create must be set on the wire");
+        assertEquals("remember the milk", todo.getDetails());
+    }
+
+    @Test
+    void createWithoutDetailsLeavesDetailsUnsetOnTheWire() throws Exception {
+        // Omitting details persists NULL, so the read-back todo reports it unset.
+        TodoOuterClass.Todo created = createTodo("no-details");
+        assertFalse(created.hasDetails(), "details omitted on create must be unset on the wire");
+    }
+
+    @Test
+    void updateDetailsPartialSemanticsOverTheWire() throws Exception {
+        // Seed with details, then a details-only update must overwrite the details
+        // while leaving the title untouched (presence-based partial update).
+        TodoOuterClass.CreateTodoRequest seed = TodoOuterClass.CreateTodoRequest.newBuilder()
+                .setTitle("keep-title")
+                .setDetails("old-notes")
+                .build();
+        TodoOuterClass.Todo created = TodoOuterClass.CreateTodoResponse.parseFrom(
+                        postProto(CREATE_TODO, seed).body())
+                .getTodo();
+
+        HttpResponse<byte[]> response = postProto(
+                UPDATE_TODO,
+                TodoOuterClass.UpdateTodoRequest.newBuilder()
+                        .setId(created.getId())
+                        .setDetails("new-notes")
+                        .build());
+        assertEquals(200, response.statusCode());
+        TodoOuterClass.Todo updated =
+                TodoOuterClass.UpdateTodoResponse.parseFrom(response.body()).getTodo();
+        assertEquals("new-notes", updated.getDetails(), "details-only update must overwrite the details");
+        assertEquals("keep-title", updated.getTitle(), "details-only update must preserve the title");
+
+        // And an update that omits details must leave the (new) details untouched.
+        HttpResponse<byte[]> keep = postProto(
+                UPDATE_TODO,
+                TodoOuterClass.UpdateTodoRequest.newBuilder()
+                        .setId(created.getId())
+                        .setCompleted(true)
+                        .build());
+        TodoOuterClass.Todo kept =
+                TodoOuterClass.UpdateTodoResponse.parseFrom(keep.body()).getTodo();
+        assertEquals("new-notes", kept.getDetails(), "update omitting details must preserve them");
+    }
+
+    @Test
+    void createWithMaxLengthDetailsIsAccepted() throws Exception {
+        // The 1000-char boundary is accepted and persisted.
+        String details = "d".repeat(DETAILS_MAX_LEN);
+        HttpResponse<byte[]> response = postProto(
+                CREATE_TODO,
+                TodoOuterClass.CreateTodoRequest.newBuilder()
+                        .setTitle("boundary")
+                        .setDetails(details)
+                        .build());
+
+        assertEquals(200, response.statusCode());
+        TodoOuterClass.Todo todo =
+                TodoOuterClass.CreateTodoResponse.parseFrom(response.body()).getTodo();
+        assertEquals(details, todo.getDetails());
+    }
+
+    @Test
+    void createWithOverlongDetailsIsRejected() throws Exception {
+        // TEETH: goes red if the details max_len protovalidate rule is removed —
+        // a 1001-char details would then pass and persist instead of 400-ing.
+        HttpResponse<byte[]> response = postProto(
+                CREATE_TODO,
+                TodoOuterClass.CreateTodoRequest.newBuilder()
+                        .setTitle("too-long-details")
+                        .setDetails("d".repeat(DETAILS_MAX_LEN + 1))
+                        .build());
+        assertInvalidArgumentNaming(response, "details");
+    }
+
+    @Test
+    void updateWithOverlongDetailsIsRejected() throws Exception {
+        // The explicit-presence max_len rule also applies to UpdateTodoRequest.
+        TodoOuterClass.Todo seeded = createTodo("update-details-target");
+        HttpResponse<byte[]> response = postProto(
+                UPDATE_TODO,
+                TodoOuterClass.UpdateTodoRequest.newBuilder()
+                        .setId(seeded.getId())
+                        .setDetails("d".repeat(DETAILS_MAX_LEN + 1))
+                        .build());
+        assertInvalidArgumentNaming(response, "details");
     }
 
     // ---- complementary full-stack surfaces (not part of the 18) ----
