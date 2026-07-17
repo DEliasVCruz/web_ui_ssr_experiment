@@ -1,5 +1,6 @@
 import { addStaticKeyToTransport } from "@connectrpc/connect-query-core";
 import { createConnectTransport } from "@connectrpc/connect-web";
+import { createTraceParentInterceptor } from "./observability/browser-events";
 
 /**
  * Browser transport — points directly at the business-logic server,
@@ -17,6 +18,13 @@ const clientTransport = addStaticKeyToTransport(
 		// Idempotent RPCs (idempotency_level = NO_SIDE_EFFECTS: ListTodos, GetTodo)
 		// go over HTTP GET; mutations stay POST. Payload stays binary protobuf.
 		useHttpGet: true,
+		// W3C trace propagation for client RPCs (task iq2.4). These calls go
+		// browser→Java directly, bypassing the SSR middleware, so this interceptor
+		// is their ONLY trace source: it stamps a child `traceparent` (the active
+		// user action's trace_id + a fresh span per call) so the backend wide event
+		// correlates with the browser action. Backend CORS must allow the
+		// `traceparent` request header — see ConnectCors.ALLOWED_HEADERS.
+		interceptors: [createTraceParentInterceptor()],
 	}),
 	"app",
 );

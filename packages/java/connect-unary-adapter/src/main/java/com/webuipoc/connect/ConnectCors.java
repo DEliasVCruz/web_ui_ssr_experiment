@@ -26,7 +26,17 @@ final class ConnectCors {
     /** connect-es {@code cors.allowedMethods}. */
     static final List<String> ALLOWED_METHODS = List.of("POST", "GET");
 
-    /** connect-es {@code cors.allowedHeaders}. */
+    /**
+     * connect-es {@code cors.allowedHeaders}, plus {@code Traceparent}.
+     *
+     * <p>{@code Traceparent} is NOT part of connect-es's list: it is added
+     * because the browser client stamps a W3C {@code traceparent} on every
+     * outbound RPC (task iq2.4 — a connect-es interceptor on the client
+     * transport) so the backend wide event correlates with the browser action's
+     * trace. That header is a non-simple request header on a cross-origin POST,
+     * so the CORS preflight must advertise it here or the browser blocks the
+     * actual request.
+     */
     static final List<String> ALLOWED_HEADERS = List.of(
             "Content-Type",
             "Connect-Protocol-Version",
@@ -38,7 +48,8 @@ final class ConnectCors {
             "Grpc-Message-Type",
             "X-Grpc-Web",
             "X-User-Agent",
-            "Grpc-Timeout");
+            "Grpc-Timeout",
+            "Traceparent");
 
     /** connect-es {@code cors.exposedHeaders}. */
     static final List<String> EXPOSED_HEADERS = List.of(

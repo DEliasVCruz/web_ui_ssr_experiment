@@ -272,7 +272,7 @@ function TodoList() {
 	const pendingToggleFor = (id: string) => pendingToggles().find((v) => v.id === id);
 
 	const update = createMutation(() => ({
-		...updateTodoMutation(transport()),
+		...updateTodoMutation(transport(), "toggle_todo"),
 		// Keyed so pending toggles are readable via useMutationState above. This
 		// instance is toggle-only; the details editor owns its own update mutation.
 		mutationKey: ["toggleTodo"],

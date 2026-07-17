@@ -97,9 +97,16 @@ export function parseTraceParent(value: string | null | undefined): TraceParent 
 
 /**
  * Generates a lowercase-hex id from `byteCount` cryptographically-random bytes.
- * Uses `crypto.getRandomValues` (present on Bun's server global scope — this is
- * server-side, no secure-context requirement) rather than `crypto.randomUUID`,
- * which has been observed undefined in some runtimes.
+ *
+ * Uses `crypto.getRandomValues`, which is a member of the base `Crypto`
+ * interface exposed on the global scope of BOTH runtimes this module serves —
+ * Bun/Node (SSR) and the browser (client RPC interceptor, task iq2.4). It is
+ * deliberately NOT `crypto.randomUUID` / `crypto.subtle`: those live on the
+ * `SubtleCrypto` surface that browsers gate behind a SECURE CONTEXT, so they are
+ * `undefined` when the app is served over plain HTTP (the e2e browser reaches it
+ * via `host.docker.internal`). `getRandomValues` carries no such requirement, so
+ * the same id minting works isomorphically. This whole module imports nothing —
+ * it pulls no server-only dependency into the client bundle.
  */
 function randomHex(byteCount: number): string {
 	const bytes = new Uint8Array(byteCount);
@@ -142,4 +149,25 @@ export function resolveTraceContext(traceparent: string | null | undefined): Tra
  */
 export function formatTraceParent(traceId: string, spanId: string, flags: string): string {
 	return `${SUPPORTED_VERSION}-${traceId}-${spanId}-${flags}`;
+}
+
+/** The trace-flags minted for a brand-new client trace: `01` (sampled). */
+export const DEFAULT_TRACE_FLAGS = DEFAULT_FLAGS;
+
+/**
+ * Mints a fresh 32-hex-char (16-byte) trace-id. Used browser-side (task iq2.4)
+ * to start one trace per USER ACTION — the client RPCs a browser action issues
+ * go straight to the backend, bypassing the SSR middleware, so this is their
+ * only trace source.
+ */
+export function mintTraceId(): string {
+	return randomHex(TRACE_ID_BYTES);
+}
+
+/**
+ * Mints a fresh 16-hex-char (8-byte) span-id — a new span per RPC (the client
+ * span recorded as the outbound `traceparent`'s parent-id) and per action root.
+ */
+export function mintSpanId(): string {
+	return randomHex(SPAN_ID_BYTES);
 }

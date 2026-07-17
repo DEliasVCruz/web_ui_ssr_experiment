@@ -179,3 +179,87 @@ and the dev node-http path):
   `attributes.cookie` / `attributes.password` / `attributes.token`. The
   current schema carries no sensitive values; the paths are a forward-looking
   guard for anything future code adds to `attributes`.
+
+## Browser variant (iq2.4)
+
+The client also emits wide events and propagates trace context — but the unit is
+one **USER ACTION**, not an HTTP request. This matters because a browser's RPCs
+go **browser→Java directly, bypassing the SSR middleware**: the SSR event never
+sees them, so a client-side interceptor is their **only** trace source.
+
+Implemented in `services/web-ui-ssr/src/observability/browser-events.ts`, wired
+into the sole client transport (`src/transport-client.ts`) and the mutation hooks
+(`src/queries/todos.ts`) + router navigation events (`src/entry-client.tsx`).
+
+- **No OpenTelemetry web SDK.** The OTel browser SDK is 25–60kB gz on the
+  hydration-critical path and was rejected. This path reuses the existing
+  isomorphic `trace-context.ts` (it imports nothing, so no server-only code
+  leaks into the client bundle) plus LogLayer's built-in `ConsoleTransport`.
+  Measured client-JS bundle delta for the whole feature: **≈ +6.4 kB gz**
+  (baseline ≈ 201.6 kB → ≈ 208.1 kB, summed gzipped initial+async chunks),
+  inside the < 9 kB research budget.
+- **One trace per action, fresh span per RPC.** An *action* mints ONE `trace_id`
+  (shared by its whole span tree). The client transport interceptor stamps every
+  outbound RPC with a child `traceparent` = that `trace_id` + a **fresh span per
+  call** (the client span the backend records as its `parent_span_id`). Actions
+  are the natural user-action seams: the mutation flows (`create_todo`,
+  `toggle_todo`, `edit_todo_details`, `delete_todo`) and route navigations
+  (`navigate`). IDs are minted with `crypto.getRandomValues` (works in an
+  insecure context, unlike `crypto.randomUUID`), flags `01`.
+- **Emission.** One event per action, on completion (success or throw), via
+  LogLayer → `ConsoleTransport` as a single JSON line (schema fields flat at the
+  root plus a `message` marker), so it is both human-scannable and
+  machine-parseable. `console` only for now.
+- **CORS.** Because the browser now sends a `traceparent` on cross-origin RPCs,
+  the backend CORS preflight must advertise it: `Traceparent` is added to
+  `ConnectCors.ALLOWED_HEADERS` (the one deliberate divergence from connect-es's
+  header list).
+
+### Browser field schema
+
+Same names/semantics as the server schema where they overlap; the server-only
+HTTP/RPC fields are dropped and action fields are added. `component` is always
+`"web-ui-browser"`.
+
+| JSON key       | Type              | Nullable | Description |
+|----------------|-------------------|----------|-------------|
+| `trace_id`     | string (32 hex)   | no       | The action's trace id (one per user action). |
+| `span_id`      | string (16 hex)   | no       | The action's root span id. Each RPC additionally mints its own child span (sent as the RPC's `traceparent` parent-id); those are not individually logged. |
+| `timestamp`    | string (ISO-8601) | no       | Instant the action finished. |
+| `duration_ms`  | number            | no       | Wall time of the action. |
+| `component`    | string            | no       | Always `"web-ui-browser"`. |
+| `action`       | string            | no       | `create_todo` \| `toggle_todo` \| `edit_todo_details` \| `delete_todo` \| `navigate`. |
+| `rpc_count`    | number            | no       | RPCs the action issued. |
+| `rpc_failures` | number            | no       | Of those, how many rejected. |
+| `error`        | object            | **yes**  | `{ type, message }` when the action threw; else `null`. No stack (kept lean). |
+
+### Pragmatic boundaries (honest gaps)
+
+- **No AsyncLocalStorage in the browser.** The active action is a module-level
+  reference; JS being single-threaded, the interceptor (which runs synchronously
+  when a call is issued) always reads the correct action for any *synchronously
+  issued* RPC. Two *concurrent* top-level actions that interleave their awaits
+  are attributed last-writer-wins — not hit in practice (the app's actions are
+  effectively serial: a click's single RPC is issued synchronously, and
+  navigations supersede one another).
+- **Background refetches are unattributed.** An RPC issued outside any action
+  (e.g. a TanStack Query settle-refetch that fires after the mutation resolves)
+  carries no `traceparent`; the backend simply starts a fresh trace. This is
+  correct — such refetches are not user actions.
+
+### Later shipping path (design note, not implemented)
+
+Console is the sink for now. The intended production path keeps the same event
+schema but changes only the transport:
+
+1. Buffer events in memory and flush a batch as one JSON array to a collector
+   endpoint (`POST /client-events`) on a short timer / when the batch fills.
+2. On page teardown (`visibilitychange` → hidden / `pagehide`), flush the tail
+   with `navigator.sendBeacon` — it survives unload where `fetch` would be
+   cancelled. Keep beacon bodies small (browsers cap them, commonly 64 KB).
+3. The collector stamps server-received time and forwards to the same log/trace
+   pipeline the server wide events use, so browser and backend events remain one
+   queryable stream keyed on `trace_id`.
+
+This is a transport swap behind the existing `browser-events.ts` sink seam
+(`setActionEventSink`), so no call sites change.

@@ -8,6 +8,7 @@ import {
 	listTodos,
 	updateTodo as updateTodoMethod,
 } from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService_connectquery";
+import { runAction } from "../observability/browser-events";
 
 /**
  * The shape the query cache actually holds for a todo: the generated `Todo` but
@@ -77,14 +78,20 @@ export function todosQueryOptions(transport: Transport) {
 
 export function createTodoMutation(transport: Transport) {
 	return {
-		mutationFn: async (title: string) => {
-			const response = await callUnaryMethod(transport, createTodoMethod, { title });
-			return response.todo;
-		},
+		// Wrapped in a user-action scope (task iq2.4): one trace per create, its RPC
+		// carrying a child `traceparent`, and one browser wide event on completion.
+		mutationFn: (title: string) =>
+			runAction("create_todo", async () => {
+				const response = await callUnaryMethod(transport, createTodoMethod, { title });
+				return response.todo;
+			}),
 	};
 }
 
-export function updateTodoMutation(transport: Transport) {
+// UpdateTodo backs two distinct user actions — a list-row completion TOGGLE and a
+// details EDIT — so the caller names which, giving each its own action label on
+// the browser wide event (task iq2.4).
+export function updateTodoMutation(transport: Transport, action: string) {
 	return {
 		// `details` is threaded through explicit-presence semantics: OMIT the key
 		// (undefined) to leave stored details unchanged; pass `""` to deliberately
@@ -92,23 +99,20 @@ export function updateTodoMutation(transport: Transport) {
 		// explicitly and include `details` ONLY when the user edited it — never
 		// spread a cached todo in, whose inherited `details: ""` would silently
 		// clear stored content. See a4a.1 field guide #2.
-		mutationFn: async (vars: {
-			id: string;
-			title?: string;
-			completed?: boolean;
-			details?: string;
-		}) => {
-			const response = await callUnaryMethod(transport, updateTodoMethod, vars);
-			return response.todo;
-		},
+		mutationFn: (vars: { id: string; title?: string; completed?: boolean; details?: string }) =>
+			runAction(action, async () => {
+				const response = await callUnaryMethod(transport, updateTodoMethod, vars);
+				return response.todo;
+			}),
 	};
 }
 
 export function deleteTodoMutation(transport: Transport) {
 	return {
-		mutationFn: async (id: string) => {
-			await callUnaryMethod(transport, deleteTodoMethod, { id });
-		},
+		mutationFn: (id: string) =>
+			runAction("delete_todo", async () => {
+				await callUnaryMethod(transport, deleteTodoMethod, { id });
+			}),
 	};
 }
 

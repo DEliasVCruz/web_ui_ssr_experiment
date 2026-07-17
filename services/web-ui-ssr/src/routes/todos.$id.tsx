@@ -58,7 +58,7 @@ function DetailsEditor(props: { id: string; initial: string | undefined; onDone:
 	const queryClient = Route.useRouteContext({ select: (c) => c.queryClient });
 
 	const update = createMutation(() => ({
-		...updateTodoMutation(transport()),
+		...updateTodoMutation(transport(), "edit_todo_details"),
 		// Cache-snapshot rollback pattern (a4a.3, edit): snapshot → optimistic write
 		// → restore on error → invalidate on settle.
 		onMutate: async (vars) => {

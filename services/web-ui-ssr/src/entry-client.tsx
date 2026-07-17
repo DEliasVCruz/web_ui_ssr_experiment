@@ -1,6 +1,7 @@
 import "./styles.css";
 import { RouterClient } from "@tanstack/solid-router/ssr/client";
 import { hydrate } from "solid-js/web";
+import { type ActionHandle, beginAction, endAction } from "./observability/browser-events";
 import { createQueryClient } from "./query-client";
 import { createRouter } from "./router";
 import { getClientTransport } from "./transport-client";
@@ -27,6 +28,26 @@ const router = createRouter({
 	transport: getClientTransport(),
 	queryClient: createQueryClient(),
 	ssrContext: { cssUrls, scriptUrls: [], preloadScriptUrls },
+});
+
+// Route navigations are user actions (task iq2.4): open an action scope when a
+// navigation begins and close it when it resolves, so the loader RPCs a client
+// navigation fires (browser→Java, bypassing SSR) share one trace_id and emit a
+// browser wide event. Client-only (this module never runs under SSR). A new
+// navigation that supersedes an unresolved one closes the earlier scope first,
+// so every opened scope is always paired with an emit.
+let navHandle: ActionHandle | undefined;
+router.subscribe("onBeforeNavigate", () => {
+	if (navHandle !== undefined) {
+		endAction(navHandle);
+	}
+	navHandle = beginAction("navigate");
+});
+router.subscribe("onResolved", () => {
+	if (navHandle !== undefined) {
+		endAction(navHandle);
+		navHandle = undefined;
+	}
 });
 
 // Hydrate <body>, not document: RouterServer emits the <html>/<head> shell inside a
