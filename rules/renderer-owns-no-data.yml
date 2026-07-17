@@ -9,22 +9,34 @@
 # Not covered elsewhere: the Java-side "SQLite lives in TodoDb/TodoRepository"
 # rule is enforced by ArchUnit inside the Java service; nothing stops the TS
 # renderer from importing bun:sqlite. This rule closes that cross-service gap.
+#
+# Covers all three module-loading forms — static `import ... from`, dynamic
+# `import("…")` and `require("…")` — because dynamic import/require is idiomatic
+# in Bun code and would otherwise be an honest-mistake bypass (review finding F1).
 id: renderer-owns-no-data-ts
 language: typescript
 severity: error
 message: >-
   The rendering server owns no data — it must not open a SQLite database.
-  Importing a SQLite driver (bun:sqlite / node:sqlite / better-sqlite3) here
-  violates "the business-logic server must be the only SQLite client" (AGENTS.md).
-  Fetch data over the Connect RPC transport instead.
+  Importing a SQLite driver (bun:sqlite / node:sqlite / better-sqlite3) here —
+  statically, via import(), or via require() — violates "the business-logic
+  server must be the only SQLite client" (AGENTS.md). Fetch data over the
+  Connect RPC transport instead.
 files:
   - services/web-ui-ssr/src/**/*.ts
 rule:
   kind: string_fragment
   regex: ^(bun:sqlite|node:sqlite|better-sqlite3|sqlite3)$
-  inside:
-    kind: import_statement
-    stopBy: end
+  any:
+    - inside:
+        kind: import_statement
+        stopBy: end
+    - inside:
+        kind: call_expression
+        stopBy: end
+        has:
+          field: function
+          regex: ^(import|require)$
 
 ---
 id: renderer-owns-no-data-tsx
@@ -32,14 +44,22 @@ language: tsx
 severity: error
 message: >-
   The rendering server owns no data — it must not open a SQLite database.
-  Importing a SQLite driver (bun:sqlite / node:sqlite / better-sqlite3) here
-  violates "the business-logic server must be the only SQLite client" (AGENTS.md).
-  Fetch data over the Connect RPC transport instead.
+  Importing a SQLite driver (bun:sqlite / node:sqlite / better-sqlite3) here —
+  statically, via import(), or via require() — violates "the business-logic
+  server must be the only SQLite client" (AGENTS.md). Fetch data over the
+  Connect RPC transport instead.
 files:
   - services/web-ui-ssr/src/**/*.tsx
 rule:
   kind: string_fragment
   regex: ^(bun:sqlite|node:sqlite|better-sqlite3|sqlite3)$
-  inside:
-    kind: import_statement
-    stopBy: end
+  any:
+    - inside:
+        kind: import_statement
+        stopBy: end
+    - inside:
+        kind: call_expression
+        stopBy: end
+        has:
+          field: function
+          regex: ^(import|require)$
