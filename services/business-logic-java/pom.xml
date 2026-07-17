@@ -324,6 +324,26 @@
         <artifactId>maven-surefire-plugin</artifactId>
       </plugin>
 
+      <!-- Failsafe runs the integration suite (*IT): it boots the REAL service
+           (Main.start(): full avaje-inject graph + Flyway + Helidon WebServer on
+           an ephemeral port) against a Testcontainers postgres:17-alpine and
+           exercises it over raw HTTP. Bound to the integration-test/verify phases
+           so `mvn verify` runs it after the fast surefire unit tests; the version
+           is pinned in the parent's pluginManagement. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>integration-tests</id>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
       <!-- Runnable jar: Main-Class + Class-Path manifest pointing at libs/,
            populated by maven-dependency-plugin below. Start headlessly with
            `java -jar target/business-logic-java.jar` (Class-Path entries are
