@@ -188,9 +188,12 @@
       <!-- PostgreSQL persistence stack. Runtime deps (pgjdbc, HikariCP, Flyway):
            the driver + pool + migrator the service uses at runtime. Declared AFTER
            the BOM imports so the load-bearing junit/grpc-before-helidon ordering is
-           untouched (none of these are managed by those BOMs anyway). pgjdbc pulls
-           com.ongres.scram:scram-client transitively at runtime — needed for the
-           SCRAM-SHA-256 auth Postgres 17 uses by default; do NOT exclude it. -->
+           untouched (none of these are managed by those BOMs anyway). SCRAM-SHA-256
+           auth (Postgres 17's default) needs no extra artifact: pgjdbc SHADES the
+           scram client inside its own jar (org/postgresql/shaded/com/ongres/scram);
+           its com.ongres.scram:scram-client pom dep is optional and NOT pulled.
+           Verified: the libs-only runnable jar authenticates against a vanilla
+           postgres:17-alpine with password_encryption=scram-sha-256. -->
       <dependency>
         <groupId>org.postgresql</groupId>
         <artifactId>postgresql</artifactId>

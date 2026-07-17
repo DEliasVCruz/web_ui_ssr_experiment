@@ -90,6 +90,22 @@ class ArchitectureTest {
             .because("JDBC access lives only in TodoDb (DataSource + migrations) and TodoRepository (SQL); "
                     + "the rest of the service talks to the domain, not the database");
 
+    // Sibling of the JDBC rule for the rest of the persistence infrastructure: Flyway (schema migration) belongs to
+    // TodoDb, and HikariCP (pool construction) to the AppFactory composition root. Nothing else — service, domain,
+    // mapper, config — may reach for migration or pooling machinery.
+    @ArchTest
+    static final ArchRule persistence_infrastructure_is_confined_to_its_owners = noClasses()
+            .that()
+            .doNotHaveFullyQualifiedName("com.webuipoc.businesslogic.todo.TodoDb")
+            .and()
+            .doNotHaveFullyQualifiedName("com.webuipoc.businesslogic.AppFactory")
+            .and(DescribedPredicate.not(GENERATED_CODE))
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage("org.flywaydb..", "com.zaxxer.hikari..")
+            .because("Flyway lives only in TodoDb (migrations) and HikariCP only in AppFactory (pool construction); "
+                    + "the rest of the service talks to the domain, not the persistence infrastructure");
+
     // AGENTS.md layering: StreamObserver is the gRPC unary edge. Only TodoGrpcBridge translates domain calls into the
     // generated StreamObserver-based service; the business core (TodoService, TodoRepository, ...) is plain methods.
     @ArchTest

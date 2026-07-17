@@ -15,8 +15,9 @@ import java.util.Optional;
 
 /**
  * Todo persistence over PostgreSQL, a port of the retired Bun service's
- * {@code src/todo-repository.ts}: same {@code ORDER BY created_at DESC}, same
- * UUIDv7 ids, same "update always bumps updated_at" semantics.
+ * {@code src/todo-repository.ts}: same newest-first ordering ({@code created_at
+ * DESC}, with {@code id DESC} as a deterministic same-millisecond tiebreaker),
+ * same UUIDv7 ids, same "update always bumps updated_at" semantics.
  *
  * <p>Unlike the SQLite original (a single shared connection guarded by
  * {@code synchronized}), each method borrows a connection from the HikariCP pool
@@ -29,8 +30,10 @@ import java.util.Optional;
  *   <li>Timestamps are {@code timestamptz}; the app writes millisecond-truncated
  *       instants (preserving Bun's {@code new Date().toISOString()} granularity)
  *       and reads them back as {@link Instant}.</li>
- *   <li>INSERT/UPDATE use {@code RETURNING *} to read the persisted row back in
- *       one round trip (no follow-up SELECT).</li>
+ *   <li>INSERT/UPDATE use {@code RETURNING} to read the persisted row back in
+ *       one round trip (no follow-up SELECT), and UPDATE null-merges absent
+ *       fields in-statement via {@code COALESCE} (atomic — no read-merge-write
+ *       race across pooled connections).</li>
  * </ul>
  */
 @Singleton
@@ -48,9 +51,12 @@ public final class TodoRepository {
     }
 
     public List<TodoRow> listTodos() {
+        // id DESC tiebreaker: created_at is millisecond-truncated, so same-ms ties
+        // are realistic; UUIDv7 ids are time-ordered, making id DESC the natural
+        // (and deterministic) newest-first order within a tied millisecond.
         try (Connection connection = db.getConnection();
-                PreparedStatement statement =
-                        connection.prepareStatement("SELECT " + COLUMNS + " FROM todos ORDER BY created_at DESC");
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT " + COLUMNS + " FROM todos ORDER BY created_at DESC, id DESC");
                 ResultSet rs = statement.executeQuery()) {
             List<TodoRow> rows = new ArrayList<>();
             while (rs.next()) {
@@ -99,24 +105,23 @@ public final class TodoRepository {
      * {@code fields.title ?? existing.title} / {@code fields.completed === undefined}
      * fallbacks). Like the Bun code, the UPDATE — and therefore the
      * {@code updated_at} bump — happens even when neither field is provided.
+     *
+     * <p>The null-merge happens IN the statement ({@code COALESCE(?, column)}),
+     * not in Java: a read-merge-write across two pooled connections would be a
+     * lost-update race (two concurrent partial updates could silently drop one
+     * field — the old synchronized-single-connection SQLite code serialized
+     * these in-process). One atomic statement removes the race and the extra
+     * round trip; 0 rows updated means the id does not exist (NOT_FOUND at the
+     * service layer, exactly as before).
      */
     public Optional<TodoRow> updateTodo(String id, String title, Boolean completed) {
-        Optional<TodoRow> existingRow = getTodo(id);
-        if (existingRow.isEmpty()) {
-            return Optional.empty();
-        }
-        TodoRow existing = existingRow.get();
-
-        String newTitle = title != null ? title : existing.title();
-        boolean newCompleted = completed == null ? existing.completed() : completed;
-        OffsetDateTime now = nowMillis();
-
         try (Connection connection = db.getConnection();
-                PreparedStatement statement = connection.prepareStatement("UPDATE todos SET title = ?, completed = ?, "
-                        + "updated_at = ? WHERE id = ? RETURNING " + COLUMNS)) {
-            statement.setString(1, newTitle);
-            statement.setBoolean(2, newCompleted);
-            statement.setObject(3, now);
+                PreparedStatement statement = connection.prepareStatement(
+                        "UPDATE todos SET title = COALESCE(?, title), completed = COALESCE(?, completed), "
+                                + "updated_at = ? WHERE id = ? RETURNING " + COLUMNS)) {
+            statement.setString(1, title);
+            statement.setObject(2, completed);
+            statement.setObject(3, nowMillis());
             statement.setString(4, id);
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() ? Optional.of(toTodoRow(rs)) : Optional.empty();

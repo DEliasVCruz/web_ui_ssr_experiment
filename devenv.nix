@@ -364,7 +364,10 @@ in
           kill_port "$WEB_PORT"
           kill_port "$BACKEND_PORT"
           # Force-remove the ephemeral Postgres (no leak even on failure).
-          podman rm -f "$PG_NAME" >/dev/null 2>&1 || true
+          # -v also removes its ANONYMOUS volume: the postgres image declares
+          # VOLUME /var/lib/postgresql/data, and a force-remove preempts --rm's
+          # own anonymous-volume cleanup — without -v every run leaks one volume.
+          podman rm -f -v "$PG_NAME" >/dev/null 2>&1 || true
         }
         trap cleanup EXIT
 
