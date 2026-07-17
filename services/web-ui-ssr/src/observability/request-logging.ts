@@ -121,6 +121,13 @@ function handleRequest(
 		// otherwise throw on an already-settled controller.
 		const reader = response.body.getReader();
 		const finalizeStream = (outcome: string, error?: unknown): void => {
+			// Bail out BEFORE touching the event: the guard protects not just
+			// against a double emitted line but also against silently mutating an
+			// already-emitted event's fields (outcome/error), should a future Bun
+			// ever fire a second terminal callback in violation of the spec.
+			if (emitted) {
+				return;
+			}
 			event.attributes[STREAM_OUTCOME] = outcome;
 			if (error !== undefined) {
 				event.error = toWideEventError(error);
