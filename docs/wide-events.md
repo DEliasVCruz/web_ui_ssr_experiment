@@ -24,6 +24,23 @@ The Java implementation lives in the Connect adapter
 - `TraceParent` / `TraceContext` — the hand-rolled W3C trace-context handling
   (no OpenTelemetry dependency; see "Trace context" below).
 
+## Coverage: what a wide event does and does NOT capture
+
+A wide event is emitted by `WideEventFilter`, which runs only once a request has
+made it into the Helidon routing + filter chain. Consequently:
+
+- **Pre-routing rejections are not captured.** A malformed HTTP prologue / bad
+  request line that Helidon rejects *before* the filter chain runs produces **no
+  wide event**. Those surface (if anywhere) in the **framework log** stream, not
+  here — see [logging.md](./logging.md). Do not assume one wide event per socket
+  that touches the port.
+- **Out-of-request / boot failures are not captured** either (Flyway, HikariCP,
+  startup, shutdown); they are framework logs.
+
+The framework-log stream ([logging.md](./logging.md)) is a **separate** JSON-line
+stream on the same stdout. It shares this stream's naming convention where the
+concepts overlap (notably the `timestamp` key) but is **not** the same schema.
+
 ## Field schema
 
 Serialized with snake_case keys (avaje-jsonb `LowerUnderscore` naming) and

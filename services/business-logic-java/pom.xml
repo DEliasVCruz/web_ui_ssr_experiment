@@ -46,6 +46,45 @@
       <artifactId>helidon-webserver</artifactId>
     </dependency>
 
+    <!-- Framework & out-of-request logging as JSON (task iq2.2). Three parts,
+         all versions from the helidon-dependencies / slf4j BOMs (parent pom):
+
+         * helidon-logging-common (compile): Main directly calls
+           LogConfig.configureRuntime() to load logging.properties BEFORE the
+           Flyway migrations run in the DI-graph build. Already on the classpath
+           transitively via helidon-webserver; declared explicitly because we
+           reference it in source ("declare what you directly use").
+         * helidon-logging-jul (runtime): the JUL LoggingProvider SPI that
+           actually reads the classpath logging.properties, plus the
+           HelidonConsoleHandler + HelidonJsonFormatter named there. Referenced
+           only by name (reflection) from logging.properties and discovered via
+           ServiceLoader, so runtime scope is correct; copy-dependencies
+           (includeScope=runtime) keeps it in target/libs. NOT the rejected
+           jul-to-slf4j bridge — this is Helidon's own JUL machinery.
+         * slf4j-jdk14 (runtime): the SLF4J -> JUL binding. HikariCP (and any
+           pure-SLF4J dep) logs via SLF4J; with no binding present those records
+           hit the NOP logger and are SILENTLY LOST (verified: Hikari pool +
+           connection-failure logs never appeared, and slf4j-api printed its
+           "No SLF4J providers were found" warning at boot). Routing SLF4J -> JUL
+           funnels them into the same JSON stream and silences that warning. This
+           is the OPPOSITE direction of the rejected jul-to-slf4j+logback bridge:
+           JUL stays the single sink. Runtime scope (a logging binding is never a
+           compile dep); BOM-managed to match slf4j-api 2.0.17. -->
+    <dependency>
+      <groupId>io.helidon.logging</groupId>
+      <artifactId>helidon-logging-common</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.helidon.logging</groupId>
+      <artifactId>helidon-logging-jul</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-jdk14</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
     <!-- Generated protobuf messages + gRPC stubs (generated-sources/, emitted by
          `buf generate`); used directly by the mapper and the gRPC bridge. -->
     <dependency>

@@ -74,9 +74,19 @@
   <!-- category/java/bestpractices: idiom + API-misuse rules.         -->
   <!-- ============================================================= -->
   <rule ref="category/java/bestpractices.xml">
-    <!-- System.out is a DELIBERATE, documented choice (task d4n.5): Main.java's
-         startup banner and the test ContractTestServer print to stdout. No logging
-         framework is wired, so this rule (and any System.out ban) is intentionally off. -->
+    <!-- SystemPrintln stays excluded, but its justification changed with task iq2.2.
+         Main no longer prints its startup line to stdout — it now logs via
+         System.Logger, emitted as JSON by the HelidonJsonFormatter (see
+         services/business-logic-java logging.properties + docs/logging.md), so app
+         code is System.out-free. The exclusion now exists SOLELY for the
+         connect-unary-adapter's wide-event path, which is DELIBERATELY independent of
+         the logging framework: WideEventFeature emits each event straight to a
+         System.out PrintStream, and WideEventFilter's last-resort failure notice
+         writes to System.err (the one PrintStream-literal println this rule would
+         flag) precisely so an observability failure never depends on — or is swallowed
+         by — logging config. Re-enabling the rule would require routing that notice
+         through the logger, coupling the intentionally-decoupled emit path to logging;
+         left as-is on purpose. -->
     <exclude name="SystemPrintln"/>
     <!-- The JDBC tests DO verify ResultSet.next() — via JUnit assertions
          (assertTrue(rs.next(), ...)). PMD's CheckResultSet only recognizes if/while

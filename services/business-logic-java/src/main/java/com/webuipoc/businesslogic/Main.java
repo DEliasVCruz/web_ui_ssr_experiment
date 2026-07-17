@@ -8,8 +8,10 @@ import com.webuipoc.connect.WideEventFeature;
 import io.avaje.inject.BeanScope;
 import io.grpc.BindableService;
 import io.helidon.common.media.type.MediaTypes;
+import io.helidon.logging.common.LogConfig;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.http.HttpRouting;
+import java.lang.System.Logger.Level;
 
 /**
  * Entry point for the business-logic-java service (Helidon SE).
@@ -41,11 +43,33 @@ public final class Main {
      */
     static final String WIDE_EVENT_COMPONENT = "business-logic-java";
 
+    /**
+     * App-level logger for the startup line. Routes through {@code java.util.logging}
+     * (the JDK's default {@code System.Logger} backend), so it is emitted as a JSON
+     * line by the {@code HelidonJsonFormatter} configured in {@code logging.properties}
+     * (task iq2.2) — keeping stdout pure JSON. Replaces the former
+     * {@code System.out.println} (the task d4n.5 stdout-purity carve-out is retired now
+     * that framework/app logging emits JSON).
+     */
+    private static final System.Logger LOG = System.getLogger(Main.class.getName());
+
     private Main() {}
 
     public static void main(String[] args) {
-        WebServer server = start();
-        System.out.println("business-logic-java listening on http://localhost:" + server.port());
+        try {
+            WebServer server = start();
+            LOG.log(Level.INFO, "business-logic-java listening on http://localhost:" + server.port());
+        } catch (RuntimeException e) {
+            // A fatal startup failure (task iq2.2) — most visibly an unreachable database:
+            // HikariCP's fail-fast pool init throws while the DI graph is built. Without this
+            // catch it would reach the JVM's default uncaught-exception handler and print a
+            // PLAIN-TEXT stack trace to stderr, breaking the all-JSON stdout/stderr contract.
+            // Logging it here (configureRuntime already ran inside start()) surfaces the failure
+            // as one JSON line with the stack trace in the `exception` field, then exits non-zero.
+            // System.exit is permitted in Main (see tooling/pmd DoNotCallSystemExitOutsideMain).
+            LOG.log(Level.ERROR, "business-logic-java failed to start", e);
+            System.exit(1);
+        }
     }
 
     /**
@@ -69,6 +93,13 @@ public final class Main {
     // detection elsewhere.
     @SuppressWarnings("PMD.CloseResource")
     static WebServer start() {
+        // Framework/out-of-request logging as JSON (task iq2.2). MUST run before the
+        // DI graph is built: Flyway migrates during the TodoDb constructor below, so
+        // configuring logging here is what makes the migration lines (and HikariCP
+        // pool lifecycle) JSON rather than default plain-text JUL. Helidon also calls
+        // this itself later during WebServer.start(), but that is too late for Flyway;
+        // the call is idempotent (LogConfig guards it), so calling it early is safe.
+        LogConfig.configureRuntime();
         // Compile-time DI graph; building it runs Flyway migrations (TodoDb ctor).
         // shutdownHook(true) closes the scope (and the HikariCP pool) on JVM shutdown.
         BeanScope scope = BeanScope.builder().shutdownHook(true).build();
