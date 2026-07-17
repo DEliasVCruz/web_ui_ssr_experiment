@@ -66,6 +66,31 @@ message CreateTodoRequest {
     features.field_presence = EXPLICIT,
     (buf.validate.field).string = {max_len: 1000}
   ];
+  // Optional client-supplied id for the new todo (idempotent create). Explicit
+  // presence: when UNSET the server mints a lowercase UUIDv7 (the default, and
+  // the only path the current UI exercises); when SET the server persists the
+  // supplied id verbatim. The same uuid rule GetTodoRequest.id uses validates
+  // it (case-insensitive; server-minted ids are lowercase — see GetTodoRequest).
+  //
+  // Idempotency contract — FIRST-WRITE-WINS, never an upsert: this id is the
+  // replay key for the offline mutation queue (web_ui_ssr_experiment-1w9). If a
+  // create arrives whose id already exists (a queue entry re-sent after a crash
+  // mid-flush), the server returns the EXISTING row as an ordinary 200 success
+  // and IGNORES any payload difference on the duplicate (a different title on the
+  // replay does NOT overwrite the stored one). This is the honest at-least-once
+  // replay semantic: re-sending the identical queued entry must be a no-op, not a
+  // mutation. created_at/updated_at stay server-minted (server truth for
+  // ordering), so a replayed create never disturbs list order either.
+  //
+  // Security note: the uuid protovalidate rule keeps arbitrary text out of the id
+  // column, and first-write-wins means a client cannot mutate an existing row by
+  // colliding its id (the collision is a read, not a write). Owner-scoping of ids
+  // across tenants is a documented FUTURE concern — this is a single-user
+  // experiment today, so any client may supply any well-formed uuid.
+  string id = 3 [
+    features.field_presence = EXPLICIT,
+    (buf.validate.field).string.uuid = true
+  ];
 }
 
 // CreateTodoResponse is the response message for CreateTodo.
