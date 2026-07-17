@@ -3,6 +3,7 @@ import type { QueryClient } from "@tanstack/solid-query";
 import { createRouter as createSolidRouter } from "@tanstack/solid-router";
 import { setupRouterSsrQueryIntegration } from "@tanstack/solid-router-ssr-query";
 import { routeTree } from "./routeTree.gen";
+import { viewTransitionsEnabled } from "./view-transition";
 
 export interface SsrContext {
 	cssUrls: string[];
@@ -31,6 +32,12 @@ export function createRouter(opts: {
 		routeTree,
 		defaultPreload: "intent",
 		scrollRestoration: true,
+		// Cross-fade route navigations via the View Transitions API (the router's
+		// sanctioned option). `viewTransitionsEnabled()` returns false during SSR
+		// (no `document`), in engines without the API, and under
+		// `prefers-reduced-motion: reduce` — so the router simply never calls
+		// `document.startViewTransition` in those cases (zero behaviour change).
+		defaultViewTransition: viewTransitionsEnabled(),
 		context: {
 			queryClient: opts.queryClient,
 			transport: opts.transport,

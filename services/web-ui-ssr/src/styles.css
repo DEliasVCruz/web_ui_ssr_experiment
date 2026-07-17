@@ -1,1 +1,62 @@
 @layer reset, base, tokens, recipes, utilities;
+
+/*
+ * View Transitions (progressive enhancement).
+ *
+ * Route navigations use the browser-default cross-fade of the ::view-transition
+ * root snapshot. Todo rows each get a per-id `view-transition-name` (set inline
+ * in routes/todos.index.tsx), so list add/remove get a subtle slide+fade here
+ * while surviving rows morph to their new positions via the default group
+ * animation. The universal `*` matches every named group; `root` is the only
+ * other one and always has BOTH snapshots (never :only-child), so the enter/exit
+ * rules below apply only to added/removed rows.
+ *
+ * All custom animation is gated behind `prefers-reduced-motion: no-preference`.
+ * Reduced-motion users additionally never reach this point: the router's
+ * `defaultViewTransition` and `withViewTransition` skip `startViewTransition`
+ * entirely for them, so no transition is captured at all.
+ *
+ * These pseudo-elements live on the ::view-transition tree at the document root
+ * (not on any element), so they are authored as plain global CSS outside Panda's
+ * token system — the sanctioned place for hand-written global/keyframe CSS in
+ * this repo (see entry-client.tsx `import "./styles.css"`).
+ */
+@media (prefers-reduced-motion: no-preference) {
+	/* Entering row: only the "new" snapshot exists (:only-child) — slide+fade in. */
+	::view-transition-new(*):only-child {
+		animation: todo-row-enter 220ms ease both;
+	}
+
+	/* Leaving row: only the "old" snapshot exists (:only-child) — slide+fade out. */
+	::view-transition-old(*):only-child {
+		animation: todo-row-exit 180ms ease both;
+	}
+
+	/* Groups that persist across the transition keep the default morph, just
+	   slightly quicker so the list settles promptly. */
+	::view-transition-group(*) {
+		animation-duration: 220ms;
+	}
+}
+
+@keyframes todo-row-enter {
+	from {
+		opacity: 0;
+		transform: translateY(-0.5rem);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes todo-row-exit {
+	from {
+		opacity: 1;
+		transform: translateY(0);
+	}
+	to {
+		opacity: 0;
+		transform: translateY(0.5rem);
+	}
+}

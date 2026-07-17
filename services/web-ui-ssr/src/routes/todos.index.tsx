@@ -31,8 +31,19 @@ import {
 	updateTodoMutation,
 } from "../queries/todos";
 import { validateTitle } from "../validation/todo";
+import { withViewTransition } from "../view-transition";
 
 const MS_PER_SECOND = 1000;
+
+// A stable, per-todo View Transitions identity so list mutations animate: the
+// browser matches old/new snapshots by name, fading a removed row out, a new
+// row in, and morphing surviving rows to their new positions. Prefixed so the
+// value is a valid CSS <custom-ident> (a bare UUIDv7 id can start with a digit).
+// Set via a plain DOM `style` attribute (below), which is outside Panda's scope,
+// so strictTokens does not apply to this non-token identifier value.
+function viewTransitionName(id: string): string {
+	return `todo-${id}`;
+}
 
 function formatDate(ts: { seconds: number } | undefined): string {
 	if (!ts) return "";
@@ -51,13 +62,19 @@ function AddTodoForm() {
 			// Clear the form on success (was a manual setTitle(""); now form.reset()).
 			form.reset();
 			toast.success("Todo added");
-			void queryClient().invalidateQueries({
-				queryKey: createConnectQueryKey({
-					schema: listTodos,
-					transport: transport(),
-					cardinality: undefined,
+			// Wrap the list-refreshing invalidation in a view transition so the new
+			// row animates in; withViewTransition awaits the refetch, then the browser
+			// captures the added row. Falls back to a plain invalidate where View
+			// Transitions are unavailable or reduced motion is requested.
+			withViewTransition(() =>
+				queryClient().invalidateQueries({
+					queryKey: createConnectQueryKey({
+						schema: listTodos,
+						transport: transport(),
+						cardinality: undefined,
+					}),
 				}),
-			});
+			);
 		},
 		onError: () => {
 			toast.error("Failed to add todo", "Please try again.");
@@ -220,13 +237,18 @@ function TodoList() {
 		...deleteTodoMutation(transport()),
 		onSuccess: (_data, id) => {
 			toast.success("Todo deleted");
-			void queryClient().invalidateQueries({
-				queryKey: createConnectQueryKey({
-					schema: listTodos,
-					transport: transport(),
-					cardinality: undefined,
+			// Animate the row's removal: the view transition captures the list after
+			// the invalidation refetch drops it, so the old row fades/slides out while
+			// surviving rows morph up into place.
+			withViewTransition(() =>
+				queryClient().invalidateQueries({
+					queryKey: createConnectQueryKey({
+						schema: listTodos,
+						transport: transport(),
+						cardinality: undefined,
+					}),
 				}),
-			});
+			);
 			queryClient().removeQueries({
 				queryKey: createConnectQueryKey({
 					schema: getTodo,
@@ -247,7 +269,17 @@ function TodoList() {
 				<ul class={list}>
 					<For each={query.data}>
 						{(todo) => (
-							<li class={item}>
+							<li
+								class={item}
+								// Plain DOM style (outside Panda's scope, so strictTokens does
+								// not apply): a stable per-todo view-transition-name makes each
+								// row its own transition group, so add/remove animate and
+								// surviving rows morph to their new positions. The CSS in
+								// styles.css targets these groups with the universal `*`
+								// selector (root is the only other named group and is never a
+								// sole snapshot, so the row-only rules never touch it).
+								style={{ "view-transition-name": viewTransitionName(todo.id) }}
+							>
 								<Checkbox
 									checked={todo.completed}
 									aria-label={todo.title}
