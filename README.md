@@ -53,3 +53,8 @@ This is a learning exercise and not production code. See `AGENTS.md` for detaile
 The local container runtime (for `docker-compose.yml` and Testcontainers) is
 **podman** — see [`docs/podman.md`](docs/podman.md) for one-time machine setup,
 the env wiring, and the Ryuk decision.
+
+Dependency-version consistency, shared version catalog, and unused-code lints
+(syncpack + bun catalog + sherif + knip) are described in
+[`docs/workspace-hygiene.md`](docs/workspace-hygiene.md) — run them with
+`bun run lint:hygiene` or `devenv tasks run ci:hygiene`.

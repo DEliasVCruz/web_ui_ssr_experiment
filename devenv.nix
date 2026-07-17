@@ -299,6 +299,23 @@ in
       '';
       description = "Run all CI linters (Biome types + ESLint type-checked)";
     };
+    # Workspace hygiene gate: dependency-version consistency (syncpack, the single
+    # authoritative version enforcer), orthogonal monorepo lints (sherif, lint-only —
+    # its version rules are disabled so it never fights syncpack), and unused
+    # files/exports/dependencies (knip). All three are also exposed as root
+    # package.json scripts (lint:deps / lint:workspaces / lint:knip). Config &
+    # rationale: .syncpackrc.json, knip.jsonc, docs/workspace-hygiene.md.
+    "ci:hygiene" = {
+      exec = ''
+        echo "==> syncpack (dependency-version consistency + workspace: pinning)"
+        bunx syncpack lint
+        echo "==> sherif (monorepo lints, version rules delegated to syncpack)"
+        bunx sherif -r multiple-dependency-versions -r unsync-similar-dependencies -r packages-without-package-json --fail-on-warnings
+        echo "==> knip (unused files / exports / dependencies)"
+        bunx knip
+      '';
+      description = "Workspace hygiene: syncpack + sherif + knip (dependency & dead-code lints)";
+    };
     "ci:e2e" = {
       # FULLY self-contained end-to-end Playwright run for web-ui-ssr: on a clean
       # machine with NOTHING pre-running, this task starts its OWN ephemeral

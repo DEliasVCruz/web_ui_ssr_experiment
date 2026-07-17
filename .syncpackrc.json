@@ -1,0 +1,27 @@
+{
+	"$schema": "https://unpkg.com/syncpack@15.3.2/dist/schema.json",
+	"versionGroups": [
+		{
+			"label": "Internal @web-ui-poc/* packages are always consumed via the workspace: protocol",
+			"dependencies": ["@web-ui-poc/**"],
+			"dependencyTypes": ["prod", "dev", "peer"],
+			"pinVersion": "workspace:*"
+		}
+	],
+	"semverGroups": [
+		{
+			"label": "arktype + its JSON-schema helper are pinned to exact versions (runtime validator: patch-level drift is a wire-contract risk)",
+			"dependencies": ["arktype", "@ark/json-schema"],
+			"range": ""
+		},
+		{
+			"label": "Biome is pinned to a tilde range so a minor bump can't silently change lint/format output across the team",
+			"dependencies": ["@biomejs/biome"],
+			"range": "~"
+		},
+		{
+			"label": "Everything else uses caret ranges (repo default)",
+			"range": "^"
+		}
+	]
+}
