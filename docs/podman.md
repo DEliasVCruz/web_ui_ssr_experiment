@@ -109,10 +109,21 @@ then remove `TESTCONTAINERS_RYUK_DISABLED` from `devenv.nix`. Rootful + privileg
 Ryuk lets the reaper run. We avoided this because rootful is a heavier, harder-to-
 reverse change to the developer's machine.
 
-> **Revisit in wdt.5** (the task that adds real Testcontainers tests): choose
-> between rootful + privileged Ryuk and a scheduled/`prune` cleanup task, and
-> re-check whether the machine's default 2 GiB RAM is enough for the test
-> containers it will run.
+> **Revisited in wdt.5** (which added the `*IT` Testcontainers integration suite).
+> **Decision: keep Ryuk disabled + rootless + 2 GiB RAM**, with `podman container
+> prune` as the documented cleanup habit after a hard-killed run. Rationale: the
+> Maven JVMs run on the **host**, not in the VM — the VM only hosts containers, so
+> its memory ceiling governs container footprint alone. `mvn verify` runs at most
+> **one** `postgres:17-alpine` at a time (the jOOQ-codegen throwaway at
+> generate-sources, then surefire's singleton container, then — in a separate
+> forked JVM — the failsafe suite's singleton; never concurrent), and the failsafe
+> `*IT` reuses that same singleton container via `PostgresSupport` rather than
+> starting its own. Measured on the 2 GiB machine: **~1.28 GiB free at idle even
+> with the E2E Chromium container up**, and a full `mvn verify` + `ci:e2e` run
+> (postgres + chromium, the heaviest concurrent set) stayed comfortably within it.
+> Every container is closed by a JVM shutdown hook on clean exit, so a normal run
+> leaks nothing; `--memory 4096` and rootful+privileged-Ryuk remain available (as
+> above) if the container set ever grows.
 
 ## Running docker-compose under podman
 

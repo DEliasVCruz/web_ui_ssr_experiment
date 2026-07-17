@@ -74,6 +74,20 @@ from the repo root — this is the CI gate:
 mvn -q -f pom.xml verify
 ```
 
+Tests run in two tiers, both wired into `mvn verify`:
+
+- **surefire** (`*Test`) — the fast unit + component tests (the adapter's wire
+  contract against an in-memory stub, the jOOQ repository and the config holder
+  against a Testcontainers Postgres, the ArchUnit rules, …).
+- **failsafe** (`*IT`) — the end-to-end integration suite. `TodoServiceContractIT`
+  boots the **real** service (`Main.start()`: full avaje-inject graph + Flyway +
+  Helidon `WebServer` on an ephemeral port) against a Testcontainers
+  `postgres:17-alpine` and drives it over raw HTTP, pinning the Connect wire
+  contract (binary POST, Connect GET, JSON debug codec, error envelopes,
+  protovalidate rejections). It replaces the retired Bun `connect-contract-test.ts`.
+  A running container runtime (the devenv podman machine) is required, exactly as
+  for the repository tests. `mvn verify` runs failsafe after surefire.
+
 ## Run
 
 Headless (the runnable jar — the reactor `mvn package` emits
@@ -201,29 +215,23 @@ Protocol coverage:
   response carries `Access-Control-Allow-Origin` +
   `Access-Control-Expose-Headers` (see `ConnectCors`).
 
-## Cross-client contract test
+## Contract test (integration suite)
 
-The proof that real connect-es clients interoperate: a Bun script
-(`scripts/connect-contract-test.ts`, deps in this directory's `package.json` —
-a workspace member for the TS side only) drives the generated
-`@web-ui-poc/rpc` TodoService client over
-`createConnectTransport({ useBinaryFormat: true })` from
-`@connectrpc/connect-node` against the Java adapter serving the
-`StubTodoService` test fixture.
+The Connect wire contract is pinned end to end by `TodoServiceContractIT`
+(`src/test/java/.../businesslogic/TodoServiceContractIT.java`), a JUnit 5 +
+Testcontainers `*IT` run by failsafe under `mvn verify`. It boots the **real**
+service through the production `Main.start()` seam (full avaje-inject graph +
+Flyway + Helidon `WebServer` on an ephemeral port) against a real
+`postgres:17-alpine`, then drives it over raw `java.net.http.HttpClient` — asserting
+the exact bytes, headers and status codes: binary Connect POST round-trips,
+Connect GET for the idempotent (`NO_SIDE_EFFECTS`) RPCs with the base64url
+`message` parameter, GET rejection (`405`) on mutations, the JSON debug codec,
+the always-JSON error envelope (`not_found` with the preserved message), and
+protovalidate rejections (`invalid_argument` naming the field).
 
-```sh
-# 1. install the adapter to the local repo once, then serve the stub through it
-#    (foreground; PORT overrides 3911). exec:java runs against a single module,
-#    so run it on the service alone rather than a reactor (-am) invocation.
-mvn -q install -DskipTests
-mvn -q -f services/business-logic-java test-compile exec:java \
-    -DmainClass=com.webuipoc.connect.ContractTestServer \
-    -Dexec.classpathScope=test
-
-# 2. in another shell
-bun run --filter @web-ui-poc/business-logic-java contract-test
-```
-
-It asserts round-trips (`getTodo`, `createTodo`, `listTodos`) and that a
-`NOT_FOUND` from the service surfaces as a `ConnectError` with code
-`NotFound` and the original message. CI wiring is a follow-up task.
+This replaces the retired cross-client Bun script (`scripts/connect-contract-test.ts`
+and its `ContractTestServer` harness on a fixed `:3911`): the checks now run in
+CI on every `mvn verify`, against the real database-backed service rather than an
+in-memory stub, with no TS toolchain or manual two-shell dance. (The adapter's
+wire behavior against an in-memory stub is still unit-tested in detail by
+`ConnectUnaryAdapterTest`.)

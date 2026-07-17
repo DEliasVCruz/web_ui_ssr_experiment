@@ -43,7 +43,7 @@ module.exports = {
 					// Generated TanStack Router route tree (loaded by convention)
 					"\\.gen\\.ts$",
 					// Standalone CLI scripts (run directly via `bun run scripts/…`,
-					// e.g. services/business-logic-java/scripts/connect-contract-test.ts)
+					// never statically imported), if any module adds a scripts/ dir.
 					"/scripts/",
 					// Test specs (entry points for the test runner)
 					"\\.(test|spec)\\.[jt]sx?$",

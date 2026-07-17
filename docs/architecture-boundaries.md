@@ -76,7 +76,7 @@ skipped by every other guardrail too.
 | ------- | ---------- |
 | `src/index.ts`, `src/entry-{server,client}.tsx` | Build / runtime entry points (loaded by the bundler / Bun). |
 | `*.gen.ts` | Generated TanStack Router route tree, loaded by convention. |
-| `/scripts/` | Standalone CLI scripts run via `bun run scripts/…` (e.g. `connect-contract-test.ts`). |
+| `/scripts/` | Standalone CLI scripts run via `bun run scripts/…` (never statically imported). |
 | `*.{test,spec}.{ts,tsx}` | Test-runner entry points. |
 | `*.config.{js,cjs,mjs,ts}` | Tool configs loaded by convention (postcss, rsbuild, panda, playwright). |
 | `*.d.ts` | Ambient declaration files. |
@@ -91,19 +91,17 @@ flowchart LR
   subgraph services["services/*  (independently deployable)"]
     ssr["web-ui-ssr/src<br/>product code"]
     e2e["web-ui-ssr/e2e<br/>Playwright specs"]
-    jscript["business-logic-java/scripts<br/>contract-test CLI"]
   end
   subgraph packages["packages/*  (leaf libraries)"]
     rpc["rpc<br/>generated Connect contract"]
   end
 
   ssr -->|imports contract| rpc
-  jscript -->|imports contract| rpc
   e2e -->|drives| ssr
 
   ssr -. "FORBIDDEN&nbsp;·&nbsp;no-e2e-into-src" .-> e2e
   rpc -. "FORBIDDEN&nbsp;·&nbsp;packages-are-leaves" .-> ssr
 
-  linkStyle 0,1,2 stroke:#2e7d32,stroke-width:2px
-  linkStyle 3,4 stroke:#c62828,stroke-width:2px,stroke-dasharray:5 5
+  linkStyle 0,1 stroke:#2e7d32,stroke-width:2px
+  linkStyle 2,3 stroke:#c62828,stroke-width:2px,stroke-dasharray:5 5
 ```

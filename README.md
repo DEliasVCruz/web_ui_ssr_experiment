@@ -12,9 +12,8 @@ Proof-of-concept for the web UI SSR layer of a larger platform.
 │   │   ├── package.json     # Service dependencies
 │   │   └── tsconfig.json    # TypeScript config
 │   └── business-logic-java/ # Java (Helidon SE) backend
-│       ├── src/             # Source code (Maven layout)
-│       ├── pom.xml          # Maven build
-│       └── package.json     # TS-side contract-test workspace
+│       ├── src/             # Source code (Maven layout; *IT integration tests)
+│       └── pom.xml          # Maven build
 ├── package.json             # Root with workspaces
 ├── tsconfig.json            # Shared TypeScript config
 └── docker-compose.yml       # Service orchestration
