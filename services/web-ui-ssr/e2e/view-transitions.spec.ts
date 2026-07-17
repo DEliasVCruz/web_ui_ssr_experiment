@@ -8,15 +8,25 @@ import { test, waitForHydration } from "./fixtures";
 // The spy wraps `Document.prototype.startViewTransition` via addInitScript, which
 // runs before any page script on every load/navigation, so it is in place before
 // the router's first navigation. It counts calls onto `window.__vtCalls`.
+// The real DOM signature of Document.startViewTransition, reused for both the
+// saved original and the patched wrapper.
+type StartViewTransition = Document["startViewTransition"];
+
 const SPY_INIT = () => {
 	const w = window as unknown as { __vtCalls: number };
 	w.__vtCalls = 0;
-	const proto = Document.prototype as Document & {
-		startViewTransition?: (...args: unknown[]) => unknown;
-	};
+	// Cast the prototype so `startViewTransition` reads as a plain function-typed
+	// PROPERTY (not a method), which keeps @typescript-eslint/unbound-method quiet
+	// on the save below — while typing it to the REAL signature (not an
+	// `unknown`-returning shim) so the wrapper stays assignable back to it with no
+	// TS2322 and no ts-ignore.
+	const proto = Document.prototype as Document & { startViewTransition?: StartViewTransition };
 	const original = proto.startViewTransition;
 	if (typeof original === "function") {
-		proto.startViewTransition = function patched(this: Document, ...args: unknown[]) {
+		proto.startViewTransition = function patched(
+			this: Document,
+			...args: Parameters<StartViewTransition>
+		): ViewTransition {
 			w.__vtCalls += 1;
 			return original.apply(this, args);
 		};
