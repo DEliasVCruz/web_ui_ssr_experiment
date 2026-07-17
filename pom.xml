@@ -78,6 +78,14 @@
     <version.plugin.jar>3.4.2</version.plugin.jar>
     <version.plugin.dependency>3.8.1</version.plugin.dependency>
     <version.plugin.exec>3.6.3</version.plugin.exec>
+    <!-- Code style: Spotless drives palantir-java-format (120-col PALANTIR style)
+         across both modules. palantir/google-java-format reach into jdk.compiler
+         internals; Spotless' ModuleHelper opens those packages reflectively at
+         runtime (since spotless-lib 2.26.2), so no add-exports JVM flags are
+         needed on JDK 25 (the devenv toolchain; verified: spotless:check runs
+         clean in the verify gate). -->
+    <version.plugin.spotless>3.8.0</version.plugin.spotless>
+    <version.palantir.javaformat>2.96.0</version.palantir.javaformat>
   </properties>
 
   <dependencyManagement>
@@ -185,7 +193,54 @@
           <artifactId>exec-maven-plugin</artifactId>
           <version>${version.plugin.exec}</version>
         </plugin>
+        <!-- Spotless: version + shared configuration + the verify-phase check
+             binding live here in pluginManagement (repo convention: versions and
+             reusable config are managed once in the parent). The plugin is then
+             activated once in <build><plugins> below so every reactor module —
+             parent included — inherits an active, identically-configured
+             execution without repeating any XML per module.
+
+             Scope is Spotless' java defaults: src/main/java/**/*.java and
+             src/test/java/**/*.java ONLY. The build-helper generated-sources roots
+             (generated-sources/protobuf, generated-sources/grpc) and anything under
+             target/ are NOT matched by those globs, so buf/protoc output is never
+             reformatted or even read. -->
+        <plugin>
+          <groupId>com.diffplug.spotless</groupId>
+          <artifactId>spotless-maven-plugin</artifactId>
+          <version>${version.plugin.spotless}</version>
+          <configuration>
+            <java>
+              <!-- 120-col PALANTIR style is palantir-java-format's default. -->
+              <palantirJavaFormat>
+                <version>${version.palantir.javaformat}</version>
+              </palantirJavaFormat>
+              <!-- palantir sorts imports but does not drop unused ones. -->
+              <removeUnusedImports/>
+            </java>
+          </configuration>
+          <executions>
+            <execution>
+              <id>spotless-check</id>
+              <phase>verify</phase>
+              <goals>
+                <goal>check</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
       </plugins>
     </pluginManagement>
+
+    <plugins>
+      <!-- Activate Spotless for the whole reactor. A bare reference here (config
+           and executions come from pluginManagement above) is inherited by both
+           modules, so `mvn verify` runs spotless:check everywhere and fails the
+           build on any unformatted src/{main,test}/java file. -->
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
   </build>
 </project>
