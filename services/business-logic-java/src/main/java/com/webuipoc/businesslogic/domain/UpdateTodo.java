@@ -1,6 +1,7 @@
 package com.webuipoc.businesslogic.domain;
 
 import io.avaje.validation.constraints.Valid;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Command to update a todo. Nullable-field convention: {@code null} means "field
@@ -19,4 +20,8 @@ import io.avaje.validation.constraints.Valid;
  * edge, so there is nothing left for this layer to add.
  */
 @Valid
-public record UpdateTodo(String id, @NullOrNotBlank String title, String details, Boolean completed) {}
+public record UpdateTodo(
+        String id,
+        @NullOrNotBlank @Nullable String title,
+        @Nullable String details,
+        @Nullable Boolean completed) {}

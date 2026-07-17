@@ -5,6 +5,7 @@ import io.grpc.MethodDescriptor;
 import io.grpc.ServerCall;
 import io.grpc.Status;
 import java.util.concurrent.CompletableFuture;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A {@link ServerCall} that never touches a gRPC transport: it captures what a
@@ -17,12 +18,18 @@ import java.util.concurrent.CompletableFuture;
 final class UnaryCapturingServerCall<ReqT, RespT> extends ServerCall<ReqT, RespT> {
 
     /** Terminal state of the call: {@code close(status, trailers)} plus what was sent before it. */
-    record Outcome<T>(Status status, Metadata headers, T message, Metadata trailers) {}
+    record Outcome<T>(
+            Status status,
+            @Nullable Metadata headers,
+            @Nullable T message,
+            Metadata trailers) {}
 
     private final MethodDescriptor<ReqT, RespT> method;
     private final CompletableFuture<Outcome<RespT>> outcome = new CompletableFuture<>();
-    private volatile Metadata headers;
-    private volatile RespT message;
+    // headers/message are captured lazily as the handler writes to the call; both
+    // are null until (and unless) sendHeaders/sendMessage run.
+    private volatile @Nullable Metadata headers;
+    private volatile @Nullable RespT message;
     private volatile boolean cancelled;
 
     UnaryCapturingServerCall(MethodDescriptor<ReqT, RespT> method) {
@@ -75,7 +82,7 @@ final class UnaryCapturingServerCall<ReqT, RespT> extends ServerCall<ReqT, RespT
      * calling {@link #close(Status, Metadata)} (e.g. the implementation threw
      * from {@code onHalfClose}). No-op if the call already closed.
      */
-    void failIfPending(Status status, Metadata trailers) {
+    void failIfPending(Status status, @Nullable Metadata trailers) {
         outcome.complete(new Outcome<>(status, headers, null, trailers == null ? new Metadata() : trailers));
     }
 }

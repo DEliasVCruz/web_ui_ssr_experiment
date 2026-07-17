@@ -10,6 +10,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Converts between HTTP headers and {@link io.grpc.Metadata} following the
@@ -75,7 +76,7 @@ final class HttpMetadata {
      * {@code prefix} ({@code ""} for leading metadata and error metadata,
      * {@code "trailer-"} for trailing metadata of successful responses).
      */
-    static void writeToResponse(ServerResponse res, Metadata metadata, String prefix) {
+    static void writeToResponse(ServerResponse res, @Nullable Metadata metadata, String prefix) {
         if (metadata == null) {
             return;
         }

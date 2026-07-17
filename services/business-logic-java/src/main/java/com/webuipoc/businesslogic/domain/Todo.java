@@ -1,6 +1,7 @@
 package com.webuipoc.businesslogic.domain;
 
 import java.time.Instant;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Domain representation of a todo, fully decoupled from protobuf and JDBC.
@@ -16,4 +17,10 @@ import java.time.Instant;
  * were provided (an empty string is the "cleared" state). The MapStruct mapper
  * leaves the proto field unset when this is {@code null}.
  */
-public record Todo(String id, String title, boolean completed, String details, Instant createdAt, Instant updatedAt) {}
+public record Todo(
+        String id,
+        String title,
+        boolean completed,
+        @Nullable String details,
+        Instant createdAt,
+        Instant updatedAt) {}

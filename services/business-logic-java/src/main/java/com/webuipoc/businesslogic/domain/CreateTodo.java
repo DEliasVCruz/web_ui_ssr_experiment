@@ -2,6 +2,7 @@ package com.webuipoc.businesslogic.domain;
 
 import io.avaje.validation.constraints.NotBlank;
 import io.avaje.validation.constraints.Valid;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Command to create a todo. {@code @Valid} makes avaje-validator generate a
@@ -20,4 +21,5 @@ import io.avaje.validation.constraints.Valid;
  */
 @Valid
 public record CreateTodo(
-        @NotBlank(message = "must not be blank") String title, String details) {}
+        @NotBlank(message = "must not be blank") String title,
+        @Nullable String details) {}

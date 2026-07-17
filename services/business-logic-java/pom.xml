@@ -34,6 +34,13 @@
       <artifactId>connect-unary-adapter</artifactId>
     </dependency>
 
+    <!-- jSpecify @NullMarked / @Nullable (task d4n.8); read by NullAway in
+         JSpecify mode. Version from the parent's dependencyManagement. -->
+    <dependency>
+      <groupId>org.jspecify</groupId>
+      <artifactId>jspecify</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>io.helidon.webserver</groupId>
       <artifactId>helidon-webserver</artifactId>
@@ -231,6 +238,21 @@
               <groupId>org.mapstruct</groupId>
               <artifactId>mapstruct-processor</artifactId>
               <version>${version.mapstruct}</version>
+            </path>
+            <!-- Error Prone + NullAway (task d4n.8). Added alongside the existing
+                 processors: once any processor is listed, javac stops classpath
+                 auto-discovery, so Error Prone's core (which hosts the NullAway
+                 bug-checker plugin) must be listed here explicitly. Order is
+                 irrelevant to javac; all run each round. Versions from the parent. -->
+            <path>
+              <groupId>com.google.errorprone</groupId>
+              <artifactId>error_prone_core</artifactId>
+              <version>${version.errorprone}</version>
+            </path>
+            <path>
+              <groupId>com.uber.nullaway</groupId>
+              <artifactId>nullaway</artifactId>
+              <version>${version.nullaway}</version>
             </path>
           </annotationProcessorPaths>
         </configuration>

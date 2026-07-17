@@ -13,6 +13,7 @@ import java.util.Optional;
 import org.jooq.DSLContext;
 import org.jooq.SQLDialect;
 import org.jooq.impl.DSL;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Todo persistence over PostgreSQL via the jOOQ typed DSL (task wdt.4), a port
@@ -66,7 +67,12 @@ public final class TodoRepository {
      * "details explicitly cleared").
      */
     public record TodoRow(
-            String id, String title, boolean completed, String details, Instant createdAt, Instant updatedAt) {}
+            String id,
+            String title,
+            boolean completed,
+            @Nullable String details,
+            Instant createdAt,
+            Instant updatedAt) {}
 
     private final DSLContext dsl;
 
@@ -87,7 +93,7 @@ public final class TodoRepository {
         return dsl.selectFrom(TODOS).where(TODOS.ID.eq(id)).fetchOptional(TodoRepository::toTodoRow);
     }
 
-    public TodoRow createTodo(String title, String details) {
+    public TodoRow createTodo(String title, @Nullable String details) {
         OffsetDateTime now = nowMillis();
         // details is bound as-is: null -> the column's NULL "no details" state,
         // a non-null value (including "") -> stored verbatim. The column has no
@@ -123,7 +129,8 @@ public final class TodoRepository {
      * including the empty string — is written through ({@code coalesce("", column)}
      * yields {@code ""}), which is how an update clears the details.
      */
-    public Optional<TodoRow> updateTodo(String id, String title, String details, Boolean completed) {
+    public Optional<TodoRow> updateTodo(
+            String id, @Nullable String title, @Nullable String details, @Nullable Boolean completed) {
         return dsl.update(TODOS)
                 .set(TODOS.TITLE, DSL.coalesce(DSL.val(title, TODOS.TITLE), TODOS.TITLE))
                 .set(TODOS.DETAILS, DSL.coalesce(DSL.val(details, TODOS.DETAILS), TODOS.DETAILS))

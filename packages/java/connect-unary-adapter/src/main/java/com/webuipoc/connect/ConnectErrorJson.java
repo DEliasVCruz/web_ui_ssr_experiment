@@ -1,5 +1,7 @@
 package com.webuipoc.connect;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Serializes Connect unary error bodies.
  *
@@ -23,7 +25,7 @@ final class ConnectErrorJson {
 
     private ConnectErrorJson() {}
 
-    static String toJson(ConnectCode code, String message) {
+    static String toJson(ConnectCode code, @Nullable String message) {
         StringBuilder json =
                 new StringBuilder("{\"code\":\"").append(code.wireCode()).append('"');
         if (message != null && !message.isEmpty()) {

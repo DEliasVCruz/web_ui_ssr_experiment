@@ -28,10 +28,12 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Handles Connect-unary HTTP requests
@@ -306,7 +308,7 @@ final class ConnectUnaryHandler implements Handler {
             byte[] body,
             ServerRequest req,
             ServerResponse res,
-            Long timeoutMs) {
+            @Nullable Long timeoutMs) {
         MethodDescriptor<ReqT, RespT> descriptor = method.getMethodDescriptor();
 
         ReqT request;
@@ -376,24 +378,27 @@ final class ConnectUnaryHandler implements Handler {
             // plain response headers (connect-es sets error.metadata directly
             // on the response header, no "trailer-" prefix).
             Metadata errorMetadata = new Metadata();
-            if (outcome.headers() != null) {
-                errorMetadata.merge(outcome.headers());
+            Metadata errorHeaders = outcome.headers();
+            if (errorHeaders != null) {
+                errorMetadata.merge(errorHeaders);
             }
-            if (outcome.trailers() != null) {
-                errorMetadata.merge(outcome.trailers());
+            Metadata errorTrailers = outcome.trailers();
+            if (errorTrailers != null) {
+                errorMetadata.merge(errorTrailers);
             }
             sendError(res, code, outcome.status().getDescription(), errorMetadata);
             return;
         }
 
-        if (outcome.message() == null) {
+        RespT responseMessage = outcome.message();
+        if (responseMessage == null) {
             sendError(res, ConnectCode.INTERNAL, "unary call closed without a response message", null);
             return;
         }
 
         byte[] responseBody;
         try {
-            responseBody = serializeResponse(descriptor, codec, outcome.message());
+            responseBody = serializeResponse(descriptor, codec, responseMessage);
         } catch (Exception e) {
             sendError(res, ConnectCode.INTERNAL, "failed to encode response message: " + e.getMessage(), null);
             return;
@@ -407,7 +412,7 @@ final class ConnectUnaryHandler implements Handler {
     }
 
     /** Returns the codec for the request, or {@code null} if unsupported (→ 415). */
-    private Codec negotiateCodec(ServerRequest req, ServerMethodDefinition<?, ?> method) {
+    private @Nullable Codec negotiateCodec(ServerRequest req, ServerMethodDefinition<?, ?> method) {
         Optional<String> contentType = req.headers().first(CONTENT_TYPE);
         if (contentType.isEmpty()) {
             return null;
@@ -434,7 +439,7 @@ final class ConnectUnaryHandler implements Handler {
      * {@code null} if unsupported/missing (→ 415). Mirrors
      * {@link #negotiateCodec}'s JSON-support check for the JSON codec.
      */
-    private static Codec codecForEncoding(String encoding, ServerMethodDefinition<?, ?> method) {
+    private static @Nullable Codec codecForEncoding(@Nullable String encoding, ServerMethodDefinition<?, ?> method) {
         if (ENCODING_PROTO.equals(encoding)) {
             return Codec.PROTO;
         }
@@ -478,7 +483,7 @@ final class ConnectUnaryHandler implements Handler {
                 && messagePrototype(descriptor.getResponseMarshaller()) != null;
     }
 
-    private static Message messagePrototype(MethodDescriptor.Marshaller<?> marshaller) {
+    private static @Nullable Message messagePrototype(MethodDescriptor.Marshaller<?> marshaller) {
         if (marshaller instanceof MethodDescriptor.PrototypeMarshaller<?> prototypeMarshaller
                 && prototypeMarshaller.getMessagePrototype() instanceof Message message) {
             return message;
@@ -492,7 +497,11 @@ final class ConnectUnaryHandler implements Handler {
         if (codec == Codec.PROTO) {
             return descriptor.parseRequest(new ByteArrayInputStream(body));
         }
-        Message prototype = messagePrototype(descriptor.getRequestMarshaller());
+        // JSON is only negotiated when supportsJson() confirmed a prototype exists
+        // for both marshallers, so this is non-null on every reachable JSON path.
+        Message prototype = Objects.requireNonNull(
+                messagePrototype(descriptor.getRequestMarshaller()),
+                "JSON codec requires a protobuf request prototype");
         Message.Builder builder = prototype.newBuilderForType();
         JsonFormat.parser().ignoringUnknownFields().merge(new String(body, StandardCharsets.UTF_8), builder);
         return (ReqT) builder.build();
@@ -552,7 +561,7 @@ final class ConnectUnaryHandler implements Handler {
      * @return the timeout in milliseconds, or {@code null} for no timeout
      * @throws IllegalArgumentException if the header value is malformed
      */
-    private static Long parseTimeoutMs(Optional<String> header) {
+    private static @Nullable Long parseTimeoutMs(Optional<String> header) {
         if (header.isEmpty()) {
             return null;
         }
@@ -565,12 +574,17 @@ final class ConnectUnaryHandler implements Handler {
         return Long.parseLong(value);
     }
 
-    private static void sendError(ServerResponse res, ConnectCode code, String message, Metadata metadata) {
+    private static void sendError(
+            ServerResponse res, ConnectCode code, @Nullable String message, @Nullable Metadata metadata) {
         sendError(res, code.httpStatus(), code, message, metadata);
     }
 
     private static void sendError(
-            ServerResponse res, int httpStatus, ConnectCode code, String message, Metadata metadata) {
+            ServerResponse res,
+            int httpStatus,
+            ConnectCode code,
+            @Nullable String message,
+            @Nullable Metadata metadata) {
         if (metadata != null) {
             HttpMetadata.writeToResponse(res, metadata, "");
         }
@@ -579,7 +593,7 @@ final class ConnectUnaryHandler implements Handler {
                 .send(ConnectErrorJson.toJson(code, message).getBytes(StandardCharsets.UTF_8));
     }
 
-    private static void notifyCancel(ServerCall.Listener<?> listener) {
+    private static void notifyCancel(ServerCall.@Nullable Listener<?> listener) {
         if (listener == null) {
             return;
         }
@@ -590,7 +604,7 @@ final class ConnectUnaryHandler implements Handler {
         }
     }
 
-    private static void notifyComplete(ServerCall.Listener<?> listener) {
+    private static void notifyComplete(ServerCall.@Nullable Listener<?> listener) {
         if (listener == null) {
             return;
         }

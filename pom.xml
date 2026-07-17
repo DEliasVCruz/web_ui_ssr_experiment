@@ -133,6 +133,21 @@
     <version.pmd>7.26.0</version.pmd>
     <version.plugin.checkstyle>3.6.0</version.plugin.checkstyle>
     <version.checkstyle>13.8.0</version.checkstyle>
+
+    <!-- Error Prone + NullAway + jSpecify (task d4n.8). Error Prone 2.50.0 is the
+         current GA (2026-06); it requires JDK 21+ and runs on the devenv JDK 25
+         toolchain, but reaches into jdk.compiler internals, so the ten
+         add-exports/add-opens flags in .mvn/jvm.config are REQUIRED on JDK 16+
+         (they apply to the Maven JVM that hosts the in-process javac; fork=false).
+         The -XDaddTypeAnnotationsToSymbol=true compilerArg (below) is required so
+         type-use annotations are written to symbols on JDK 21+ — mandatory for
+         NullAway JSpecify mode to read @Nullable use-site annotations.
+         NullAway 0.13.7 needs Error Prone >= 2.36 and JDK 17+; its JSpecify mode
+         needs JDK 22+ (satisfied by JDK 25). jSpecify 1.0.0 supplies @NullMarked /
+         @Nullable. -->
+    <version.errorprone>2.50.0</version.errorprone>
+    <version.nullaway>0.13.7</version.nullaway>
+    <version.jspecify>1.0.0</version.jspecify>
   </properties>
 
   <dependencyManagement>
@@ -203,6 +218,15 @@
         <groupId>com.webuipoc</groupId>
         <artifactId>connect-unary-adapter</artifactId>
         <version>${project.version}</version>
+      </dependency>
+
+      <!-- jSpecify (task d4n.8): the @NullMarked / @Nullable annotations that
+           NullAway reads in JSpecify mode. CLASS-retention annotations; a normal
+           compile-scope dep in every module whose packages are @NullMarked. -->
+      <dependency>
+        <groupId>org.jspecify</groupId>
+        <artifactId>jspecify</artifactId>
+        <version>${version.jspecify}</version>
       </dependency>
 
       <!-- ArchUnit (test scope in the consuming modules). Standalone pin, like
@@ -285,6 +309,31 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
           <version>${version.plugin.compiler}</version>
+          <!-- Error Prone (task d4n.8). Shared compilerArgs inherited by BOTH
+               modules (neither overrides <compilerArgs>). The error_prone_core (and
+               nullaway) annotationProcessorPaths are declared per-module, NOT here:
+               each module also lists its own processors (avaje/mapstruct in the
+               service) and a pluginManagement processor list would be REPLACED, not
+               merged, by the module's list — so we spell the full set out per module
+               to make processor discovery explicit and drop-proof.
+
+               -XDcompilePolicy=simple is mandatory for Error Prone. javac runs
+               in-process (fork=false, the default); the required jdk.compiler
+               add-exports/add-opens live in .mvn/jvm.config so they apply to the
+               Maven JVM hosting javac. -XDaddTypeAnnotationsToSymbol=true is required
+               on JDK 21+ for type-use annotations (NullAway JSpecify mode).
+               -XepExcludedPaths drops every generated-sources tree (buf protobuf/grpc
+               under <module>/generated-sources, jOOQ + avaje/mapstruct output under
+               target/generated-sources) from Error Prone analysis — the same
+               by-construction exclusion PMD/Checkstyle apply. -->
+          <configuration>
+            <compilerArgs>
+              <arg>-XDcompilePolicy=simple</arg>
+              <arg>--should-stop=ifError=FLOW</arg>
+              <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+              <arg>-Xplugin:ErrorProne -XepExcludedPaths:.*/generated-sources/.* -Xep:NullAway:ERROR -XepOpt:NullAway:OnlyNullMarked -XepOpt:NullAway:JSpecifyMode=true</arg>
+            </compilerArgs>
+          </configuration>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>

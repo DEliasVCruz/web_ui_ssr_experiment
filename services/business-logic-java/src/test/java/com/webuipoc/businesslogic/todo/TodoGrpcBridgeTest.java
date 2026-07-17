@@ -2,6 +2,7 @@ package com.webuipoc.businesslogic.todo;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -288,9 +289,9 @@ class TodoGrpcBridgeTest {
                         .setTitle("")
                         .build()));
         assertEquals(Status.Code.INVALID_ARGUMENT, e.getStatus().getCode());
-        assertTrue(
-                e.getStatus().getDescription().contains("title"),
-                "description should name the title field: " + e.getStatus().getDescription());
+        String description = e.getStatus().getDescription();
+        assertNotNull(description, "an INVALID_ARGUMENT status must carry a description");
+        assertTrue(description.contains("title"), "description should name the title field: " + description);
     }
 
     @Test
