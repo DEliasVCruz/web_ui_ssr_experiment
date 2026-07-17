@@ -1,5 +1,6 @@
 import { Code, ConnectError, type Transport } from "@connectrpc/connect";
 import { callUnaryMethod, createConnectQueryKey } from "@connectrpc/connect-query-core";
+import type { QueryClient } from "@tanstack/solid-query";
 import type { Todo } from "@web-ui-poc/rpc/gen/todo/v1/todo_pb";
 import {
 	createTodo as createTodoMethod,
@@ -8,7 +9,67 @@ import {
 	listTodos,
 	updateTodo as updateTodoMethod,
 } from "@web-ui-poc/rpc/gen/todo/v1/todo-TodoService_connectquery";
-import { runAction } from "../observability/browser-events";
+import { type CapturedActionContext, runActionWithContext } from "../observability/browser-events";
+
+// Stable mutation keys (task 1w9.4). Every offline-capable mutation is KEYED so
+// (a) its paused state can be dehydrated to IndexedDB and rehydrated, and (b) a
+// rehydrated mutation resolves its `mutationFn` + reconciliation handlers from
+// `setMutationDefaults(key, …)` (see src/queue/mutation-defaults.ts) even though
+// the component that created it isn't mounted. Toggle and edit are both
+// UpdateTodo but get DISTINCT keys: they are different user actions and the list
+// reads pending toggles by key via useMutationState.
+export const CREATE_TODO_KEY = ["createTodo"] as const;
+export const TOGGLE_TODO_KEY = ["toggleTodo"] as const;
+export const EDIT_TODO_KEY = ["editTodoDetails"] as const;
+export const DELETE_TODO_KEY = ["deleteTodo"] as const;
+
+// Mutation variables carry the enqueue-time trace context as `__trace` (task
+// 1w9.4 §4.4): captured when the user acts, PERSISTED with the paused mutation,
+// and replayed via runActionWithContext so a queued RPC reuses the original
+// trace_id. `create` also carries the client-minted `id` (§4.1) so the optimistic
+// row is final from the first onMutate and replay is byte-identical.
+export interface CreateTodoVars {
+	readonly id: string;
+	readonly title: string;
+	readonly __trace: CapturedActionContext;
+}
+export interface UpdateTodoVars {
+	readonly id: string;
+	readonly title?: string;
+	readonly completed?: boolean;
+	readonly details?: string;
+	readonly __trace: CapturedActionContext;
+}
+export interface DeleteTodoVars {
+	readonly id: string;
+	readonly __trace: CapturedActionContext;
+}
+
+function isOffline(): boolean {
+	return typeof navigator !== "undefined" && !navigator.onLine;
+}
+
+/**
+ * The a4a.3 keep-pending-until-refetch invalidation, OFFLINE-GUARDED (1w9.4
+ * design §4.5). Online it RETURNS the invalidation promise so query-core holds
+ * the mutation `pending` until the refreshed server truth lands (the a4a.3
+ * no-bounce / no-vanish guarantee). Offline it fires the invalidation but returns
+ * `undefined`, so a mutation that happens to settle while disconnected is never
+ * wedged `pending` forever on a refetch that cannot complete.
+ */
+export function settleInvalidate(
+	queryClient: QueryClient,
+	keys: readonly (readonly unknown[])[],
+): Promise<unknown> | undefined {
+	const invalidation = Promise.all(
+		keys.map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+	);
+	if (isOffline()) {
+		void invalidation;
+		return undefined;
+	}
+	return invalidation;
+}
 
 /**
  * The shape the query cache actually holds for a todo: the generated `Todo` but
@@ -78,20 +139,28 @@ export function todosQueryOptions(transport: Transport) {
 
 export function createTodoMutation(transport: Transport) {
 	return {
-		// Wrapped in a user-action scope (task iq2.4): one trace per create, its RPC
-		// carrying a child `traceparent`, and one browser wide event on completion.
-		mutationFn: (title: string) =>
-			runAction("create_todo", async () => {
-				const response = await callUnaryMethod(transport, createTodoMethod, { title });
+		// Replayed under the ENQUEUE-time trace (task 1w9.4 §4.4): one trace per
+		// create — captured at mutate(), carried in `__trace`, reused here whether
+		// the RPC flies live or is flushed from the queue — its RPC carrying a child
+		// `traceparent` and emitting exactly one browser wide event when it flies.
+		// The client-minted `id` is sent verbatim (never `""`, which is a guaranteed
+		// 400): the backend echoes it (idempotent first-write-wins). Reconcile from
+		// the RESPONSE todo — first-write-wins may return a pre-existing row.
+		mutationFn: (vars: CreateTodoVars) =>
+			runActionWithContext(vars.__trace, async () => {
+				const response = await callUnaryMethod(transport, createTodoMethod, {
+					id: vars.id,
+					title: vars.title,
+				});
 				return response.todo;
 			}),
 	};
 }
 
 // UpdateTodo backs two distinct user actions — a list-row completion TOGGLE and a
-// details EDIT — so the caller names which, giving each its own action label on
-// the browser wide event (task iq2.4).
-export function updateTodoMutation(transport: Transport, action: string) {
+// details EDIT — distinguished by the captured `__trace.action` label (task
+// iq2.4) and by their distinct mutation keys.
+export function updateTodoMutation(transport: Transport) {
 	return {
 		// `details` is threaded through explicit-presence semantics: OMIT the key
 		// (undefined) to leave stored details unchanged; pass `""` to deliberately
@@ -99,9 +168,12 @@ export function updateTodoMutation(transport: Transport, action: string) {
 		// explicitly and include `details` ONLY when the user edited it — never
 		// spread a cached todo in, whose inherited `details: ""` would silently
 		// clear stored content. See a4a.1 field guide #2.
-		mutationFn: (vars: { id: string; title?: string; completed?: boolean; details?: string }) =>
-			runAction(action, async () => {
-				const response = await callUnaryMethod(transport, updateTodoMethod, vars);
+		mutationFn: (vars: UpdateTodoVars) =>
+			runActionWithContext(vars.__trace, async () => {
+				// Strip the transport-only `__trace` before it hits the wire (leading
+				// underscore ⇒ intentionally unused local).
+				const { __trace, ...request } = vars;
+				const response = await callUnaryMethod(transport, updateTodoMethod, request);
 				return response.todo;
 			}),
 	};
@@ -109,9 +181,9 @@ export function updateTodoMutation(transport: Transport, action: string) {
 
 export function deleteTodoMutation(transport: Transport) {
 	return {
-		mutationFn: (id: string) =>
-			runAction("delete_todo", async () => {
-				await callUnaryMethod(transport, deleteTodoMethod, { id });
+		mutationFn: (vars: DeleteTodoVars) =>
+			runActionWithContext(vars.__trace, async () => {
+				await callUnaryMethod(transport, deleteTodoMethod, { id: vars.id });
 			}),
 	};
 }

@@ -5,6 +5,8 @@ import { hydrate, render } from "solid-js/web";
 import { type ActionHandle, beginAction, endAction } from "./observability/browser-events";
 import { createQueryClient } from "./query-client";
 import { createIdbQueryPersister } from "./query-persister";
+import { registerMutationDefaults } from "./queue/mutation-defaults";
+import { installOfflineMutationQueue } from "./queue/mutation-persister";
 import { createRouter } from "./router";
 import { getClientTransport } from "./transport-client";
 
@@ -31,9 +33,23 @@ const preloadScriptUrls = Array.from(
 // unchanged). The persisterFn restores each query from IndexedDB on its first
 // fetch — after SSR hydration, and only when the query has no data yet — so the
 // dehydrated SSR payload is never clobbered by staler persisted data.
+const transport = getClientTransport();
+const queryClient = createQueryClient({ persister: createIdbQueryPersister().persisterFn });
+
+// ─── Offline mutation queue (task 1w9.4) ──────────────────────────────────────
+// Register per-mutation-key defaults BEFORE restoring/resuming: a paused mutation
+// persisted to IndexedDB lost its functions, so on rehydrate it resolves its
+// mutationFn + reconciliation handlers by key (setMutationDefaults). Then install
+// the queue — subscribe to persist paused mutations, resume on the `online` event,
+// and flush any mutation that survived a previous document's reload (FIFO). Client
+// -only, and kept section-contained (a sibling worktree adds SW registration here).
+registerMutationDefaults(queryClient, transport);
+void installOfflineMutationQueue(queryClient);
+// ──────────────────────────────────────────────────────────────────────────────
+
 const router = createRouter({
-	transport: getClientTransport(),
-	queryClient: createQueryClient({ persister: createIdbQueryPersister().persisterFn }),
+	transport,
+	queryClient,
 	ssrContext: { cssUrls, scriptUrls: [], preloadScriptUrls },
 });
 
