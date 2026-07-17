@@ -3,6 +3,7 @@ import { RouterClient } from "@tanstack/solid-router/ssr/client";
 import { hydrate } from "solid-js/web";
 import { type ActionHandle, beginAction, endAction } from "./observability/browser-events";
 import { createQueryClient } from "./query-client";
+import { createIdbQueryPersister } from "./query-persister";
 import { createRouter } from "./router";
 import { getClientTransport } from "./transport-client";
 
@@ -24,9 +25,14 @@ const preloadScriptUrls = Array.from(
 	.map((link) => link.getAttribute("href"))
 	.filter((href): href is string => href !== null);
 
+// The IndexedDB per-query persister is attached CLIENT-ONLY (entry-server never
+// imports query-persister, so the server bundle carries no idb-keyval and SSR is
+// unchanged). The persisterFn restores each query from IndexedDB on its first
+// fetch — after SSR hydration, and only when the query has no data yet — so the
+// dehydrated SSR payload is never clobbered by staler persisted data.
 const router = createRouter({
 	transport: getClientTransport(),
-	queryClient: createQueryClient(),
+	queryClient: createQueryClient({ persister: createIdbQueryPersister().persisterFn }),
 	ssrContext: { cssUrls, scriptUrls: [], preloadScriptUrls },
 });
 
