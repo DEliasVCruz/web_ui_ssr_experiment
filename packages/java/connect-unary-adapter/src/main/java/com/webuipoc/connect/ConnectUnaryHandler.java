@@ -152,9 +152,13 @@ final class ConnectUnaryHandler implements Handler {
         if (method == null) {
             // 404 so plain HTTP clients see "not found"; the body carries the
             // Connect code the spec's HTTP-to-Connect table infers from 404.
-            sendError(res, 404, ConnectCode.UNIMPLEMENTED, "no unary RPC " + path + " on this server", null);
+            sendError(req, res, 404, ConnectCode.UNIMPLEMENTED, "no unary RPC " + path + " on this server", null);
             return;
         }
+
+        // Enrich the wide-event (if the WideEventFilter registered one) with the
+        // resolved RPC method now that it is known; a no-op otherwise.
+        WideEvents.rpcMethod(req, method.getMethodDescriptor().getFullMethodName());
 
         if (req.prologue().method() == Method.GET) {
             handleGet(req, res, method, path);
@@ -177,6 +181,7 @@ final class ConnectUnaryHandler implements Handler {
         if (!method.getMethodDescriptor().isSafe()) {
             res.header(ALLOW, "POST");
             sendError(
+                    req,
                     res,
                     405,
                     ConnectCode.UNIMPLEMENTED,
@@ -191,6 +196,7 @@ final class ConnectUnaryHandler implements Handler {
         // so this parameter both selects the protocol and its version.
         if (query.first(PARAM_CONNECT).isEmpty()) {
             sendError(
+                    req,
                     res,
                     ConnectCode.INVALID_ARGUMENT,
                     "missing required parameter: set connect to \"" + CONNECT_VERSION_VALUE + "\"",
@@ -200,6 +206,7 @@ final class ConnectUnaryHandler implements Handler {
         String connect = query.first(PARAM_CONNECT).get();
         if (!CONNECT_VERSION_VALUE.equals(connect.trim())) {
             sendError(
+                    req,
                     res,
                     ConnectCode.INVALID_ARGUMENT,
                     "connect must be \"" + CONNECT_VERSION_VALUE + "\": got \"" + connect + "\"",
@@ -211,6 +218,7 @@ final class ConnectUnaryHandler implements Handler {
         String compression = query.first(PARAM_COMPRESSION).map(String::trim).orElse(ENCODING_IDENTITY);
         if (!ENCODING_IDENTITY.equalsIgnoreCase(compression)) {
             sendError(
+                    req,
                     res,
                     ConnectCode.UNIMPLEMENTED,
                     "unsupported compression \"" + compression + "\"; supported compressions are: identity",
@@ -231,7 +239,7 @@ final class ConnectUnaryHandler implements Handler {
             // connect-es keeps the connect-timeout-ms header on GET requests.
             timeoutMs = parseTimeoutMs(req.headers().first(CONNECT_TIMEOUT_MS));
         } catch (IllegalArgumentException e) {
-            sendError(res, ConnectCode.INVALID_ARGUMENT, e.getMessage(), null);
+            sendError(req, res, ConnectCode.INVALID_ARGUMENT, e.getMessage(), null);
             return;
         }
 
@@ -241,6 +249,7 @@ final class ConnectUnaryHandler implements Handler {
             body = decodeMessageParam(query, base64);
         } catch (IllegalArgumentException e) {
             sendError(
+                    req,
                     res,
                     ConnectCode.INVALID_ARGUMENT,
                     "failed to decode base64 message parameter: " + e.getMessage(),
@@ -258,6 +267,7 @@ final class ConnectUnaryHandler implements Handler {
         if (protocolVersion.isPresent()
                 && !SUPPORTED_PROTOCOL_VERSION.equals(protocolVersion.get().trim())) {
             sendError(
+                    req,
                     res,
                     ConnectCode.INVALID_ARGUMENT,
                     "connect-protocol-version must be \"1\": got \"" + protocolVersion.get() + "\"",
@@ -272,6 +282,7 @@ final class ConnectUnaryHandler implements Handler {
                 req.headers().first(CONTENT_ENCODING).orElse(ENCODING_IDENTITY).trim();
         if (!ENCODING_IDENTITY.equalsIgnoreCase(encoding)) {
             sendError(
+                    req,
                     res,
                     ConnectCode.UNIMPLEMENTED,
                     "unsupported content-encoding \"" + encoding + "\"; supported encodings are: identity",
@@ -290,7 +301,7 @@ final class ConnectUnaryHandler implements Handler {
         try {
             timeoutMs = parseTimeoutMs(req.headers().first(CONNECT_TIMEOUT_MS));
         } catch (IllegalArgumentException e) {
-            sendError(res, ConnectCode.INVALID_ARGUMENT, e.getMessage(), null);
+            sendError(req, res, ConnectCode.INVALID_ARGUMENT, e.getMessage(), null);
             return;
         }
 
@@ -316,6 +327,7 @@ final class ConnectUnaryHandler implements Handler {
             request = parseRequest(descriptor, codec, body);
         } catch (Exception e) {
             sendError(
+                    req,
                     res,
                     ConnectCode.INVALID_ARGUMENT,
                     "failed to decode " + codec.name().toLowerCase(Locale.ROOT) + " request message: " + e.getMessage(),
@@ -330,11 +342,11 @@ final class ConnectUnaryHandler implements Handler {
             } catch (ValidationException e) {
                 // Validator infrastructure failure (rule compilation/evaluation),
                 // not a constraint violation: the request may well be fine.
-                sendError(res, ConnectCode.INTERNAL, "request validation failed: " + e.getMessage(), null);
+                sendError(req, res, ConnectCode.INTERNAL, "request validation failed: " + e.getMessage(), null);
                 return;
             }
             if (!validation.isSuccess()) {
-                sendError(res, ConnectCode.INVALID_ARGUMENT, describeViolations(validation), null);
+                sendError(req, res, ConnectCode.INVALID_ARGUMENT, describeViolations(validation), null);
                 return;
             }
         }
@@ -359,6 +371,7 @@ final class ConnectUnaryHandler implements Handler {
             call.cancel();
             notifyCancel(listener);
             sendError(
+                    req,
                     res,
                     ConnectCode.DEADLINE_EXCEEDED,
                     "the operation timed out after " + timeoutMs + "ms (connect-timeout-ms)",
@@ -368,7 +381,7 @@ final class ConnectUnaryHandler implements Handler {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
-            sendError(res, ConnectCode.INTERNAL, "in-process call failed: " + e.getMessage(), null);
+            sendError(req, res, ConnectCode.INTERNAL, "in-process call failed: " + e.getMessage(), null);
             return;
         }
 
@@ -391,13 +404,13 @@ final class ConnectUnaryHandler implements Handler {
             if (errorTrailers != null) {
                 errorMetadata.merge(errorTrailers);
             }
-            sendError(res, code, outcome.status().getDescription(), errorMetadata);
+            sendError(req, res, code, outcome.status().getDescription(), errorMetadata);
             return;
         }
 
         RespT responseMessage = outcome.message();
         if (responseMessage == null) {
-            sendError(res, ConnectCode.INTERNAL, "unary call closed without a response message", null);
+            sendError(req, res, ConnectCode.INTERNAL, "unary call closed without a response message", null);
             return;
         }
 
@@ -405,7 +418,7 @@ final class ConnectUnaryHandler implements Handler {
         try {
             responseBody = serializeResponse(descriptor, codec, responseMessage);
         } catch (Exception e) {
-            sendError(res, ConnectCode.INTERNAL, "failed to encode response message: " + e.getMessage(), null);
+            sendError(req, res, ConnectCode.INTERNAL, "failed to encode response message: " + e.getMessage(), null);
             return;
         }
 
@@ -580,16 +593,24 @@ final class ConnectUnaryHandler implements Handler {
     }
 
     private static void sendError(
-            ServerResponse res, ConnectCode code, @Nullable String message, @Nullable Metadata metadata) {
-        sendError(res, code.httpStatus(), code, message, metadata);
+            ServerRequest req,
+            ServerResponse res,
+            ConnectCode code,
+            @Nullable String message,
+            @Nullable Metadata metadata) {
+        sendError(req, res, code.httpStatus(), code, message, metadata);
     }
 
     private static void sendError(
+            ServerRequest req,
             ServerResponse res,
             int httpStatus,
             ConnectCode code,
             @Nullable String message,
             @Nullable Metadata metadata) {
+        // Enrich the wide-event (if one is registered) with the Connect code the
+        // request failed with, before the response is written; a no-op otherwise.
+        WideEvents.connectCode(req, code.wireCode());
         if (metadata != null) {
             HttpMetadata.writeToResponse(res, metadata, "");
         }

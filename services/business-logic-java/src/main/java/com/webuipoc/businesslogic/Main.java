@@ -4,6 +4,7 @@ import com.webuipoc.businesslogic.config.ServiceConfig;
 import com.webuipoc.businesslogic.todo.TodoDb;
 import com.webuipoc.businesslogic.todo.TodoGrpcBridge;
 import com.webuipoc.connect.ConnectUnaryFeature;
+import com.webuipoc.connect.WideEventFeature;
 import io.avaje.inject.BeanScope;
 import io.grpc.BindableService;
 import io.helidon.common.media.type.MediaTypes;
@@ -31,6 +32,14 @@ import io.helidon.webserver.http.HttpRouting;
 public final class Main {
 
     static final String HEALTH_JSON = "{\"status\":\"ok\"}";
+
+    /**
+     * The {@code component} tag on every wide-event log line (task iq2.1): this
+     * service's identity. Supplied to the service-agnostic adapter's
+     * {@link WideEventFeature} from the composition root rather than hardcoded in
+     * the adapter, so the adapter stays reusable.
+     */
+    static final String WIDE_EVENT_COMPONENT = "business-logic-java";
 
     private Main() {}
 
@@ -78,6 +87,10 @@ public final class Main {
 
     /** The production routing: Connect adapter over {@code todoService} + {@code GET /health}. */
     static void routing(HttpRouting.Builder routing, BindableService todoService) {
+        // Wide-event request logging (task iq2.1): one structured JSON line per
+        // request to stdout. Its high-weight feature installs the outermost filter
+        // so it wraps the whole request (including the Connect adapter + /health).
+        routing.addFeature(WideEventFeature.create(WIDE_EVENT_COMPONENT));
         routing.addFeature(ConnectUnaryFeature.create(todoService));
         routing.get("/health", (req, res) -> {
             res.headers().contentType(MediaTypes.APPLICATION_JSON);
