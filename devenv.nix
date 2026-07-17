@@ -75,6 +75,13 @@ in
     pkgs.protoc-gen-grpc-java
     # JSON Schema codegen for the frontend form validator (see derivation above).
     protoc-gen-jsonschema
+    # ast-grep: cross-language (TS + Java) structural pattern engine. Encodes the
+    # machine-checkable AGENTS.md working agreements that the other guardrails do
+    # NOT cover — ArchUnit owns Java layering, Panda strictTokens owns styling
+    # values, the strict tsconfig owns type discipline. Config: sgconfig.yml +
+    # rules/. Wired as the `ast-grep` git hook below; run standalone (CI) with
+    # `ast-grep scan`.
+    pkgs.ast-grep
   ];
 
   # Shared, non-secret env vars
@@ -561,6 +568,17 @@ in
       entry = "bunx eslint --no-warn-ignored --cache --cache-location node_modules/.cache/eslint";
       pass_filenames = true;
       types_or = [ "ts" "tsx" ];
+    };
+    # ast-grep structural rules (sgconfig.yml + rules/). A commit that touches any
+    # TS/TSX/Java file runs a FULL repo scan (pass_filenames = false) — the scan is
+    # milliseconds, and a whole-repo pass means a violation can't slip in via a file
+    # that wasn't itself staged. Standalone CI invocation is the same `ast-grep scan`.
+    ast-grep = {
+      enable = true;
+      name = "ast-grep";
+      entry = "ast-grep scan";
+      pass_filenames = false;
+      types_or = [ "ts" "tsx" "java" ];
     };
   };
 }

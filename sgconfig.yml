@@ -1,0 +1,21 @@
+# ast-grep project configuration.
+#
+# Cross-language (TypeScript + Java) structural rule engine for this repo. Each
+# rule under rules/ encodes one machine-checkable AGENTS.md working agreement
+# that the other guardrails do NOT cover (ArchUnit → Java layering, Panda
+# strictTokens → styling values, strict tsconfig → type discipline). See
+# rules/README.md for the rule → agreement map.
+#
+# Run standalone (CI gate):  ast-grep scan
+# Runs automatically as the `ast-grep` git hook (devenv.nix git-hooks.hooks).
+#
+# Generated / build output is never scanned, by TWO independent mechanisms:
+#   1. ast-grep's file discovery honours .gitignore, and every generated tree
+#      (packages/rpc/gen, services/business-logic-java/generated-sources,
+#      target/, dist/, node_modules/, styled-system/) is gitignored.
+#   2. Belt-and-braces: every rule additionally pins `files:` to the hand-written
+#      source roots (services/**/src/... , packages/java/*/src/main), so a
+#      generated file can never trip a rule even if it is present on disk and
+#      un-ignored. The two mechanisms are redundant on purpose.
+ruleDirs:
+  - rules

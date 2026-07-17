@@ -1,0 +1,57 @@
+# Agreement (AGENTS.md "Out of scope (do not add)"):
+#   "Real authentication / JWT middleware" — explicitly listed as belonging to
+#   the broader platform and NOT to be introduced in this experiment. AGENTS.md
+#   warns to "stop and flag it" if you reach for one of these.
+# This rule bans importing a JWT / auth library in BOTH languages — the TS
+# renderer (jsonwebtoken / jose) and the Java backend (io.jsonwebtoken /
+# com.auth0.jwt / com.nimbusds).
+#
+# Not covered elsewhere: no existing guardrail bans an auth library; this is a
+# scope-discipline rule expressed once across TS and Java.
+id: no-jwt-auth-ts
+language: typescript
+severity: error
+message: >-
+  Real authentication / JWT middleware is OUT OF SCOPE for this experiment
+  (AGENTS.md "Out of scope"). Remove the JWT/auth dependency and flag the
+  requirement instead of adding authentication.
+files:
+  - services/web-ui-ssr/src/**/*.ts
+rule:
+  kind: string_fragment
+  regex: ^(jsonwebtoken|jose)$
+  inside:
+    kind: import_statement
+    stopBy: end
+
+---
+id: no-jwt-auth-tsx
+language: tsx
+severity: error
+message: >-
+  Real authentication / JWT middleware is OUT OF SCOPE for this experiment
+  (AGENTS.md "Out of scope"). Remove the JWT/auth dependency and flag the
+  requirement instead of adding authentication.
+files:
+  - services/web-ui-ssr/src/**/*.tsx
+rule:
+  kind: string_fragment
+  regex: ^(jsonwebtoken|jose)$
+  inside:
+    kind: import_statement
+    stopBy: end
+
+---
+id: no-jwt-auth-java
+language: java
+severity: error
+message: >-
+  Real authentication / JWT middleware is OUT OF SCOPE for this experiment
+  (AGENTS.md "Out of scope"). Do not import a JWT/auth library (io.jsonwebtoken,
+  com.auth0.jwt, com.nimbusds) — flag the requirement instead.
+files:
+  - services/business-logic-java/src/main/java/**/*.java
+  - packages/java/*/src/main/java/**/*.java
+rule:
+  kind: import_declaration
+  regex: ^import\s+(io\.jsonwebtoken|com\.auth0\.jwt|com\.nimbusds\.(jwt|jose))

@@ -1,0 +1,42 @@
+# Agreement (AGENTS.md "Working agreements"):
+#   "Same RPC contract on both sides. Both SSR code and browser code should
+#    import the same generated connect-es client and call the same methods."
+# Landed decision (commit 02e5777 "unify on fetch-based connect-web transport"):
+#   the Connect transport is constructed in exactly TWO designated modules —
+#   src/transport.ts (SSR) and src/transport-client.ts (browser). Every other
+#   module must receive a `Transport` by parameter/router-context, never build
+#   its own. This keeps both sides on one transport configuration (binary +
+#   useHttpGet) instead of drifting ad-hoc clients.
+#
+# Not covered elsewhere: tsconfig/biome/ArchUnit say nothing about WHERE a
+# transport may be constructed. ast-grep scopes the ban to web-ui-ssr source and
+# exempts the two transport modules via `ignores`.
+id: connect-transport-centralized-ts
+language: typescript
+severity: error
+message: >-
+  Do not build a Connect transport here. createConnectTransport() may only be
+  called in src/transport.ts (SSR) or src/transport-client.ts (browser) — the two
+  designated transport modules. Accept a `Transport` via parameter or router
+  context instead (AGENTS.md: "Same RPC contract on both sides").
+files:
+  - services/web-ui-ssr/src/**/*.ts
+ignores:
+  - services/web-ui-ssr/src/transport.ts
+  - services/web-ui-ssr/src/transport-client.ts
+rule:
+  pattern: createConnectTransport($$$)
+
+---
+id: connect-transport-centralized-tsx
+language: tsx
+severity: error
+message: >-
+  Do not build a Connect transport here. createConnectTransport() may only be
+  called in src/transport.ts (SSR) or src/transport-client.ts (browser) — the two
+  designated transport modules. Accept a `Transport` via parameter or router
+  context instead (AGENTS.md: "Same RPC contract on both sides").
+files:
+  - services/web-ui-ssr/src/**/*.tsx
+rule:
+  pattern: createConnectTransport($$$)

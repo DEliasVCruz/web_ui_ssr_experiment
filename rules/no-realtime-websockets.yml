@@ -1,0 +1,65 @@
+# Agreement (AGENTS.md "Out of scope (do not add)"):
+#   "WebSockets / realtime transport" — explicitly listed as belonging to the
+#   broader platform and NOT to be introduced in this experiment. AGENTS.md
+#   further warns: "If you find yourself reaching for one of these to make
+#   something work, stop and flag it."
+# This rule turns that "stop and flag it" into a hard gate, in BOTH languages —
+# the client (new WebSocket / the `ws` package) and the Java backend (Jakarta /
+# Helidon WebSocket support).
+#
+# Not covered elsewhere: no existing guardrail bans realtime transport; this is
+# purely a scope-discipline rule the ast-grep engine can express in one place
+# across TS and Java.
+id: no-realtime-websockets-ts
+language: typescript
+severity: error
+message: >-
+  WebSockets / realtime transport are OUT OF SCOPE for this experiment
+  (AGENTS.md "Out of scope"). Remove the WebSocket usage and flag the requirement
+  instead of adding realtime transport.
+files:
+  - services/web-ui-ssr/src/**/*.ts
+rule:
+  any:
+    - pattern: new WebSocket($$$)
+    - pattern: new WebSocketServer($$$)
+    - kind: string_fragment
+      regex: ^ws$
+      inside:
+        kind: import_statement
+        stopBy: end
+
+---
+id: no-realtime-websockets-tsx
+language: tsx
+severity: error
+message: >-
+  WebSockets / realtime transport are OUT OF SCOPE for this experiment
+  (AGENTS.md "Out of scope"). Remove the WebSocket usage and flag the requirement
+  instead of adding realtime transport.
+files:
+  - services/web-ui-ssr/src/**/*.tsx
+rule:
+  any:
+    - pattern: new WebSocket($$$)
+    - pattern: new WebSocketServer($$$)
+    - kind: string_fragment
+      regex: ^ws$
+      inside:
+        kind: import_statement
+        stopBy: end
+
+---
+id: no-realtime-websockets-java
+language: java
+severity: error
+message: >-
+  WebSockets / realtime transport are OUT OF SCOPE for this experiment
+  (AGENTS.md "Out of scope"). The business-logic backend speaks Connect/gRPC
+  unary only — do not import Jakarta or Helidon WebSocket support.
+files:
+  - services/business-logic-java/src/main/java/**/*.java
+  - packages/java/*/src/main/java/**/*.java
+rule:
+  kind: import_declaration
+  regex: ^import\s+(jakarta\.websocket|io\.helidon\.webserver\.websocket|io\.helidon\.websocket)
