@@ -49,3 +49,7 @@ bun run build
 ## Development
 
 This is a learning exercise and not production code. See `AGENTS.md` for detailed guidance.
+
+The local container runtime (for `docker-compose.yml` and Testcontainers) is
+**podman** — see [`docs/podman.md`](docs/podman.md) for one-time machine setup,
+the env wiring, and the Ryuk decision.

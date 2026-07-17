@@ -59,6 +59,13 @@ in
     pkgs.hadolint
     pkgs.colima
     pkgs.docker-client
+    # Local container runtime (task wdt.2): podman drives a lightweight
+    # Fedora CoreOS VM via Apple's virtualization framework (applehv + vfkit,
+    # both bundled by the nixpkgs podman wrapper on darwin). Installed ALONGSIDE
+    # colima/docker-client — neither is removed. `podman-compose` is the compose
+    # provider `podman compose` shells out to.
+    pkgs.podman
+    pkgs.podman-compose
     dockerfmt
     # protoc + grpc-java plugin, invoked by buf (buf.gen.yaml) to emit the
     # Java protobuf/gRPC sources for services/business-logic-java
@@ -71,10 +78,44 @@ in
   # Shared, non-secret env vars
   env = {
     NODE_ENV = "development";
+
+    # ─── Testcontainers → podman wiring (task wdt.2) ────────────────────
+    # Testcontainers supports podman but it is not in their CI matrix, so a
+    # few knobs are required. DOCKER_HOST is set dynamically in enterShell
+    # (it depends on the running podman machine's socket path); the two
+    # values below are static.
+    #
+    # Ryuk (the testcontainers reaper) autodetection is unreliable on macOS
+    # rootless podman, so it is DISABLED here. Rationale: this keeps the
+    # podman machine rootless (podman's secure default) and avoids any
+    # machine-level reconfiguration. Tradeoff: containers from a HARD-crashed
+    # test run are not auto-reaped — clean them with `podman container prune`.
+    # ALTERNATIVE (not chosen, documented in docs/podman.md): a rootful
+    # machine (`podman machine set --rootful`) plus a ~/.testcontainers.properties
+    # containing `ryuk.container.privileged=true`, which lets ryuk run.
+    TESTCONTAINERS_RYUK_DISABLED = "true";
+    # Inside the podman VM the daemon socket lives at the classic docker path;
+    # testcontainers uses this when it mounts the socket into helper containers.
+    TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE = "/var/run/docker.sock";
   };
 
   # Only runs bun install when lockfile changes
   enterShell = ''
+    # ─── Point Docker/Testcontainers clients at the podman machine (wdt.2) ──
+    # DOCKER_HOST is derived from the RUNNING podman machine's socket rather
+    # than hardcoded, so it is correct regardless of machine name/provider and
+    # never breaks a checkout on another host. If no podman machine socket is
+    # available (podman not started, or machine absent), DOCKER_HOST is left
+    # untouched so `docker` keeps talking to whatever context is active
+    # (e.g. colima) — this shell does not force podman on when it is down.
+    if command -v podman >/dev/null 2>&1; then
+      _podman_sock=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null | head -1)
+      if [ -n "$_podman_sock" ] && [ -S "$_podman_sock" ]; then
+        export DOCKER_HOST="unix://$_podman_sock"
+      fi
+      unset _podman_sock
+    fi
+
     if [ -f package.json ]; then
       lock_hash=""
       if [ -f bun.lock ]; then
