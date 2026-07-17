@@ -36,7 +36,10 @@ class FrameworkLoggingFormatTest {
     private static final String FORMATTER_CLASS = "io.helidon.logging.jul.HelidonJsonFormatter";
     private static final String FIELDS_KEY = "io.helidon.logging.jul.HelidonJsonFormatter.fields";
 
-    /** ISO-8601 date-time with a numeric offset, e.g. {@code 2026-07-17T08:11:24.963-0500}. */
+    /**
+     * ISO-like date-time with a basic (colon-less) {@code ±hhmm} offset, e.g.
+     * {@code 2026-07-17T08:11:24.963-0500} — deliberately NOT strict RFC-3339 (see docs/logging.md).
+     */
     private static final Pattern ISO_WITH_OFFSET =
             Pattern.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}[+-]\\d{4}$");
 
@@ -85,11 +88,11 @@ class FrameworkLoggingFormatTest {
                 json.get("message").getAsString());
         assertEquals("com.webuipoc.businesslogic.Main", json.get("logger").getAsString());
 
-        // timestamp key present with an ISO-8601 + numeric-offset value (NOT a hard-coded 'Z' — the
-        // formatter renders the JVM's real zone offset; see docs/logging.md).
+        // timestamp key present with an ISO-like basic-offset value (NOT a hard-coded 'Z' — the
+        // formatter renders the JVM's real zone offset; not strict RFC-3339, see docs/logging.md).
         assertTrue(json.has("timestamp"), "timestamp key present: " + json);
         String ts = json.get("timestamp").getAsString();
-        assertTrue(ISO_WITH_OFFSET.matcher(ts).matches(), "timestamp is ISO-8601 with numeric offset: " + ts);
+        assertTrue(ISO_WITH_OFFSET.matcher(ts).matches(), "timestamp is ISO-like with basic ±hhmm offset: " + ts);
 
         // Blank fields are omitted: no throwable -> no exception key; unnamed vthreads -> no thread key.
         assertFalse(json.has("exception"), "no exception key without a throwable: " + json);

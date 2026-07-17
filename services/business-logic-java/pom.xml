@@ -246,6 +246,20 @@
       <groupId>com.google.protobuf</groupId>
       <artifactId>protobuf-java-util</artifactId>
     </dependency>
+    <!-- Gson: used directly by FrameworkLoggingFormatTest (parsing the JSON log
+         lines the HelidonJsonFormatter emits) — declared explicitly instead of
+         leaning on the transitive copy protobuf-java-util brings in. Deliberately
+         default (compile) scope, NOT test scope, even though only a test uses it
+         directly: gson is a RUNTIME-scope transitive of protobuf-java-util (its
+         JsonFormat — the Connect adapter's application/json codec — parses via
+         Gson), and a direct test-scope declaration would win dependency mediation
+         and drop the jar from target/libs, breaking the runtime jar — the same
+         documented scope-mediation trap as protobuf-java-util/snakeyaml above.
+         Version managed by the helidon-dependencies BOM (version.lib.gson). -->
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+    </dependency>
   </dependencies>
 
   <build>

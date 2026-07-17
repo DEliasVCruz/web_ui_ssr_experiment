@@ -34,9 +34,16 @@ Wiring (all in `services/business-logic-java`):
 - **`Main.start()`** calls `io.helidon.logging.common.LogConfig.configureRuntime()`
   as its first statement — **before** the DI graph is built — so the Flyway
   migrations (which run in the `TodoDb` constructor during that build) and the
-  HikariCP pool startup are already logging as JSON. Helidon also invokes this
-  itself later, during `WebServer.start()`, but that is too late for the boot
-  migrations; the call is idempotent, so doing it early is safe.
+  HikariCP pool startup are already logging as JSON. Mechanism (verified against
+  the 4.4.1 bytecode): the method **body** is a no-op on HotSpot (it is gated on
+  GraalVM native-image runtime detection); what actually loads
+  `logging.properties` is `LogConfig`'s **class-initialization side effect** —
+  its static block ServiceLoader-discovers the `JulProvider` and calls
+  `initialization()`, which reads the classpath `logging.properties` into the
+  `LogManager`. The call in `Main` exists to trigger that class-init
+  deterministically, before Flyway. A static initializer runs exactly once per
+  JVM, so any later touch of `LogConfig` (e.g. inside `WebServer.start()`) is a
+  no-op — the config is read exactly once.
 - **`slf4j-jdk14`** (runtime) routes SLF4J → JUL. HikariCP (and any pure-SLF4J
   dependency) logs through SLF4J; with no SLF4J binding on the classpath those
   records hit the NOP logger and are **silently lost** — verified: before this
@@ -56,7 +63,7 @@ each field separates `jsonName:format`). Blank values are **omitted**, so
 
 | JSON key    | Source                    | Notes |
 |-------------|---------------------------|-------|
-| `timestamp` | record instant            | ISO-8601 date-time **with numeric offset** (e.g. `2026-07-17T08:02:58.112-0500`). See timestamp note below. |
+| `timestamp` | record instant            | ISO-*like* date-time with a **basic ±hhmm offset** (e.g. `2026-07-17T08:02:58.112-0500`) — **not** strict RFC-3339. See timestamp note below. |
 | `level`     | JUL level name            | `INFO`, `WARNING`, `SEVERE`, … |
 | `message`   | formatted message         | |
 | `logger`    | JUL logger name           | The emitting class, e.g. `io.helidon.webserver.LoomServer`. |
@@ -66,11 +73,21 @@ each field separates `jsonName:format`). Blank values are **omitted**, so
 overlap*, not a shared schema:
 
 - `timestamp` is the shared key. The wide event uses `java.time.Instant`
-  (always real-UTC, `Z`-suffixed). The framework formatter builds its value from
-  the JVM's default zone, so it renders the value **with the actual numeric
-  offset** (`%1$tz`) rather than a hard-coded `Z` — a literal `Z` would *lie*
-  whenever the JVM is not on UTC. Both are valid ISO-8601 and resolve to the same
-  absolute instant; a consumer normalizing to instant handles either.
+  (always real-UTC, `Z`-suffixed strict RFC-3339). The framework formatter
+  builds its value from the JVM's default zone, so it renders the value **with
+  the actual numeric offset** (`%1$tz`) rather than a hard-coded `Z` — a literal
+  `Z` would *lie* whenever the JVM is not on UTC; framework logs stay honest
+  about their zone instead of pretending. Precision caveat: `%tz` emits the
+  **basic** (colon-less) `±hhmm` offset, so the value mixes an extended
+  date/time with a basic offset — an *ISO-like* shape that **strict ISO-8601
+  disallows and RFC-3339 parsers reject** (`java.time.Instant.parse`, Go
+  `time.RFC3339`). `%tz` cannot emit a colon offset, so the format stays;
+  **consumers/collectors must normalize** this stream's timestamps (e.g. java's
+  `yyyy-MM-dd'T'HH:mm:ss.SSSZ` pattern parses it), while wide-event timestamps
+  parse as strict RFC-3339 as-is. Both resolve to the same absolute instant.
+  OTLP-upgrade note: when an OTel exporter/collector lands, either switch the
+  framework stream to UTC `Z` at the source or convert at the collector so both
+  streams are strict RFC-3339 downstream.
 - `logger` (emitting class) is the framework-log analogue of the wide event's
   `component`, but is deliberately **not** named `component`: the wide event's
   `component` is the *service identity* (`business-logic-java`), whereas `logger`

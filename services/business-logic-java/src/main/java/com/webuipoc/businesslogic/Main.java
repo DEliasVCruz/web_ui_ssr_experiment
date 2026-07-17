@@ -96,9 +96,17 @@ public final class Main {
         // Framework/out-of-request logging as JSON (task iq2.2). MUST run before the
         // DI graph is built: Flyway migrates during the TodoDb constructor below, so
         // configuring logging here is what makes the migration lines (and HikariCP
-        // pool lifecycle) JSON rather than default plain-text JUL. Helidon also calls
-        // this itself later during WebServer.start(), but that is too late for Flyway;
-        // the call is idempotent (LogConfig guards it), so calling it early is safe.
+        // pool lifecycle) JSON rather than default plain-text JUL.
+        //
+        // Mechanism (verified against the 4.4.1 bytecode): configureRuntime()'s BODY
+        // is a no-op on HotSpot — it is gated on GraalVM native-image runtime
+        // detection. What actually loads logging.properties is LogConfig's CLASS
+        // INITIALIZATION side effect: its static block ServiceLoader-discovers the
+        // JulProvider and calls initialization(), which reads the classpath
+        // logging.properties into the LogManager. This call exists to trigger that
+        // class-init deterministically, HERE, before Flyway. A static initializer
+        // runs exactly once per JVM, so later touches of LogConfig (e.g. inside
+        // WebServer.start()) are no-ops — same idempotency, stronger guarantee.
         LogConfig.configureRuntime();
         // Compile-time DI graph; building it runs Flyway migrations (TodoDb ctor).
         // shutdownHook(true) closes the scope (and the HikariCP pool) on JVM shutdown.
