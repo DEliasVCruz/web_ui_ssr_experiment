@@ -62,6 +62,20 @@
       </exclusions>
     </dependency>
 
+    <!-- avaje-jsonb runtime: the compile-time JSON codec for the wide-event
+         request-logging line emitted by WideEventFilter (task iq2.1). The
+         avaje-jsonb-generator (annotationProcessorPaths below) emits a
+         reflection-free adapter for every @Json type (WideEvent, WideEventError)
+         at build time; this is the runtime API those generated adapters and the
+         Jsonb builder compile/run against. Version from the parent's
+         dependencyManagement. Confined to the logging code — the proto debug
+         codec and the Connect error envelope keep using JsonFormat / hand-rolled
+         JSON (see ArchitectureTest's jsonb-confinement rule). -->
+    <dependency>
+      <groupId>io.avaje</groupId>
+      <artifactId>avaje-jsonb</artifactId>
+    </dependency>
+
     <!-- protovalidate runtime: evaluates buf.validate.* constraints on every
          parsed request before dispatch. The jar also bundles the
          build.buf.validate gencode the adapter references (FieldPath etc.). -->
@@ -116,6 +130,21 @@
               <groupId>com.uber.nullaway</groupId>
               <artifactId>nullaway</artifactId>
               <version>${version.nullaway}</version>
+            </path>
+            <!-- avaje-jsonb-generator (task iq2.1): emits the reflection-free
+                 JSON adapters for the wide-event @Json types (WideEvent,
+                 WideEventError) plus the avaje-spi GeneratedComponent that
+                 ServiceLoader-registers them with Jsonb.builder().build(). Once
+                 any processor is listed javac stops classpath auto-discovery, so
+                 it is appended here explicitly alongside Error Prone + NullAway;
+                 order is irrelevant to javac (all run each round). Its output
+                 lands under target/generated-sources/annotations, which the
+                 parent's -XepExcludedPaths (.*/generated-sources/.*) and the
+                 PMD/Checkstyle generated-source excludeRoots already skip. -->
+            <path>
+              <groupId>io.avaje</groupId>
+              <artifactId>avaje-jsonb-generator</artifactId>
+              <version>${version.avaje.jsonb}</version>
             </path>
           </annotationProcessorPaths>
         </configuration>

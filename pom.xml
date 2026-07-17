@@ -74,6 +74,13 @@
     <version.snakeyaml>2.5</version.snakeyaml>
     <version.avaje.validator>2.9</version.avaje.validator>
     <version.mapstruct>1.6.3</version.mapstruct>
+    <!-- avaje-jsonb: compile-time JSON codec (no runtime reflection) used ONLY
+         for the wide-event request-logging line emitted by the Connect adapter's
+         WideEventFilter (task iq2.1). Runtime API + the annotation-processor
+         generator (avaje-jsonb-generator) share this pin; BOM-unmanaged like the
+         other avaje libs, centralized here so the adapter module depends on it
+         version-less. -->
+    <version.avaje.jsonb>3.14</version.avaje.jsonb>
 
     <!-- PostgreSQL persistence stack (validated pins, 2026-07). All BOM-unmanaged
          standalone libs; centralized here so the service module depends on them
@@ -210,6 +217,19 @@
         <groupId>org.yaml</groupId>
         <artifactId>snakeyaml</artifactId>
         <version>${version.snakeyaml}</version>
+      </dependency>
+
+      <!-- avaje-jsonb runtime: the compile-time JSON codec for the Connect
+           adapter's wide-event log line (task iq2.1). BOM-unmanaged like the
+           other avaje libs; pinned here so the adapter module depends on it
+           version-less. The matching avaje-jsonb-generator is referenced (with
+           the same version property) directly in the adapter's
+           annotationProcessorPaths — annotation-processor artifacts are not
+           dependencies, so they are not managed here. -->
+      <dependency>
+        <groupId>io.avaje</groupId>
+        <artifactId>avaje-jsonb</artifactId>
+        <version>${version.avaje.jsonb}</version>
       </dependency>
 
       <!-- Reactor-internal: lets business-logic-java depend on the adapter
