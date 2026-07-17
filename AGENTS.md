@@ -177,6 +177,8 @@ successful task's stdout, so the task writes its banner straight to the
 controlling terminal (`/dev/tty`). With no terminal (e.g. output piped to a
 file), it falls back to normal stdout, which devenv only replays if the task
 fails — so a plain non-interactive run of an always-exit-0 task can look silent.
+Headless escape hatch: `devenv --verbose tasks run ci:proto-breaking` (global
+`--verbose` before the subcommand) streams the task's output even on success.
 
 This is a soft gate only — it is intentionally **not** wired into git hooks and
 does not fail CI. If it warns, confirm the contract change was intended and that

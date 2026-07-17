@@ -394,12 +394,14 @@ in
       # against the same committed protos and buf reports no changes → quiet OK.
       exec = ''
         set -uo pipefail
-        # `devenv tasks run` BUFFERS a task's stdout and only replays it when the
-        # task FAILS (non-zero exit); on success it is hidden unless you pass
-        # --show-output. Since this task is informational and always exits 0, its
-        # findings would otherwise be invisible on a plain run. So we prefer the
-        # controlling terminal (/dev/tty) when one is actually writable, and fall
-        # back to stdout otherwise (visible via --show-output or on failure). The
+        # `devenv tasks run` BUFFERS a task's stdout and stderr and only replays
+        # them when the task FAILS (non-zero exit); on success both are hidden
+        # (NB: `--show-output` does NOT surface them either — empirically it
+        # still prints only `{}`). Since this task is informational and always
+        # exits 0, its findings would otherwise be invisible on a plain run. So
+        # we prefer the controlling terminal (/dev/tty) when one is actually
+        # writable, and fall back to stdout otherwise — headlessly visible only
+        # via the GLOBAL verbose flag: `devenv --verbose tasks run <task>`. The
         # probe actually opens /dev/tty — on macOS `[ -w /dev/tty ]` can be true
         # while writes still fail with "Device not configured". `say` centralizes
         # this so every line lands on the best available sink.
@@ -416,6 +418,22 @@ in
         set -e
         if [ "$EXIT" -eq 0 ]; then
           say "✓ Wire contract OK — no breaking changes vs main."
+          exit 0
+        fi
+        # buf exits 100 when it detected breaking changes; any other non-zero
+        # exit means the comparison itself failed (e.g. exit 1 with "couldn't
+        # find remote ref main" when no local main ref exists). Don't dress a
+        # tooling failure up as contract breakage. (Caveat: proto COMPILE errors
+        # also exit 100, indistinguishable from real breakage — buf lint/format
+        # hooks catch those long before this check.) Still informational: exit 0.
+        if [ "$EXIT" -ne 100 ]; then
+          say ""
+          say "⚠ buf could not run the comparison (exit $EXIT) — check that a local"
+          say "⚠ main ref exists (buf compares against '.git#branch=main')."
+          say ""
+          say "$OUTPUT"
+          say ""
+          say "(informational only — pipeline NOT failed)"
           exit 0
         fi
         say ""
