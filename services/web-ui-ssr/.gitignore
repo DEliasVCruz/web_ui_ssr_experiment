@@ -1,2 +1,7 @@
 # Panda CSS generated code
 styled-system/
+
+# Service worker build output (normally emitted into the gitignored dist/, but
+# guard against InjectManifest writing sw.js / its map to the service root too).
+sw.js
+sw.js.map

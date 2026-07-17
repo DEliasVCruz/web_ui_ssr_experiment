@@ -24,6 +24,13 @@ const ignores = globalIgnores([
 	// formats/lints it; the type-checked ESLint pass has nothing to add to a
 	// plain CJS config object.
 	".dependency-cruiser.cjs",
+	// Service-worker source runs in a ServiceWorkerGlobalScope and is deliberately
+	// EXCLUDED from services/web-ui-ssr/tsconfig.json (whose lib is DOM) so its worker
+	// globals don't collide — it is type-checked separately via tsconfig.sw.json
+	// (lib: ["WebWorker"], chained in the `typecheck` script). typescript-eslint's
+	// projectService therefore can't resolve `self`/`__SW_MANIFEST` here (it only sees
+	// the DOM project), producing false no-unsafe-* errors. Biome still lints/formats it.
+	"services/web-ui-ssr/src/sw.ts",
 ]);
 
 // ─── TypeScript parser + plugin (no rules, needed by solid plugin) ─

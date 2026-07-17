@@ -13,5 +13,8 @@
 		}
 	},
 	"include": ["src/**/*"],
-	"exclude": ["node_modules", "dist", "build"]
+	// src/sw.ts is a ServiceWorkerGlobalScope module — type-checked separately via
+	// tsconfig.sw.json (WebWorker lib). Excluded here so its worker globals don't
+	// collide with this project's DOM lib.
+	"exclude": ["node_modules", "dist", "build", "src/sw.ts"]
 }

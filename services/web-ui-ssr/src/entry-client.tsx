@@ -1,6 +1,7 @@
 import "./styles.css";
+import { Serwist as SerwistWindow } from "@serwist/window";
 import { RouterClient } from "@tanstack/solid-router/ssr/client";
-import { hydrate } from "solid-js/web";
+import { hydrate, render } from "solid-js/web";
 import { type ActionHandle, beginAction, endAction } from "./observability/browser-events";
 import { createQueryClient } from "./query-client";
 import { createIdbQueryPersister } from "./query-persister";
@@ -69,4 +70,26 @@ router.subscribe("onRendered", closeNavAction);
 // NoHydration boundary (static), and the hydratable app tree lives in <body>.
 // Hydrating `document` misaligns the root hydration keys and silently bails, leaving
 // the page rendered-but-inert (no event handlers, links do full reloads).
-hydrate(() => <RouterClient router={router} />, document.body);
+//
+// Offline-shell branch (service worker, task 1w9.2 / design §Q1): when the SW serves
+// the precached minimal offline shell for a never-visited route offline, the document
+// carries the `data-offline-shell` marker, an EMPTY <body>, and no dehydrated state —
+// there is nothing to hydrate against, so client-render instead and let the route
+// loader paint from the persisted query cache (1w9.3). One entry, one branch; no
+// separate offline build.
+if (document.documentElement.hasAttribute("data-offline-shell")) {
+	render(() => <RouterClient router={router} />, document.body);
+} else {
+	hydrate(() => <RouterClient router={router} />, document.body);
+}
+
+// Register the service worker (assets + navigation shell — task 1w9.2). Prod-only
+// (dev uses rsbuild HMR + a raw SSR path a SW would fight), feature-detected, and
+// deferred to window `load` so it never competes with the hydration-critical path.
+// Import-safe under SSR: this whole module is client-only (entry-server never imports
+// it). The SW itself excludes all TodoService RPCs — see src/sw.ts.
+if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) {
+	window.addEventListener("load", () => {
+		void new SerwistWindow("/sw.js", { scope: "/" }).register();
+	});
+}

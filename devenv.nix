@@ -245,14 +245,37 @@ in
       # the podman machine socket (see enterShell), so this requires
       # `podman machine start` to have been run (docs/podman.md).
       exec = ''
-        # Run headless Chromium container with CDP endpoint
-        if docker ps --format '{{.Names}}' | grep -q '^playwright-browser$'; then
-          echo "Playwright browser already running on http://localhost:9222"
+        # Run headless Chromium container with CDP endpoint.
+        #
+        # Secure-context flag (task 1w9.2): the in-container browser reaches the app
+        # over plain HTTP at host.docker.internal:<ephemeral port>, so Service Worker
+        # registration is blocked by default (SW needs a secure context, and the
+        # host.docker.internal:<port> origin is neither https nor localhost). We
+        # allowlist it with --unsafely-treat-insecure-origin-as-secure. The value is a
+        # HOSTNAME WILDCARD (*.docker.internal) — hostname patterns (no scheme) match
+        # the host on ANY scheme and ANY port, which is required because ci:e2e picks
+        # an ephemeral web port unknown at container-start (post-iq2.3). --user-data-dir
+        # is the companion incantation Chromium wants for the flag to take effect.
+        # The flag is ADDITIVE and harmless to every other spec (they don't register a
+        # SW / go offline); it only unblocks the one sw.spec.ts. KNOWN RISK: old
+        # headless (chromedp/headless-shell) may ignore the flag (Playwright #22944) —
+        # sw.spec.ts probes registration at runtime and skips (loudly) if so.
+        #
+        # These args are forwarded to headless-shell via run.sh's `$@` (which also
+        # hardcodes --no-sandbox and the CDP port), so the CDP endpoint is preserved.
+        # Recreate the shared container when it predates the flag (a prior run without
+        # it), detected by inspecting its Cmd — otherwise reuse it.
+        if docker ps --format '{{.Names}}' | grep -q '^playwright-browser$' \
+          && docker inspect playwright-browser --format '{{json .Config.Cmd}}' 2>/dev/null \
+             | grep -q 'unsafely-treat-insecure-origin-as-secure'; then
+          echo "Playwright browser already running (secure-origin flag present) on http://localhost:9222"
         else
           docker rm -f playwright-browser 2>/dev/null || true
-          echo "Starting headless Chromium container..."
+          echo "Starting headless Chromium container (with insecure-origin-as-secure for SW e2e)..."
           docker run -d --name playwright-browser --shm-size=2g -p 9222:9222 \
-            chromedp/headless-shell:latest
+            chromedp/headless-shell:latest \
+            --user-data-dir=/tmp/pw-profile \
+            --unsafely-treat-insecure-origin-as-secure=*.docker.internal
         fi
         # Readiness poll: the first run pulls the image through gvproxy
         # (~1 min), and Chrome itself needs a moment to open the CDP port —

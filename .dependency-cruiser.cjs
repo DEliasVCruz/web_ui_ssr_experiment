@@ -40,6 +40,9 @@ module.exports = {
 					// Build / runtime entry points (loaded by the bundler or Bun, not imported)
 					"services/web-ui-ssr/src/index\\.ts$",
 					"services/web-ui-ssr/src/entry-(server|client)\\.tsx$",
+					// Service-worker source: a build entry compiled by @serwist/webpack-plugin's
+					// InjectManifest (swSrc), referenced only by a config string, never imported.
+					"services/web-ui-ssr/src/sw\\.ts$",
 					// Generated TanStack Router route tree (loaded by convention)
 					"\\.gen\\.ts$",
 					// Standalone CLI scripts (run directly via `bun run scripts/…`,

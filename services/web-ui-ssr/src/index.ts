@@ -103,6 +103,21 @@ if (isDev) {
 	getSsrContext = () => ssrContext;
 
 	app.use("/static/*", serveStatic({ root: "dist/web" }));
+
+	// Serve the service worker at the ROOT path so its scope is "/" (a SW served
+	// under /static/ could only control /static/*). Built prod-only by
+	// @serwist/webpack-plugin's InjectManifest → dist/web/sw.js. Registered
+	// client-side by entry-client.tsx; see src/sw.ts.
+	app.get("/sw.js", serveStatic({ path: "./dist/web/sw.js" }));
+
+	// Minimal offline-shell document (design 1w9.1 §Q1). The service worker
+	// precaches this URL and serves it as the fallback for a never-visited route
+	// requested offline. It carries the same content-hashed CSS/scripts as a real
+	// SSR page but an EMPTY app body and no dehydrated query state; the
+	// data-offline-shell marker tells entry-client to client-render (not hydrate)
+	// so the route loader paints from the persisted IndexedDB cache (1w9.3).
+	app.get("/offline", (c) => c.html(renderOfflineShell(ssrContext)));
+
 	app.get("*", handleSsr);
 
 	// Use Bun.serve() explicitly — the `export default { port, fetch }`
@@ -119,6 +134,34 @@ async function handleSsr(c: Context): Promise<Response> {
 	const render = await getRender();
 	const ssrContext = await getSsrContext();
 	return render(c.req.raw, ssrContext);
+}
+
+// ── Offline shell ────────────────────────────────────────────────────────
+
+/**
+ * Renders the precached offline-shell document (design 1w9.1 §Q1). Same head as a
+ * real SSR page — content-hashed CSS + the client entry scripts (both resolve from
+ * the SW precache offline) — but an EMPTY <body> and no dehydrated router/query
+ * state. The `data-offline-shell` marker on <html> makes entry-client client-render
+ * (not hydrate), so the route loader paints from the persisted IndexedDB cache. All
+ * URLs originate from our own build manifest, so no user-controlled interpolation.
+ */
+function renderOfflineShell(ssrContext: SsrContext): string {
+	const stylesheets = ssrContext.cssUrls
+		.map((href) => `<link rel="stylesheet" href="${href}">`)
+		.join("");
+	const preloads = ssrContext.preloadScriptUrls
+		.map((href) => `<link rel="preload" as="script" href="${href}">`)
+		.join("");
+	const scripts = ssrContext.scriptUrls
+		.map((src) => `<script src="${src}" defer></script>`)
+		.join("");
+	return (
+		`<!DOCTYPE html><html lang="en" data-offline-shell><head>` +
+		`<meta charset="utf-8">` +
+		`<meta name="viewport" content="width=device-width, initial-scale=1.0">` +
+		`${stylesheets}${preloads}</head><body>${scripts}</body></html>`
+	);
 }
 
 // ── SSR context helpers ─────────────────────────────────────────────────

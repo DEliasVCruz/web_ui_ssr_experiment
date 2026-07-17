@@ -1,11 +1,18 @@
+import path from "node:path";
 import type { RsbuildPlugin } from "@rsbuild/core";
 import { defineConfig } from "@rsbuild/core";
 import { modifyBabelLoaderOptions, pluginBabel } from "@rsbuild/plugin-babel";
 import { pluginSolid } from "@rsbuild/plugin-solid";
+import { InjectManifest } from "@serwist/webpack-plugin";
 import { tanstackRouter } from "@tanstack/router-plugin/rspack";
 
 const PUBLIC_BUSINESS_LOGIC_URL = process.env.PUBLIC_BUSINESS_LOGIC_URL ?? "http://localhost:3001";
 const isDev = process.env.NODE_ENV !== "production";
+
+// Revision for the precached /offline shell (see the InjectManifest wiring below).
+// Evaluated once per build; a per-build value guarantees the shell — which embeds
+// the build's content-hashed <script>/<link> URLs — is refetched on every redeploy.
+const SW_BUILD_REVISION = String(Date.now());
 
 /**
  * Strips the solid-refresh/babel plugin that pluginSolid injects for HMR
@@ -60,8 +67,32 @@ export default defineConfig({
 	plugins: [pluginBabel({ include: /\.(?:jsx|tsx)$/ })],
 
 	tools: {
-		rspack: {
-			plugins: [tanstackRouter({ target: "solid", autoCodeSplitting: true })],
+		// Function form so the service-worker InjectManifest plugin can be scoped to
+		// the CLIENT (web) environment in PRODUCTION only: the server/ssr build
+		// (target node) must never carry SW code, and dev uses rsbuild HMR (a SW
+		// would fight it). tanstackRouter stays on every environment as before.
+		rspack: (_config, { environment, appendPlugins }) => {
+			appendPlugins(tanstackRouter({ target: "solid", autoCodeSplitting: true }));
+			if (!isDev && environment.name === "web") {
+				appendPlugins(
+					// InjectManifest compiles src/sw.ts and injects self.__SW_MANIFEST with
+					// this build's content-hashed precache list, emitting dist/web/sw.js
+					// (served at /sw.js, root scope, by index.ts). Same build as the
+					// manifest.json the SSR head reads → the hashed URLs the head preloads
+					// are exactly the precached URLs, so they resolve from precache offline.
+					new InjectManifest({
+						swSrc: path.resolve(import.meta.dirname, "src/sw.ts"),
+						swDest: "sw.js",
+						// The offline-shell document (/offline) is served by the prod server
+						// and precached so never-visited routes get a client-render fallback
+						// offline. A per-build revision busts it when asset hashes change.
+						additionalPrecacheEntries: [{ url: "/offline", revision: SW_BUILD_REVISION }],
+						// Don't precache source maps, the rsbuild asset manifest, or license
+						// text — none are servable precache assets.
+						exclude: [/\.map$/, /^manifest\.json$/, /\.LICENSE\.txt$/],
+					}),
+				);
+			}
 		},
 		// The root route (routes/__root.tsx) renders the full HTML document, so
 		// Rsbuild must not generate an HTML template. CSS/script URLs are read

@@ -25,6 +25,15 @@
 				"solid-refresh"
 			]
 		},
+		"services/web-ui-ssr": {
+			// The service worker is a build entry compiled by @serwist/webpack-plugin's
+			// InjectManifest (swSrc in rsbuild.config.ts) — referenced only by a config
+			// string, so knip's rsbuild plugin can't infer it from source.entry. Declare
+			// it explicitly (alongside the rsbuild-detected client/server entries) so the
+			// file isn't flagged as unused and `serwist` (imported only there) counts as
+			// used.
+			"entry": ["src/sw.ts"]
+		},
 		"packages/rpc": {
 			// This package is nothing but buf-generated code under gen/ (gitignored, so
 			// knip can't scan it — a `gen/**/*.ts` project glob resolves to zero files).

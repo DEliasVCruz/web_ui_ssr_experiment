@@ -1,0 +1,17 @@
+{
+	// Service-worker source runs in a ServiceWorkerGlobalScope, not a DOM Window.
+	// It is excluded from the base tsconfig.json (whose `lib` is ["ES2022","DOM"])
+	// and type-checked here with the WebWorker lib so `self`, ServiceWorkerGlobalScope
+	// and WorkerGlobalScope resolve correctly and don't collide with DOM globals.
+	// `types: []` drops bun-types (DOM-adjacent ambient types) which the worker never
+	// needs. Run via `tsc --noEmit -p tsconfig.sw.json` (chained in the typecheck script).
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"lib": ["ES2022", "WebWorker"],
+		"types": []
+	},
+	"include": ["src/sw.ts"],
+	// The base tsconfig excludes src/sw.ts (so its worker globals don't collide with
+	// the DOM lib there); clear that exclude here so this project can pick it up.
+	"exclude": []
+}
