@@ -50,6 +50,11 @@
             chmod -R u+w packages/rpc/gen
             export PATH="$PWD/node_modules/.bin:$PATH"
 
+            # Panda's generated styled-system/ is a source input the web-ui-ssr TS
+            # imports; type-aware linters (ci-eslint) resolve `error`-typed values
+            # without it. Regenerate it exactly as the package `prepare` script does.
+            ( cd services/web-ui-ssr && ./node_modules/.bin/panda codegen --clean )
+
             ${cmd}
 
             runHook postBuild
