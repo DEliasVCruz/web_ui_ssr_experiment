@@ -17,7 +17,21 @@
 # wildcard) from `docker run` straight into the browser process argv.
 set -e
 
-socat TCP4-LISTEN:9222,fork,reuseaddr TCP4:127.0.0.1:9223 &
+# Supervised CDP bridge. Chromium is PID1 (the `exec` below), so ITS death stops the
+# container — but if socat alone dies the container stays 'Up' with a dead :9222 (a
+# zombie the playwright:up reuse check keeps reusing, since Chromium is still alive).
+# Run socat as a FOREGROUND child of this backgrounded supervisor subshell so its exit
+# is observed directly (waiting on a non-child sibling — or `kill -0` polling it — is
+# defeated by PID1/Chromium not reaping the zombie). When socat exits for any reason,
+# signal PID1 (Chromium) so the whole container exits and the next playwright:up
+# recreates it fresh with a live bridge. `|| true` keeps socat's non-zero (killed) exit
+# from tripping `set -e` before the kill; `kill 1` sends SIGTERM, which Chromium handles
+# (the same signal `docker stop` uses).
+(
+	socat TCP4-LISTEN:9222,fork,reuseaddr TCP4:127.0.0.1:9223 || true
+	echo "socat CDP bridge exited — stopping container (signalling PID1)" >&2
+	kill 1
+) &
 
 exec chromium-browser \
   --headless=new \
