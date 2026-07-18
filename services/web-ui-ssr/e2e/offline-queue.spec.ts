@@ -24,6 +24,8 @@ const HTTP_OK = 200;
 // Artificial CreateTodo latency for the scope-serialization proof: long enough that
 // a NON-serialized edit would provably fire (and 404) before the create lands.
 const CREATE_DELAY_MS = 1500;
+// Cadence for the per-document `offline` re-dispatch in the multi-reload survival test.
+const OFFLINE_EVENT_INTERVAL_MS = 15;
 
 // The browser wide-event line shape we assert on (snake_case = the on-the-wire
 // JSON contract, as in browser-trace.spec.ts).
@@ -147,6 +149,64 @@ async function waitForQueueEmpty(page: Page): Promise<void> {
 				),
 			{ timeout: FLUSH_TIMEOUT_MS },
 		)
+		.toBe(true);
+}
+
+/** Reads the raw persisted paused-mutations JSON string from IndexedDB (or undefined). */
+function readPersistedQueue(page: Page): Promise<string | undefined> {
+	return page.evaluate(
+		() =>
+			new Promise<string | undefined>((resolve) => {
+				void indexedDB.databases().then((dbs) => {
+					if (!dbs.some((d) => d.name === "keyval-store")) {
+						resolve(undefined);
+						return;
+					}
+					const req = indexedDB.open("keyval-store");
+					req.onerror = () => {
+						resolve(undefined);
+					};
+					req.onsuccess = () => {
+						const db = req.result;
+						if (!db.objectStoreNames.contains("keyval")) {
+							db.close();
+							resolve(undefined);
+							return;
+						}
+						const r = db
+							.transaction("keyval", "readonly")
+							.objectStore("keyval")
+							.get("web-ui-paused-mutations");
+						r.onerror = () => {
+							db.close();
+							resolve(undefined);
+						};
+						r.onsuccess = () => {
+							const raw = r.result as string | undefined;
+							db.close();
+							resolve(typeof raw === "string" ? raw : undefined);
+						};
+					};
+				});
+			}),
+	);
+}
+
+/** Polls until the persisted queue contains a mutation whose key includes `keyName`. */
+async function waitForQueueContains(page: Page, keyName: string): Promise<void> {
+	await expect
+		.poll(() => readPersistedQueue(page).then((raw) => raw?.includes(keyName) ?? false), {
+			timeout: FLUSH_TIMEOUT_MS,
+		})
+		.toBe(true);
+}
+
+/** Polls until the persisted queue entry is gone (no queued mutation remains). */
+async function waitForQueueGone(page: Page): Promise<void> {
+	await expect
+		.poll(() => readPersistedQueue(page).then((raw) => raw === undefined), {
+			timeout: FLUSH_TIMEOUT_MS,
+		})
 		.toBe(true);
 }
 
@@ -685,6 +745,379 @@ test.describe("offline mutation queue", () => {
 				const leftover = (await listBackendTodos()).find((t) => t.id === clientId);
 				if (leftover) await deleteBackendTodo(leftover.id);
 			}
+		}
+	});
+
+	test("offline DELETE replays on reconnect — the row is removed on the server", async ({
+		page,
+		context,
+	}) => {
+		// deleteTodo is queue-registered (mutation-defaults.ts, DELETE_TODO_KEY) but was
+		// never exercised offline end-to-end. Delete an existing row while offline (the
+		// optimistic removal takes it out of the list immediately, the DeleteTodo mutation
+		// pauses), reconnect, and prove the queued delete flushes and the server drops it.
+		const seeded = await createBackendTodo(`E2E_Q_DELETE_${String(Date.now())}`);
+		let removed = false;
+		try {
+			await page.goto("/todos");
+			await waitForHydration(page);
+			const row = page.locator("main ul li", { hasText: seeded.title });
+			await expect(row).toBeVisible();
+
+			await context.setOffline(true);
+			await expect(page.getByText("You’re offline.", { exact: false })).toBeVisible();
+
+			// Delete via the confirm dialog (list Delete → dialog Delete).
+			await row.getByRole("button", { name: "Delete" }).click();
+			await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+			await expect(page.locator("main ul li", { hasText: seeded.title })).toHaveCount(0);
+
+			// Queued, not sent: the row still exists on the server, and the delete is
+			// persisted to IndexedDB so it would survive a reload.
+			expect((await listBackendTodos()).some((t) => t.id === seeded.id)).toBe(true);
+			await waitForQueueContains(page, "deleteTodo");
+
+			// ── Reconnect: the queued delete flushes ──────────────────────────────────
+			await context.setOffline(false);
+			await expect
+				.poll(() => listBackendTodos().then((ts) => ts.some((t) => t.id === seeded.id)), {
+					timeout: FLUSH_TIMEOUT_MS,
+				})
+				.toBe(false);
+			removed = true;
+
+			// The row stays gone in the UI (the reconciliation refetch confirms deletion),
+			// and the queue entry is cleared on terminal success.
+			await expect(page.locator("main ul li", { hasText: seeded.title })).toHaveCount(0);
+			await waitForQueueGone(page);
+		} finally {
+			if (!removed) {
+				const leftover = (await listBackendTodos()).find((t) => t.id === seeded.id);
+				if (leftover) await deleteBackendTodo(seeded.id);
+			}
+		}
+	});
+
+	test("terminal flush failure surfaces an error toast, drops the write, and does not wedge the queue (F7)", async ({
+		page,
+	}) => {
+		// F7 (deferred from 1w9.4). A RESTORED queued mutation replays through the mutation
+		// DEFAULTS only (its component isn't mounted), and those had no onError — so a
+		// GENUINE non-network server rejection on flush dropped the write SILENTLY. The
+		// honest rejection path: queue an edit offline against a todo that is deleted
+		// server-side out of band, then reload so the edit replays as a restored mutation →
+		// its UpdateTodo 404s (NOT_FOUND) → terminal (retry 0). We ALSO queue a create AFTER
+		// the doomed edit to prove the terminal error does not wedge the queue scope: the
+		// later create must still flush. Assertions: (a) the established error toast shows,
+		// identifying the failed action; (b) no ghost row for the deleted id; (c) the queue
+		// drains empty; (d) the subsequent create lands (queue not wedged).
+		const stamp = String(Date.now());
+		const doomed = await createBackendTodo(`E2E_Q_DOOMED_${stamp}`, "will be deleted");
+		const followTitle = `E2E_Q_FOLLOW_${stamp}`;
+		let followId: string | undefined;
+		let doomedCleaned = false;
+		try {
+			await page.goto("/todos");
+			await waitForHydration(page);
+
+			// Prime the doomed todo's detail cache (so it can be edited offline).
+			await page.getByRole("link", { name: doomed.title, exact: true }).click();
+			await expect(page).toHaveURL(new RegExp(`/todos/${doomed.id}$`));
+			await expect(page.getByRole("heading", { name: doomed.title })).toBeVisible();
+
+			await goOffline(page);
+
+			// Queue the doomed EDIT first (so it replays before the follow-up create).
+			await page.getByRole("button", { name: "Edit details" }).click();
+			await page.getByPlaceholder("Add details…").fill(`edited-${stamp}`);
+			await page.getByRole("button", { name: "Save", exact: true }).click();
+			await waitForQueueContains(page, "editTodoDetails");
+
+			// Then queue a follow-up CREATE (client nav back to the list — no reload, so both
+			// queued mutations survive in IndexedDB).
+			await page.getByRole("link", { name: "Todos" }).first().click();
+			await expect(page).toHaveURL(/\/todos$/);
+			await page.locator(ADD_INPUT_SELECTOR).fill(followTitle);
+			await page.getByRole("button", { name: "Add", exact: true }).click();
+			await expect(page.locator("main ul li", { hasText: followTitle })).toBeVisible();
+			followId = await rowClientId(page, followTitle);
+			await waitForQueueContains(page, "createTodo");
+
+			// Out-of-band: delete the doomed todo on the server so the queued edit will 404.
+			await deleteBackendTodo(doomed.id);
+			doomedCleaned = true;
+
+			// ── Reload: both mutations replay as RESTORED (defaults-only) and resume ────
+			// The edit flushes first → UpdateTodo 404 (NOT_FOUND) → terminal error → the
+			// default onError fires (toast). The create then flushes and lands.
+			await page.goto("/todos");
+			await waitForHydration(page);
+
+			// (a) The established error toast surfaces, identifying the failed action.
+			await expect(page.getByText("Couldn’t save todo details").first()).toBeVisible();
+
+			// (d) Queue not wedged: the follow-up create still flushed to the server.
+			await expect
+				.poll(() => listBackendTodos().then((ts) => ts.some((t) => t.id === followId)), {
+					timeout: FLUSH_TIMEOUT_MS,
+				})
+				.toBe(true);
+
+			// (b) No ghost: the deleted id has no row in the list or on the server.
+			await expect(page.locator("main ul li", { hasText: doomed.title })).toHaveCount(0);
+			expect((await listBackendTodos()).some((t) => t.id === doomed.id)).toBe(false);
+
+			// (c) The queue drains empty — the dropped edit is not left behind to retry.
+			await page.waitForLoadState("networkidle");
+			await waitForQueueGone(page);
+		} finally {
+			if (!doomedCleaned) {
+				const leftover = (await listBackendTodos()).find((t) => t.id === doomed.id);
+				if (leftover) await deleteBackendTodo(doomed.id);
+			}
+			if (followId !== undefined) {
+				const leftover = (await listBackendTodos()).find((t) => t.id === followId);
+				if (leftover) await deleteBackendTodo(followId);
+			}
+		}
+	});
+
+	test("the queued write survives MULTIPLE offline reloads and flushes exactly once on reconnect", async ({
+		page,
+	}) => {
+		// onlineManager resets to online on every fresh document and flips only on
+		// connectivity EVENTS (it ignores navigator.onLine — see the file header). So to
+		// keep a restored create PAUSED across reloads (rather than flushing on the first
+		// reload, as the single-reload survival test above deliberately does), we drive a
+		// short burst of `offline` events at the start of EACH document — the same
+		// event-model this suite already uses (goOffline), just re-applied per document. The
+		// network itself stays up, so the reloads still work; only the app's connectivity
+		// belief is forced offline. The persisted queue must survive BOTH reloads and then,
+		// on a single reconnect, fire CreateTodo EXACTLY ONCE (client UUIDv7 id ⇒ no
+		// duplicate row even if a reload had re-sent it).
+		const title = `E2E_MULTIRELOAD_${String(Date.now())}`;
+		let clientId: string | undefined;
+		let createCount = 0;
+		// page.route + addInitScript both persist across the reloads below.
+		await page.route("**/todo.v1.TodoService/CreateTodo", async (route) => {
+			if (route.request().method() === "POST") createCount += 1;
+			await route.continue();
+		});
+		// Re-dispatch `offline` on a tight timer at the start of EACH document, gated by a
+		// window flag the test flips to reconnect. This keeps onlineManager offline through
+		// the startup restore+resume so the restored create stays paused across reloads;
+		// clearing the flag lets the timer stop and we then dispatch a single `online`.
+		await page.addInitScript((intervalMs) => {
+			const w = window as unknown as { __forceOffline?: boolean };
+			w.__forceOffline = true;
+			const iv = setInterval(() => {
+				if (w.__forceOffline !== true) {
+					clearInterval(iv);
+					return;
+				}
+				window.dispatchEvent(new Event("offline"));
+			}, intervalMs);
+		}, OFFLINE_EVENT_INTERVAL_MS);
+		try {
+			await page.goto("/todos");
+			await waitForHydration(page);
+			await expect(page.getByText("You’re offline.", { exact: false })).toBeVisible();
+
+			await page.locator(ADD_INPUT_SELECTOR).fill(title);
+			await page.getByRole("button", { name: "Add", exact: true }).click();
+			await expect(page.locator("main ul li", { hasText: title })).toBeVisible();
+			clientId = await rowClientId(page, title);
+			await waitForQueueContains(page, "createTodo");
+			expect(createCount).toBe(0); // paused: never fired while (event-)offline
+
+			// ── Reload #1 (still forced offline) ──────────────────────────────────────
+			await page.goto("/todos");
+			await waitForHydration(page);
+			await expect(page.getByText("You’re offline.", { exact: false })).toBeVisible();
+			await waitForQueueContains(page, "createTodo"); // survived reload #1
+			expect(createCount).toBe(0);
+
+			// ── Reload #2 (still forced offline) ──────────────────────────────────────
+			await page.goto("/todos");
+			await waitForHydration(page);
+			await expect(page.getByText("You’re offline.", { exact: false })).toBeVisible();
+			await waitForQueueContains(page, "createTodo"); // survived reload #2
+			expect(createCount).toBe(0);
+
+			// ── Reconnect: one flush ──────────────────────────────────────────────────
+			// Clear the offline flag (stops the re-dispatch timer) and flip online once.
+			await page.evaluate(() => {
+				const w = window as unknown as { __forceOffline?: boolean };
+				w.__forceOffline = false;
+				window.dispatchEvent(new Event("online"));
+			});
+
+			await expect
+				.poll(() => listBackendTodos().then((ts) => ts.some((t) => t.id === clientId)), {
+					timeout: FLUSH_TIMEOUT_MS,
+				})
+				.toBe(true);
+			expect((await listBackendTodos()).filter((t) => t.id === clientId)).toHaveLength(1);
+			// Let any erroneous per-reload resend surface, then assert exactly one CreateTodo.
+			await page.waitForLoadState("networkidle");
+			expect(createCount).toBe(1);
+			await waitForQueueGone(page);
+		} finally {
+			if (clientId !== undefined) {
+				const leftover = (await listBackendTodos()).find((t) => t.id === clientId);
+				if (leftover) await deleteBackendTodo(clientId);
+			}
+		}
+	});
+
+	test("multi-hop offline SPA navigation renders every hop from cache — no blank frames", async ({
+		page,
+		context,
+	}) => {
+		// Client-side navigation across several hops while offline must paint each route
+		// from cache with no blank frame or crash. Prime the caches online (list is
+		// SSR-hydrated; the detail is fetched + persisted on a client nav), then block every
+		// TodoService RPC at the network layer and hop home → todos → detail → back,
+		// asserting rendered content at each hop. SPA navigations issue no document request,
+		// so the only thing answering is the in-memory / persisted query cache.
+		const seeded = await createBackendTodo(`E2E_NAV_${String(Date.now())}`, "nav details");
+		try {
+			await page.goto("/todos", { waitUntil: "networkidle" });
+			await waitForHydration(page);
+			// Prime the detail cache via a client nav, then park on Home.
+			await page.getByRole("link", { name: seeded.title, exact: true }).click();
+			await expect(page).toHaveURL(new RegExp(`/todos/${seeded.id}$`));
+			await expect(page.getByRole("heading", { name: seeded.title })).toBeVisible();
+			await expect(page.getByText("nav details")).toBeVisible();
+			await page.getByRole("link", { name: "Home" }).click();
+			await expect(page).toHaveURL(/\/$/);
+			await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+
+			// ── Go offline at the RPC layer (documents unaffected — nav is client-side) ─
+			const attemptedRpcs: string[] = [];
+			await context.route("**/todo.v1.TodoService/**", (route) => {
+				attemptedRpcs.push(route.request().url());
+				return route.abort();
+			});
+
+			// Hop 1: Home → Todos (list from cache).
+			await page.getByRole("link", { name: "Todos" }).first().click();
+			await expect(page).toHaveURL(/\/todos$/);
+			await expect(page.getByRole("heading", { name: "Todos", exact: true })).toBeVisible();
+			await expect(page.locator("main ul li", { hasText: seeded.title })).toBeVisible();
+
+			// Hop 2: Todos → detail (from persisted cache).
+			await page.getByRole("link", { name: seeded.title, exact: true }).click();
+			await expect(page).toHaveURL(new RegExp(`/todos/${seeded.id}$`));
+			await expect(page.getByRole("heading", { name: seeded.title })).toBeVisible();
+			await expect(page.getByText("nav details")).toBeVisible();
+
+			// Hop 3: back to the list (browser back = client-side), still from cache.
+			await page.goBack();
+			await expect(page).toHaveURL(/\/todos$/);
+			await expect(page.locator("main ul li", { hasText: seeded.title })).toBeVisible();
+
+			// Hop 4: back to Home.
+			await page.getByRole("link", { name: "Home" }).click();
+			await expect(page).toHaveURL(/\/$/);
+			await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+
+			// Every hop was served from cache: the freshness window (staleTime) meant the
+			// loaders never even attempted a refetch, so no TodoService RPC was aborted.
+			expect(attemptedRpcs).toEqual([]);
+		} finally {
+			await deleteBackendTodo(seeded.id);
+		}
+	});
+
+	test("concurrent cross-todo offline mutations all flush on reconnect — final server state is correct", async ({
+		page,
+		context,
+	}) => {
+		// A mixed batch of offline writes across DIFFERENT todos (create + toggle + edit +
+		// delete) must all flush correctly on reconnect, replayed serially by the queue-wide
+		// scope, leaving the server in the exact expected final state.
+		const stamp = String(Date.now());
+		const toToggle = await createBackendTodo(`E2E_MIX_TOGGLE_${stamp}`);
+		const toDelete = await createBackendTodo(`E2E_MIX_DELETE_${stamp}`);
+		const toEdit = await createBackendTodo(`E2E_MIX_EDIT_${stamp}`);
+		const createdTitle = `E2E_MIX_CREATE_${stamp}`;
+		const editedDetails = `mix-details-${stamp}`;
+		const seededIds = [toToggle.id, toDelete.id, toEdit.id];
+		let createdId: string | undefined;
+		try {
+			await page.goto("/todos");
+			await waitForHydration(page);
+			// Prime the edit target's detail cache, then return to the list.
+			await page.getByRole("link", { name: toEdit.title, exact: true }).click();
+			await expect(page).toHaveURL(new RegExp(`/todos/${toEdit.id}$`));
+			await expect(page.getByRole("heading", { name: toEdit.title })).toBeVisible();
+			await page.getByRole("link", { name: "Todos" }).first().click();
+			await expect(page).toHaveURL(/\/todos$/);
+			await waitForHydration(page);
+
+			await context.setOffline(true);
+			await expect(page.getByText("You’re offline.", { exact: false })).toBeVisible();
+
+			// CREATE a new todo.
+			await page.locator(ADD_INPUT_SELECTOR).fill(createdTitle);
+			await page.getByRole("button", { name: "Add", exact: true }).click();
+			await expect(page.locator("main ul li", { hasText: createdTitle })).toBeVisible();
+			createdId = await rowClientId(page, createdTitle);
+
+			// TOGGLE one existing row.
+			const toggleRow = page.locator("main ul li", { hasText: toToggle.title });
+			await toggleRow.locator('[data-part="control"]').click();
+			await expect(toggleRow.locator('input[type="checkbox"]')).toBeChecked();
+
+			// DELETE another existing row.
+			const delRow = page.locator("main ul li", { hasText: toDelete.title });
+			await delRow.getByRole("button", { name: "Delete" }).click();
+			await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+			await expect(page.locator("main ul li", { hasText: toDelete.title })).toHaveCount(0);
+
+			// EDIT a third row's details (client nav to its cached detail).
+			const editRow = page.locator("main ul li", { hasText: toEdit.title });
+			await editRow.locator("a").click();
+			await expect(page).toHaveURL(new RegExp(`/todos/${toEdit.id}$`));
+			await page.getByRole("button", { name: "Edit details" }).click();
+			await page.getByPlaceholder("Add details…").fill(editedDetails);
+			await page.getByRole("button", { name: "Save", exact: true }).click();
+
+			// Nothing has hit the server yet — the whole batch is queued.
+			expect((await listBackendTodos()).some((t) => t.title === createdTitle)).toBe(false);
+			expect((await getBackendTodo(toToggle.id)).completed ?? false).toBe(false);
+			expect((await listBackendTodos()).some((t) => t.id === toDelete.id)).toBe(true);
+
+			// ── Reconnect: the whole queue flushes ────────────────────────────────────
+			await context.setOffline(false);
+
+			await expect
+				.poll(() => listBackendTodos().then((ts) => ts.some((t) => t.title === createdTitle)), {
+					timeout: FLUSH_TIMEOUT_MS,
+				})
+				.toBe(true);
+			await expect
+				.poll(() => getBackendTodo(toToggle.id).then((t) => t.completed ?? false), {
+					timeout: FLUSH_TIMEOUT_MS,
+				})
+				.toBe(true);
+			await expect
+				.poll(() => listBackendTodos().then((ts) => ts.some((t) => t.id === toDelete.id)), {
+					timeout: FLUSH_TIMEOUT_MS,
+				})
+				.toBe(false);
+			await expect
+				.poll(() => getBackendTodo(toEdit.id).then((t) => t.details ?? ""), {
+					timeout: FLUSH_TIMEOUT_MS,
+				})
+				.toBe(editedDetails);
+		} finally {
+			const remaining = await listBackendTodos();
+			const ids = createdId === undefined ? seededIds : [...seededIds, createdId];
+			await Promise.all(
+				ids.filter((id) => remaining.some((t) => t.id === id)).map((id) => deleteBackendTodo(id)),
+			);
 		}
 	});
 });
