@@ -18,6 +18,17 @@
     # (nix/lefthook.nix), whose config is committed as ./lefthook.yml and whose
     # tools come from the devshell PATH. lefthook itself is `pkgs.lefthook`, so no
     # extra flake input is needed. No other module referenced git-hooks.nix.
+    # OCI images (2pk.3): nix2container is the design note's primary image builder
+    # (gap 4 — archive-less, skip-already-pushed layers, copyToPodman/copyToRegistry).
+    nix2container = {
+      url = "github:nlewo/nix2container";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    # Arion "Option A" (2pk.3): a nix-built compose file the runtime consumes.
+    arion = {
+      url = "github:hercules-ci/arion";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -37,6 +48,8 @@
         ./nix/codegen.nix
         ./nix/packages-ts.nix
         ./nix/packages-java.nix
+        ./nix/images.nix
+        ./nix/arion.nix
         ./nix/checks.nix
         ./nix/apps.nix
       ];

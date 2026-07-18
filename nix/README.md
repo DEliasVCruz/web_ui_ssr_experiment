@@ -17,9 +17,11 @@ structure + gap closure"* (project `main`).
 | `lefthook.nix` | git-hooks: renders `../lefthook.yml` from Nix (source of truth for the 8-hook pre-commit set), `packages.lefthook-config` regen target, `checks.lefthook-config-sync` drift guard | ✅ (2pk.2) |
 | `codegen.nix` | `packages.rpc-gen` — `buf generate` + wrap-jsonschema (TS/JSON-Schema + Java outputs) | ✅ builds (FOD); /ts + /java byte-identical to devenv |
 | `packages-ts.nix` | `packages.node-modules` (node_modules FOD) → `packages.web-ui-ssr` (panda + rsbuild → `dist/`) | ✅ builds |
-| `packages-java.nix` | `packages.business-logic-java`, `packages.connect-unary-adapter` | ⛔ **stubbed** (fail-at-build) |
+| `packages-java.nix` | `packages.business-logic-java` (runnable jar + `libs/`), `packages.connect-unary-adapter` | ✅ **builds** (pure `buildMavenPackage`, hermetic jOOQ codegen) |
+| `images.nix` | `packages.image-{web-ui-ssr,business-logic-java,pw-browser}` — nix2container OCI images (**x86_64-linux only**) | ✅ eval/build **on Linux**; plumbing smoked on darwin (see below) |
+| `arion.nix` | `packages.arion-compose` — Arion "Option A" nix-built compose YAML | ✅ builds on darwin; `podman compose config` clean |
 | `checks.nix` | `checks.{node-modules,rpc-gen,web-ui-ssr}` + `ci-biome`, `ci-eslint`, `ci-hygiene` | ✅ all build green |
-| `apps.nix` | `apps.{generate,up,e2e}` — impure `nix run` wrappers | wired |
+| `apps.nix` | `apps.{generate,up,e2e}` — impure `nix run` wrappers (`up` = arion-backed) | wired |
 
 ### Git hooks — lefthook (2pk.2)
 
@@ -75,6 +77,14 @@ nix flake check --no-build
 nix build --impure .#checks.aarch64-darwin.ci-biome
 nix build --impure .#checks.aarch64-darwin.ci-eslint
 nix build --impure .#checks.aarch64-darwin.ci-hygiene
+
+# Java reactor — pure buildMavenPackage incl. hermetic jOOQ codegen (no docker)
+nix build --impure .#business-logic-java     # → result/{business-logic-java.jar,libs/}
+nix build --impure .#connect-unary-adapter
+
+# Arion "Option A" compose (builds on darwin; consumable by podman/docker compose)
+nix build .#arion-compose                    # → result (docker-compose.yaml)
+podman compose -f result config              # parses clean
 ```
 
 ## Why `--impure` for the TS builds
@@ -118,32 +128,86 @@ To update a hash:
 > x86_64-linux = …; }.${system}`). `rpc-gen`'s output is generated code and is
 > platform-independent, so its single hash is portable.
 
-## What is stubbed and why (honesty)
+## Java build — how the jOOQ offline-repo seam was closed (2pk.3)
 
-`packages.business-logic-java` / `packages.connect-unary-adapter` **evaluate**
-(so `nix flake check --no-build` passes) but **fail at build** with the precise
-remaining work. A pure `maven.buildMavenPackage` is blocked on:
+`packages.business-logic-java` is now a **pure `maven.buildMavenPackage`** reactor
+(root pom → `connect-unary-adapter` + `business-logic-java`). The hard part was the
+`jooq-codegen` seam: at `generate-sources` the pom runs `scripts/jooq-codegen.sh`,
+which starts an **ephemeral postgres over loopback** (initdb/pg_ctl — no docker
+socket) and then a **nested single-module `mvn -Pjooq-codegen flyway:migrate
+jooq-codegen:generate`**. That nested mvn does not inherit the outer build's flags,
+so it would hit the network for the flyway + jooq-codegen plugins — fatal in the
+sealed offline phase.
 
-1. **buf-generated Java sources** — must copy `rpc-gen`'s `/java` output into
-   `services/business-logic-java/generated-sources/{protobuf,grpc}` before the
-   maven build. (Ready to thread in.)
-2. **jOOQ codegen offline-repo gap** — at `generate-sources` the pom runs
-   `scripts/jooq-codegen.sh`, which launches an ephemeral postgres (fine in a
-   sandbox) and then a **nested `mvn -Pjooq-codegen …`** that does **not** inherit
-   the outer `buildMavenPackage`'s `-o -Dmaven.repo.local=…`. In a sealed offline
-   build it tries to fetch the flyway + jooq-codegen plugins from the network and
-   fails. Closing it needs the `jooq-codegen` profile's plugin closure
-   pre-populated into the offline `.m2` (`manualMvnArtifacts` / `buildOffline`) and
-   `MAVEN_ARGS` threaded into `jooq-codegen.sh`. Owned by task **2pk.6**.
-3. **`mvnHash`** — pin after (1)+(2) build; changes on any dep/plugin bump.
+Solution (in `packages-java.nix`), no `manualMvnArtifacts` guesswork:
 
-The full `buildMavenPackage` shape for the follow-up is in `packages-java.nix`.
+1. **`buildOffline = false`** (default) — the phase-1 FOD runs the *full* online
+   `mvn package`, which is byte-for-byte the phase-2 build. So the FOD's `.m2`
+   provably captures every artifact the offline build needs, jOOQ/Flyway profile
+   plugins included.
+2. **`MAVEN_ARGS` threaded per phase** so the nested mvn shares the outer repo:
+   phase-1 `preBuild` exports `-Dmaven.repo.local=$out/.m2` (online, downloads the
+   plugin closure into the FOD); phase-2 sets `-o -Dmaven.repo.local=$mvnDeps/.m2`
+   in the `afterDepsSetup` hook (offline resolve). The script already forwards
+   `$MAVEN_ARGS` into the nested mvn.
+3. **Reactor sibling resolvable** — the nested single-module mvn needs the
+   `connect-unary-adapter` SNAPSHOT *and* the parent pom in the local repo (masked
+   in devenv by a warm `~/.m2`). Both phases pre-install them (`mvn -N install`
+   parent + `mvn -pl … install` adapter) with the `verify`-phase quality gates
+   (spotless/checkstyle/pmd/enforcer) skipped.
+4. **buf-generated Java** copied from `packages.rpc-gen`'s `/java` before each build.
+5. **`mvnHash`** pinned (fakeHash → read the mismatch); changes on any dep/plugin
+   bump. **`doCheck = false`**: the Testcontainers unit + `*IT` tests need a
+   container daemon the sandbox lacks — they stay in the impure CI/e2e path.
+
+Verified on aarch64-darwin (Java is arch-portable): `nix build .#business-logic-java`
+BUILD SUCCESS incl. hermetic jOOQ codegen; the jar boots through the full avaje DI
+graph + HikariCP (fails only on the absent DB socket).
+
+## Images (`images.nix`) — nix2container, x86_64-linux
+
+Three OCI images via **nix2container** (design gap 4 primary): `image-web-ui-ssr`
+(bun + `dist`, **vendor `node_modules` layered BELOW app code**; the server + client
++ manifest + `sw.js` ship as ONE derivation → ONE atomic layer, so no client/server/
+sw skew — see the 2pk.5 asset-skew/skew-window note), `image-business-logic-java`
+(JRE + runnable jar + `libs/`), and `image-pw-browser` (the SAME digest-pinned
+`zenika/alpine-chrome` base as the Dockerfile, overlaid with a musl-static socat +
+`run.sh` CDP-bridge supervisor).
+
+**These target `x86_64-linux` only (Fly.io, amd64).** They cannot be `nix eval`'d or
+built **from the aarch64-darwin host** — not because of the image code, but because
+the pinned `cachix/devenv-nixpkgs` realizes its patched package set via a
+per-system `applyPatches` derivation and then `import`s it (an **IFD**). Evaluating
+`legacyPackages.x86_64-linux` therefore requires *building* an x86_64-linux
+derivation, which needs a Linux builder. This blocks **every** x86_64-linux output
+of this flake from darwin (not just images). Realization happens on the Linux CI
+agents (**2pk.4**), which also run `nix2container` `copyToRegistry`/`copyToPodman`.
+
+The image **plumbing is smoke-validated on darwin**: temporarily unguarding the
+packages to the host system and running `nix build .#packages.aarch64-darwin.image-*`
+builds all three end-to-end — buildLayer/buildImage/copyToRoot, the vendor-below-app
+split (bun → node_modules → app, with bun deduped out of the upper layers), and the
+`pullImage` amd64 base + socat overlay all assemble correctly. (Those aarch64-darwin
+images are a plumbing smoke only — not deployable; containers are Linux.)
+
+## Arion (`arion.nix`) — Option A compose
+
+`packages.arion-compose` is the **nix-built** docker-compose file the runtime
+consumes (Option A). It mirrors `docker-compose.yml` (postgres + business-logic +
+web-ui-ssr) and adds the `pw-browser` CDP service (the devenv `playwright:up`
+flags + `host.docker.internal` + a sized `/dev/shm`). Because it references image
+**name:tag strings**, the YAML builds on darwin and `podman compose -f … config`
+parses clean. `apps.up` brings it up via `podman compose`. Full `up` needs the
+service images realized (x86_64-linux) + loaded (`copyToPodman`) on a Linux-capable
+builder; postgres pulls + runs standalone regardless.
 
 ## Deviations from the design note
 
-- **`images.nix` / `arion.nix` are not included** — image builds and the Arion
-  compose are task **2pk.3**, out of scope for the skeleton. `apps.up` is a thin
-  `podman compose` placeholder until then.
+- **Images cannot evaluate on darwin** — the design asked images to "evaluate on
+  darwin, realize on Linux". The devenv-nixpkgs `applyPatches` IFD (above) makes
+  *evaluation* itself require a Linux builder, so both eval and realization are
+  Linux-only here. The image derivations are otherwise complete and were smoked via
+  the aarch64-darwin plumbing build.
 - **`ci-proto-breaking` is not a check** — `buf breaking --against .git#branch=main`
   needs git history a sealed check derivation lacks. It stays a devenv task (a
   `nix run` app at cutover), same impurity class as `ci-e2e`.

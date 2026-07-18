@@ -3,6 +3,7 @@
     {
       pkgs,
       lib,
+      config,
       repoTools,
       ...
     }:
@@ -24,16 +25,22 @@
         text = ''exec bun run generate "$@"'';
       };
 
-      # `nix run .#up` — bring the local stack up via the existing compose file on
-      # podman (transition placeholder; the design note's Arion "Option A" compose
-      # is task 2pk.3). Requires a started podman machine (docs/podman.md).
+      # `nix run .#up` — Arion "Option A" (2pk.3): bring the local stack up
+      # against the NIX-BUILT compose file (nix/arion.nix), not the hand-written
+      # docker-compose.yml (which stays for devenv during the transition). Requires
+      # a started podman machine (docs/podman.md) AND the service images loaded
+      # into podman (image-web-ui-ssr / image-business-logic-java / image-pw-browser
+      # via nix2container copyToPodman) — those images are x86_64-linux, so on the
+      # aarch64-darwin host this fully comes up only once they are built/loaded on
+      # a Linux-capable builder (postgres pulls + runs regardless). 2pk.4 wires the
+      # copyToPodman/copyToRegistry push into CI.
       up = pkgs.writeShellApplication {
         name = "up";
         runtimeInputs = [
           pkgs.podman
           pkgs.podman-compose
         ];
-        text = ''exec podman compose -f docker-compose.yml up "$@"'';
+        text = ''exec podman compose -f ${config.packages.arion-compose} up "$@"'';
       };
 
       # `nix run .#e2e` — the self-contained Playwright suite. IMPURE by nature
