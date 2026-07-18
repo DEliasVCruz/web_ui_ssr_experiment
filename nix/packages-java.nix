@@ -63,11 +63,7 @@
         '';
     in
     {
-      packages.business-logic-java =
-        stub "business-logic-java"
-          "jOOQ codegen resolves flyway/jooq plugins online in a nested mvn (offline-repo gap).";
-      packages.connect-unary-adapter =
-        stub "connect-unary-adapter"
-          "Built by the same reactor as business-logic-java, which is stubbed.";
+      packages.business-logic-java = stub "business-logic-java" "jOOQ codegen resolves flyway/jooq plugins online in a nested mvn (offline-repo gap).";
+      packages.connect-unary-adapter = stub "connect-unary-adapter" "Built by the same reactor as business-logic-java, which is stubbed.";
     };
 }
