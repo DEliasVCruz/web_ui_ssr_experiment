@@ -7,7 +7,7 @@
 # rules/README.md for the rule → agreement map.
 #
 # Run standalone (CI gate):  ast-grep scan
-# Runs automatically as the `ast-grep` git hook (devenv.nix git-hooks.hooks).
+# Runs automatically as the `ast-grep` git hook (nix/lefthook.nix → lefthook.yml).
 #
 # Generated / build output is never scanned, by TWO independent mechanisms:
 #   1. ast-grep's file discovery honours .gitignore, and every generated tree

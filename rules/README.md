@@ -90,8 +90,9 @@ Standalone (CI gate) — scans the whole repo, exits non-zero on any finding:
 ast-grep scan
 ```
 
-Automatically as a git hook: `devenv.nix` registers `git-hooks.hooks.ast-grep`
-(`entry = "ast-grep scan"`, `pass_filenames = false`, `types_or = [ "ts" "tsx"
-"java" ]`). Any commit that touches a TS/TSX/Java file runs a full-repo scan (it is
+Automatically as a git hook: `nix/lefthook.nix` defines the `ast-grep` lefthook
+command (`glob = "*.{ts,tsx,java}"`, `run = "ast-grep scan"`, no `{staged_files}`),
+rendered to the committed `lefthook.yml` and installed into `.git/hooks` by both
+shells. Any commit that touches a TS/TSX/Java file runs a full-repo scan (it is
 milliseconds), so a violation cannot slip in through a file that was not itself
 staged. Do not bypass the hook.
