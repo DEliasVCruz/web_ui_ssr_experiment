@@ -90,6 +90,10 @@ in
     # rules/. Wired as the `ast-grep` git hook below; run standalone (CI) with
     # `ast-grep scan`.
     pkgs.ast-grep
+
+    # lefthook: the git-hooks runner (2pk.2, replaces prek). Reads ./lefthook.yml
+    # (rendered from nix/lefthook.nix); installed into .git/hooks in enterShell.
+    pkgs.lefthook
   ];
 
   # Shared, non-secret env vars
@@ -145,6 +149,15 @@ in
         bun install
         echo "$lock_hash" > "$cache_file"
       fi
+    fi
+
+    # ─── Install the lefthook git hooks (2pk.2) ───────────────────────────
+    # Reads the committed ./lefthook.yml (rendered from nix/lefthook.nix), so this
+    # shell and the nix devshell install byte-identical .git/hooks. --force installs
+    # into the shared worktree hooks dir that git-hooks.nix/prek left pinned via
+    # core.hooksPath (non-destructive) rather than erroring on it.
+    if [ -f lefthook.yml ] && command -v lefthook >/dev/null 2>&1; then
+      lefthook install --force >/dev/null || echo "lefthook install failed (hooks not updated)" >&2
     fi
   '';
 
@@ -652,69 +665,12 @@ in
     };
   };
 
-  # Use prek as the git hooks engine (Rust rewrite, devenv 2.0 native)
-  git-hooks.package = pkgs.prek;
-
-  # Pre-commit hooks
-  git-hooks.hooks = {
-    buf-format = {
-      enable = true;
-      name = "buf format";
-      entry = "buf format -w";
-      files = "\\.proto$";
-      pass_filenames = true;
-    };
-    buf-lint = {
-      enable = true;
-      name = "buf lint";
-      entry = "buf lint";
-      files = "\\.proto$";
-      pass_filenames = false;
-    };
-    biome = {
-      enable = true;
-      name = "biome check";
-      entry = "bunx biome check --write --staged --no-errors-on-unmatched --colors=off";
-      pass_filenames = false;
-      types_or = [ "javascript" "jsx" "ts" "tsx" "json" ];
-    };
-    dockerfmt = {
-      enable = true;
-      name = "dockerfmt";
-      entry = "${dockerfmt}/bin/dockerfmt --write --newline";
-      files = "(^|/)Dockerfile";
-      pass_filenames = true;
-    };
-    hadolint = {
-      enable = true;
-      name = "hadolint";
-      entry = "hadolint --config tooling/docker/hadolint.yaml";
-      types = [ "dockerfile" ];
-    };
-    dclint = {
-      enable = true;
-      name = "dclint";
-      entry = "bunx dclint --config tooling/docker/dclintrc.yaml";
-      files = "(^|/)(docker-)?compose[^/]*\\.ya?ml$";
-      pass_filenames = true;
-    };
-    eslint = {
-      enable = true;
-      name = "eslint";
-      entry = "bunx eslint --no-warn-ignored --cache --cache-location node_modules/.cache/eslint";
-      pass_filenames = true;
-      types_or = [ "ts" "tsx" ];
-    };
-    # ast-grep structural rules (sgconfig.yml + rules/). A commit that touches any
-    # TS/TSX/Java file runs a FULL repo scan (pass_filenames = false) — the scan is
-    # milliseconds, and a whole-repo pass means a violation can't slip in via a file
-    # that wasn't itself staged. Standalone CI invocation is the same `ast-grep scan`.
-    ast-grep = {
-      enable = true;
-      name = "ast-grep";
-      entry = "ast-grep scan";
-      pass_filenames = false;
-      types_or = [ "ts" "tsx" "java" ];
-    };
-  };
+  # ── Git hooks: lefthook (2pk.2, replaces prek) ────────────────────────────
+  # The hook set is no longer defined here. It lives in nix/lefthook.nix, rendered
+  # to the committed ./lefthook.yml, and installed into .git/hooks by the
+  # `lefthook install` call in enterShell above — the SAME file and hooks the nix
+  # devshell installs, so both shells converge byte-for-byte. lefthook + every hook
+  # tool (buf, biome/eslint/dclint via bunx, dockerfmt, hadolint, ast-grep) are on
+  # this shell's PATH via the `packages` list. See nix/lefthook.nix for the full
+  # hook→prek parity table and the 8cc eslint-scoping fix.
 }

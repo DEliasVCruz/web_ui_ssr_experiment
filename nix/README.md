@@ -12,17 +12,44 @@ structure + gap closure"* (project `main`).
 
 | File | Provides | State |
 |------|----------|-------|
-| `../flake.nix` | flake-parts entry; pins nixpkgs + git-hooks to devenv.lock's **exact revs** (`devenv-nixpkgs` efff4732, `git-hooks.nix` 580633fa) | ✅ |
-| `devshell.nix` | `devShells.default` at parity with `devenv.nix` (bun, jdk25+maven, buf, podman, postgres_17, ast-grep, dockerfmt, hadolint, protoc plugins…), DOCKER_HOST wiring, `.env` load, prek git-hooks install | ✅ works |
+| `../flake.nix` | flake-parts entry; pins nixpkgs to devenv.lock's **exact rev** (`devenv-nixpkgs` efff4732) | ✅ |
+| `devshell.nix` | `devShells.default` at parity with `devenv.nix` (bun, jdk25+maven, buf, podman, postgres_17, ast-grep, dockerfmt, hadolint, protoc plugins…), DOCKER_HOST wiring, `.env` load, **lefthook install** | ✅ works |
+| `lefthook.nix` | git-hooks: renders `../lefthook.yml` from Nix (source of truth for the 8-hook pre-commit set), `packages.lefthook-config` regen target, `checks.lefthook-config-sync` drift guard | ✅ (2pk.2) |
 | `codegen.nix` | `packages.rpc-gen` — `buf generate` + wrap-jsonschema (TS/JSON-Schema + Java outputs) | ✅ builds (FOD); /ts + /java byte-identical to devenv |
 | `packages-ts.nix` | `packages.node-modules` (node_modules FOD) → `packages.web-ui-ssr` (panda + rsbuild → `dist/`) | ✅ builds |
 | `packages-java.nix` | `packages.business-logic-java`, `packages.connect-unary-adapter` | ⛔ **stubbed** (fail-at-build) |
 | `checks.nix` | `checks.{node-modules,rpc-gen,web-ui-ssr}` + `ci-biome`, `ci-eslint`, `ci-hygiene` | ✅ all build green |
 | `apps.nix` | `apps.{generate,up,e2e}` — impure `nix run` wrappers | wired |
-| pre-commit check | git-hooks flakeModule's auto-added `checks.<sys>.pre-commit` | **disabled** (`pre-commit.check.enable = false`) — hook tools aren't on the sandbox PATH; hooks are a devshell concern |
 
-> **Toolchain parity.** `flake.nix` pins nixpkgs and git-hooks to devenv.lock's
-> **exact commits** (not the moving `rolling`/`master` branches), so tool versions
+### Git hooks — lefthook (2pk.2)
+
+`nix/lefthook.nix` is the **single source of truth** for the pre-commit hook set.
+It renders the committed **`../lefthook.yml`** (a `# DO NOT EDIT` generated file);
+both shells install the SAME hooks from it, so `nix develop` and `devenv shell`
+converge on byte-identical `.git/hooks`:
+
+- **nix devshell** — `devshell.nix` shellHook runs `lefthook install --force`
+- **devenv shell** — `devenv.nix` enterShell runs `lefthook install --force`
+
+(`--force` because git-hooks.nix/prek left `core.hooksPath` pinned to the shared
+worktree hooks dir; lefthook installs into exactly that dir non-destructively.)
+The lefthook binary and every hook tool (buf, biome/eslint/dclint via `bunx`,
+dockerfmt, hadolint, ast-grep) come from the devshell PATH — lefthook, unlike
+git-hooks.nix, does **not** auto-provision tools from nixpkgs (design note 2pk.1,
+Gap 6: the move is lateral — parallel Go runner gained, auto-tools lost).
+
+Regenerate `lefthook.yml` after editing `nix/lefthook.nix`:
+
+```sh
+nix build .#lefthook-config && cp -f result lefthook.yml && chmod +w lefthook.yml
+```
+
+`checks.lefthook-config-sync` (part of `nix flake check`) fails if the committed
+`lefthook.yml` ever drifts from what `nix/lefthook.nix` renders. The 8-hook →
+prek parity table (and the 8cc eslint-scoping fix) live in `nix/lefthook.nix`.
+
+> **Toolchain parity.** `flake.nix` pins nixpkgs to devenv.lock's
+> **exact commit** (not the moving `rolling`/`master` branches), so tool versions
 > match devenv byte-for-byte: **bun 1.3.11**, **protoc 34.0** (⇒ rpc-gen `/java`
 > stamps gencode `4.34.0`, honoring `pom.xml`'s invariant), jdk25, go 1.25.2.
 > This keeps the from-source plugin hashes copied from `devenv.nix` valid and was

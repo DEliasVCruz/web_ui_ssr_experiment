@@ -14,12 +14,10 @@
     # devenv.nix valid and keeps pom.xml's gencode invariant honest.
     nixpkgs.url = "github:cachix/devenv-nixpkgs/efff47329167854ce48541c7ef731bf120753c7e";
     flake-parts.url = "github:hercules-ci/flake-parts";
-    # git-hooks.nix pinned to the EXACT rev in devenv.lock (580633fa), so the prek
-    # runner + hooks reproduce devenv's install verbatim (NOT lefthook — that is 2pk.2).
-    git-hooks = {
-      url = "github:cachix/git-hooks.nix/580633fa3fe5fc0379905986543fd7495481913d";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # git-hooks.nix input removed in 2pk.2: the git hooks now run under lefthook
+    # (nix/lefthook.nix), whose config is committed as ./lefthook.yml and whose
+    # tools come from the devshell PATH. lefthook itself is `pkgs.lefthook`, so no
+    # extra flake input is needed. No other module referenced git-hooks.nix.
   };
 
   outputs =
@@ -34,8 +32,8 @@
       ];
 
       imports = [
-        inputs.git-hooks.flakeModule
         ./nix/devshell.nix
+        ./nix/lefthook.nix
         ./nix/codegen.nix
         ./nix/packages-ts.nix
         ./nix/packages-java.nix

@@ -1,0 +1,34 @@
+# DO NOT EDIT — generated from nix/lefthook.nix (beads web_ui_ssr_experiment-2pk.2).
+# Regenerate:  nix build .#lefthook-config && cp -f result lefthook.yml && chmod +w lefthook.yml
+# Source of truth + hook→prek parity table: nix/lefthook.nix.
+pre-commit:
+  commands:
+    ast-grep:
+      glob: '*.{ts,tsx,java}'
+      run: ast-grep scan
+    biome:
+      glob: '*.{js,cjs,mjs,jsx,ts,tsx,json}'
+      run: bunx biome check --write --staged --no-errors-on-unmatched --colors=off
+      stage_fixed: true
+    buf-format:
+      glob: '*.proto'
+      run: buf format -w {staged_files}
+      stage_fixed: true
+    buf-lint:
+      glob: '*.proto'
+      run: buf lint
+    dclint:
+      glob: '{compose*.yml,compose*.yaml,docker-compose*.yml,docker-compose*.yaml,*/compose*.yml,*/compose*.yaml,*/docker-compose*.yml,*/docker-compose*.yaml}'
+      run: bunx dclint --config tooling/docker/dclintrc.yaml {staged_files}
+    dockerfmt:
+      glob: '{Dockerfile,Dockerfile.*,*/Dockerfile,*/Dockerfile.*}'
+      run: dockerfmt --write --newline {staged_files}
+      stage_fixed: true
+    eslint:
+      glob: '*.{ts,tsx}'
+      run: bunx eslint --no-warn-ignored --cache --cache-location node_modules/.cache/eslint
+        {staged_files}
+    hadolint:
+      glob: '{Dockerfile,Dockerfile.*,*/Dockerfile,*/Dockerfile.*}'
+      run: hadolint --config tooling/docker/hadolint.yaml {staged_files}
+  parallel: true

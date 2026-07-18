@@ -1,6 +1,6 @@
 {
   perSystem =
-    { pkgs, config, ... }:
+    { pkgs, ... }:
     let
       # ── From-source tool derivations (mirrored verbatim from devenv.nix) ──
       # Built from source so codegen/formatting is fully offline and reproducible,
@@ -43,91 +43,12 @@
         inherit dockerfmt protoc-gen-jsonschema maven;
       };
 
-      # ── prek git hooks (mirror devenv.nix's git-hooks.hooks) ──────────────
-      # git-hooks.nix's flake-parts module reproduces exactly what devenv wires
-      # today: the prek runner + these eight hooks. Installed into .git/hooks via
-      # config.pre-commit.installationScript in the shellHook below. Migrating the
-      # hook set to lefthook is a SEPARATE task (2pk.2) — untouched here.
-      # The git-hooks flakeModule otherwise adds `checks.<system>.pre-commit`, which
-      # can never build in a sealed sandbox (hook entries like `ast-grep`/`bunx …`
-      # are not on the check's PATH), making plain `nix flake check` fail. Git hooks
-      # are a devshell concern here (installed via the shellHook); the real lint
-      # checks live in nix/checks.nix. So disable the auto-added check.
-      pre-commit.check.enable = false;
-
-      pre-commit.settings = {
-        package = pkgs.prek;
-        hooks = {
-          buf-format = {
-            enable = true;
-            name = "buf format";
-            entry = "buf format -w";
-            files = "\\.proto$";
-            pass_filenames = true;
-          };
-          buf-lint = {
-            enable = true;
-            name = "buf lint";
-            entry = "buf lint";
-            files = "\\.proto$";
-            pass_filenames = false;
-          };
-          biome = {
-            enable = true;
-            name = "biome check";
-            entry = "bunx biome check --write --staged --no-errors-on-unmatched --colors=off";
-            pass_filenames = false;
-            types_or = [
-              "javascript"
-              "jsx"
-              "ts"
-              "tsx"
-              "json"
-            ];
-          };
-          dockerfmt = {
-            enable = true;
-            name = "dockerfmt";
-            entry = "${dockerfmt}/bin/dockerfmt --write --newline";
-            files = "(^|/)Dockerfile";
-            pass_filenames = true;
-          };
-          hadolint = {
-            enable = true;
-            name = "hadolint";
-            entry = "hadolint --config tooling/docker/hadolint.yaml";
-            types = [ "dockerfile" ];
-          };
-          dclint = {
-            enable = true;
-            name = "dclint";
-            entry = "bunx dclint --config tooling/docker/dclintrc.yaml";
-            files = "(^|/)(docker-)?compose[^/]*\\.ya?ml$";
-            pass_filenames = true;
-          };
-          eslint = {
-            enable = true;
-            name = "eslint";
-            entry = "bunx eslint --no-warn-ignored --cache --cache-location node_modules/.cache/eslint";
-            pass_filenames = true;
-            types_or = [
-              "ts"
-              "tsx"
-            ];
-          };
-          ast-grep = {
-            enable = true;
-            name = "ast-grep";
-            entry = "ast-grep scan";
-            pass_filenames = false;
-            types_or = [
-              "ts"
-              "tsx"
-              "java"
-            ];
-          };
-        };
-      };
+      # ── Git hooks: lefthook (2pk.2) ───────────────────────────────────────
+      # The prek / git-hooks.nix wiring that used to live here is gone. The hook
+      # set is now defined in nix/lefthook.nix and rendered to the committed
+      # ./lefthook.yml; the shellHook below runs `lefthook install` so this shell
+      # and the devenv shell install byte-identical .git/hooks. lefthook + every
+      # hook tool are on this shell's PATH (packages list below).
 
       devShells.default = pkgs.mkShell {
         # Parity with devenv.nix's `packages` list + languages.java (jdk25 + maven).
@@ -148,8 +69,8 @@
           maven
           dockerfmt
           protoc-gen-jsonschema
-          # prek: the git-hooks runner (git-hooks.package = pkgs.prek in devenv).
-          pkgs.prek
+          # lefthook: the git-hooks runner (2pk.2, replaces prek). Reads ./lefthook.yml.
+          pkgs.lefthook
         ];
 
         # Shared, non-secret env (mirror devenv.nix's `env`). JAVA_HOME is set here
@@ -171,8 +92,15 @@
             unset _podman_sock
           fi
 
-          # ─── Install the prek git hooks (same set devenv installs) ─────────────
-          ${config.pre-commit.installationScript}
+          # ─── Install the lefthook git hooks (same set devenv installs) ─────────
+          # Reads the committed ./lefthook.yml (rendered from nix/lefthook.nix), so
+          # this shell and the devenv shell install byte-identical .git/hooks.
+          # --force: git-hooks.nix/prek left `core.hooksPath` set to the shared
+          # worktree hooks dir; --force installs into exactly that dir (non-
+          # destructive) instead of erroring on the pre-existing hooks path.
+          if [ -f lefthook.yml ]; then
+            lefthook install --force >/dev/null || echo "lefthook install failed (hooks not updated)" >&2
+          fi
 
           # ─── Load .env (mirror devenv.nix's dotenv.enable = true) ──────────────
           if [ -f .env ]; then set -a; . ./.env; set +a; fi
