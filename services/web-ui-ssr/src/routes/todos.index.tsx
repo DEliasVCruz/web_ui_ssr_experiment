@@ -284,12 +284,18 @@ function TodoList() {
 		// No success toast on toggle: toggling is frequent and a confirmation
 		// toast each time is noise. Failures still surface (onError below).
 		//
-		// RETURNING the invalidation promises is what makes this bounce-free
-		// (review F2): query-core awaits onSuccess before flipping the mutation to
-		// success, so the pending reflection above outlives the refetch. Offline
-		// -guarded (1w9.4 §4.5): online it returns the promise (keep-pending);
-		// offline it fires-and-forgets so a queued toggle is never wedged pending.
-		onSuccess: (_data, vars) =>
+		// Reconciliation lives in an INLINE onSettled, not onSuccess (review F3):
+		// the TOGGLE_TODO_KEY default already supplies an onSettled invalidation,
+		// and defaultMutationOptions MERGES (does not replace) — so an inline
+		// onSuccess here would run IN ADDITION to the default onSettled, firing two
+		// full ListTodos+GetTodo refetch rounds per toggle (checkbox disabled ~2×
+		// RTT). Supplying the invalidation as an inline onSettled OVERRIDES the
+		// default's onSettled, so exactly one round runs. Still bounce-free (review
+		// F2): query-core awaits onSettled before flipping the mutation to success,
+		// so the pending reflection above outlives the refetch. Offline-guarded
+		// (1w9.4 §4.5): online it returns the promise (keep-pending); offline it
+		// fires-and-forgets so a queued toggle is never wedged pending.
+		onSettled: (_data, _err, vars) =>
 			settleInvalidate(queryClient(), [
 				listTodosQueryKey(transport()),
 				todoQueryKey(transport(), vars.id),

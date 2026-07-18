@@ -41,8 +41,9 @@ const queryClient = createQueryClient({ persister: createIdbQueryPersister().per
 // persisted to IndexedDB lost its functions, so on rehydrate it resolves its
 // mutationFn + reconciliation handlers by key (setMutationDefaults). Then install
 // the queue — subscribe to persist paused mutations, resume on the `online` event,
-// and flush any mutation that survived a previous document's reload (FIFO). Client
-// -only, and kept section-contained (a sibling worktree adds SW registration here).
+// and flush any mutation that survived a previous document's reload (serialized
+// via the queue-wide mutation scope). Client-only; the SW registration below is
+// independent of the queue.
 registerMutationDefaults(queryClient, transport);
 void installOfflineMutationQueue(queryClient);
 // ──────────────────────────────────────────────────────────────────────────────
