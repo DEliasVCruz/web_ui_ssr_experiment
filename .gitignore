@@ -20,6 +20,9 @@ packages/java/*/target/
 # devenv / nix
 .devenv/
 .pre-commit-config.yaml
+# nix flake build artifacts (2pk skeleton)
+result
+result-*
 
 # Claude
 .claude/skills
