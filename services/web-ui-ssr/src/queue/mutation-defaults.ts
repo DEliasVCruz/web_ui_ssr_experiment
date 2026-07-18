@@ -1,9 +1,12 @@
 import type { Transport } from "@connectrpc/connect";
 import type { QueryClient } from "@tanstack/solid-query";
+import { toast } from "../components/ui/toast";
 import {
 	CREATE_TODO_KEY,
+	type CreateTodoVars,
 	createTodoMutation,
 	DELETE_TODO_KEY,
+	type DeleteTodoVars,
 	deleteTodoMutation,
 	EDIT_TODO_KEY,
 	listTodosQueryKey,
@@ -52,18 +55,43 @@ import {
 // one — proven by the offline create+edit e2e.
 const OFFLINE_QUEUE_SCOPE = { id: "web-ui-offline-mutation-queue" } as const;
 
+// TERMINAL FLUSH FAILURE (task 1w9.4 review F7 / 1w9.5). Queued mutations replay with
+// retry 0 (query-core's mutation default — mutations never auto-retry), so a GENUINE
+// non-network server rejection during flush (e.g. a queued edit against a todo deleted
+// server-side out of band → NOT_FOUND) is TERMINAL on the first attempt. Before this,
+// the RESTORED replay path had no onError at all, so such a write was dropped SILENTLY:
+// the persister removes the entry the instant it leaves `pending` (F2), and no UX
+// surfaced. These onError handlers close that gap for the replay path — and ONLY the
+// replay path: a LIVE (mounted) mutation carries its own inline onError, which
+// defaultMutationOptions layers OVER this default (inline wins for a given callback), so
+// the live optimistic rollback + toast still own the same-session failure and these
+// never double-fire. Design decision (per ticket): NO dead-letter queue and NO
+// auto-retry beyond the existing policy — on terminal failure we drop the write,
+// reconcile the cache back to server truth (the onSettled invalidation runs on error
+// too), and surface the established error toast so the failure is never silent. The
+// queue is NOT wedged: a terminal (non-pending) mutation does not hold the queue scope,
+// so subsequent queued mutations still flush.
 export function registerMutationDefaults(queryClient: QueryClient, transport: Transport): void {
 	const listKey = listTodosQueryKey(transport);
 
 	queryClient.setMutationDefaults(CREATE_TODO_KEY, {
 		...createTodoMutation(transport),
 		scope: OFFLINE_QUEUE_SCOPE,
+		onError: (_err, vars: CreateTodoVars) => {
+			// Drop the optimistic detail this session may still hold for the never-created
+			// id; the onSettled list invalidation removes any optimistic row.
+			queryClient.removeQueries({ queryKey: todoQueryKey(transport, vars.id) });
+			toast.error("Couldn’t save new todo", "The change could not be synced.");
+		},
 		onSettled: () => settleInvalidate(queryClient, [listKey]),
 	});
 
 	queryClient.setMutationDefaults(TOGGLE_TODO_KEY, {
 		...updateTodoMutation(transport),
 		scope: OFFLINE_QUEUE_SCOPE,
+		onError: () => {
+			toast.error("Couldn’t update todo", "The change could not be synced.");
+		},
 		onSettled: (_data, _err, vars: UpdateTodoVars) =>
 			settleInvalidate(queryClient, [listKey, todoQueryKey(transport, vars.id)]),
 	});
@@ -71,6 +99,9 @@ export function registerMutationDefaults(queryClient: QueryClient, transport: Tr
 	queryClient.setMutationDefaults(EDIT_TODO_KEY, {
 		...updateTodoMutation(transport),
 		scope: OFFLINE_QUEUE_SCOPE,
+		onError: () => {
+			toast.error("Couldn’t save todo details", "The change could not be synced.");
+		},
 		onSettled: (_data, _err, vars: UpdateTodoVars) =>
 			settleInvalidate(queryClient, [todoQueryKey(transport, vars.id)]),
 	});
@@ -80,6 +111,11 @@ export function registerMutationDefaults(queryClient: QueryClient, transport: Tr
 		scope: OFFLINE_QUEUE_SCOPE,
 		onSuccess: (_data, vars) => {
 			queryClient.removeQueries({ queryKey: todoQueryKey(transport, vars.id) });
+		},
+		onError: (_err, _vars: DeleteTodoVars) => {
+			// The onSettled list invalidation restores the row from server truth (the
+			// optimistic removal is undone); just surface the failure.
+			toast.error("Couldn’t delete todo", "The change could not be synced.");
 		},
 		onSettled: () => settleInvalidate(queryClient, [listKey]),
 	});
