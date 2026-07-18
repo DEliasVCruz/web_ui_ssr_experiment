@@ -275,7 +275,7 @@ in
           docker run -d --name playwright-browser --shm-size=2g -p 9222:9222 \
             chromedp/headless-shell:latest \
             --user-data-dir=/tmp/pw-profile \
-            --unsafely-treat-insecure-origin-as-secure=*.docker.internal
+            "--unsafely-treat-insecure-origin-as-secure=*.docker.internal"
         fi
         # Readiness poll: the first run pulls the image through gvproxy
         # (~1 min), and Chrome itself needs a moment to open the CDP port —

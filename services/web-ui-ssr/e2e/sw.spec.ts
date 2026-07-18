@@ -1,52 +1,70 @@
 import { expect } from "@playwright/test";
 import { createBackendTodo, deleteBackendTodo, test, waitForHydration } from "./fixtures";
 
-// Proves the SERVICE WORKER (task 1w9.2) registers under the e2e harness's
-// secure-context treatment AND serves a previously-visited navigation from its own
-// cache when the network — including the SSR server — is unreachable.
+// How long the spec waits for entry-client's own SW registration to become active.
+// Generous: registration is deferred to window `load` and the SW must install+activate.
+const SW_READY_TIMEOUT_MS = 15_000;
+
+// Proves the SERVICE WORKER (task 1w9.2): entry-client's own registration activates,
+// and a previously-visited navigation is served from the SW cache when the network —
+// including the SSR server — is unreachable.
 //
 // SECURE-CONTEXT REALITY (design 1w9.1 §Q5): the in-container browser reaches the app
 // over plain HTTP at host.docker.internal:<ephemeral port>, where SW registration is
 // normally blocked (not https, not localhost). playwright:up allowlists it via
 // `--unsafely-treat-insecure-origin-as-secure=*.docker.internal` (a hostname wildcard,
 // matches any port). KNOWN RISK: old headless (chromedp/headless-shell) may IGNORE the
-// flag (Playwright #22944). This spec PROBES registration first and, if no secure
-// context is available, SKIPS LOUDLY (a visible skip with reason) rather than faking
-// coverage. When the flag works, it goes on to prove real offline SW serving.
+// flag (Playwright #22944).
 //
-// WHY THIS IS RED-ABLE (teeth): the offline-serving assertion only passes because the
-// SW serves the cached document — with no controlling SW, an offline reload yields a
-// browser error page and the seeded-todo link never appears. Disabling the registration
-// in entry-client.tsx (or the /sw.js route) turns this spec red.
+// SKIP vs FAIL contract (review F3): the ONLY skip condition is an insecure context —
+// `navigator.serviceWorker` missing entirely, which is the harness's environmental
+// limitation, not an app regression. EVERYTHING ELSE FAILS: this spec does NOT
+// register the SW itself — it passively awaits `navigator.serviceWorker.ready`, so
+// the production registration in entry-client.tsx is what is under test. Under a
+// secure context, removing that registration, breaking the /sw.js route, or shipping
+// a sw.js that throws all leave `ready` pending → the readiness assertion FAILS (red).
+//
+// WHY THE OFFLINE ASSERTION IS RED-ABLE (teeth): the offline reload only renders the
+// seeded link because the SW serves the cached document — with no controlling SW an
+// offline reload is a net::ERR_INTERNET_DISCONNECTED error page (verified both ways
+// against a secure localhost context with new-headless chromium).
 test.describe("service worker (assets + navigation shell)", () => {
-	test("registers and serves a visited navigation offline from cache", async ({
+	test("entry-client registration activates and serves a visited navigation offline", async ({
 		page,
 		context,
 	}) => {
-		// ── Probe: is a secure context available (is the flag honored)? ───────────
 		await page.goto("/todos", { waitUntil: "networkidle" });
-		const probe = await page.evaluate(async () => {
-			if (!("serviceWorker" in navigator)) {
-				return {
-					ok: false,
-					reason:
-						"navigator.serviceWorker is undefined — insecure context (secure-origin flag not honored)",
-				};
-			}
-			try {
-				await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-				await navigator.serviceWorker.ready;
-				return { ok: true, reason: "" };
-			} catch (error) {
-				return { ok: false, reason: `serviceWorker.register() rejected: ${String(error)}` };
-			}
-		});
+
+		// ── ONLY skip: insecure context (environmental — the flag isn't honored) ──
+		const secureContext = await page.evaluate(() => "serviceWorker" in navigator);
 		test.skip(
-			!probe.ok,
-			`Service worker unavailable in this harness: ${probe.reason}. Per design §Q5 mitigation ladder, ` +
-				"chromedp/headless-shell may ignore --unsafely-treat-insecure-origin-as-secure (Playwright #22944); " +
-				"escalation is a newer-headless image, then TLS. The data-offline suite (persistence.spec) needs no SW.",
+			!secureContext,
+			"navigator.serviceWorker is undefined — insecure context (the browser container's " +
+				"--unsafely-treat-insecure-origin-as-secure flag is not honored; old headless ignores it, " +
+				"Playwright #22944). Per design §Q5 the escalation is a newer-headless image, then TLS. " +
+				"The data-offline suite (persistence.spec) needs no SW.",
 		);
+
+		// ── Assert entry-client's OWN registration goes active (never registers here)
+		// `ready` resolves only once a registration has an active worker; if the
+		// entry-client registration is missing/broken or /sw.js 404s / fails to parse,
+		// it stays pending forever and this times out RED.
+		const readiness = await page.evaluate(
+			async (timeoutMs) =>
+				Promise.race([
+					navigator.serviceWorker.ready.then(() => "ready" as const),
+					new Promise<"timeout">((resolve) => {
+						setTimeout(() => {
+							resolve("timeout");
+						}, timeoutMs);
+					}),
+				]),
+			SW_READY_TIMEOUT_MS,
+		);
+		expect(
+			readiness,
+			"entry-client's service-worker registration never became active — registration removed/broken, /sw.js unserved, or sw.js failing to install",
+		).toBe("ready");
 
 		const title = `sw-${Date.now().toString()}`;
 		const seeded = await createBackendTodo(title);
@@ -57,10 +75,11 @@ test.describe("service worker (assets + navigation shell)", () => {
 				.toBe(true);
 
 			// ── Reload ONLINE under SW control so the navigation gets cached ────────
-			// The first goto happened before the SW controlled the page, so it was not
-			// intercepted; this controlled reload populates the NetworkFirst "pages"
-			// runtime cache with the real last-good SSR bytes for /todos (which embed
-			// the dehydrated query state — the basis for byte-clean offline hydration).
+			// The first goto may have happened before the SW controlled the page, so it
+			// was not intercepted; this controlled reload populates the NetworkFirst
+			// "pages" runtime cache with the real last-good SSR bytes for /todos (which
+			// embed the dehydrated query state — the basis for byte-clean offline
+			// hydration).
 			await page.reload({ waitUntil: "networkidle" });
 			await waitForHydration(page);
 			await expect(page.getByRole("link", { name: title, exact: true })).toBeVisible();
