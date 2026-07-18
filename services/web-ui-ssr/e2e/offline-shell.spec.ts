@@ -143,6 +143,23 @@ test.describe("offline shell (never-visited route, SW-served)", () => {
 			// alone. ─────────────────────────────────────────────────────────────────
 			await expect(page.getByRole("heading", { name: title })).toBeVisible();
 			await expect(page.getByText("shell details")).toBeVisible();
+
+			// ── 6) HEAD RECONCILES CLEANLY in the shell render path (F7). The route
+			// head()'s client HeadContent reconciles against the shell's static <head> only
+			// because those static links carry `data-sm` (renderOfflineShell) — the marker
+			// @solidjs/meta's client provider removes before it (re)declares. Without it the
+			// provider APPENDS a second copy of every stylesheet, leaving duplicate CSS links
+			// that never reconcile. Assert the detail route's title applied AND exactly one
+			// stylesheet link (no duplicate) — the latter is what fails without the fix. ──
+			await expect.poll(() => page.title()).toBe(`${title} | Web UI SSR`);
+			await expect.poll(() => page.locator('head link[rel="stylesheet"]').count()).toBe(1);
+
+			// …and it keeps reconciling across in-shell SPA navigation: hopping to the
+			// (persisted) list updates the title, still with a single reconciled stylesheet.
+			await page.getByRole("link", { name: "Todos" }).first().click();
+			await expect(page).toHaveURL(/\/todos$/);
+			await expect.poll(() => page.title()).toBe("Todos | Web UI SSR");
+			await expect.poll(() => page.locator('head link[rel="stylesheet"]').count()).toBe(1);
 		} finally {
 			await context.setOffline(false);
 			// Leave the isolated context clean (the fixture closes it anyway).

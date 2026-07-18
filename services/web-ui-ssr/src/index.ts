@@ -160,13 +160,24 @@ async function handleSsr(c: Context): Promise<Response> {
  * state. The `data-offline-shell` marker on <html> makes entry-client client-render
  * (not hydrate), so the route loader paints from the persisted IndexedDB cache. All
  * URLs originate from our own build manifest, so no user-controlled interpolation.
+ *
+ * HEAD RECONCILIATION (F7). The static head links below carry `data-sm` — the marker
+ * @solidjs/meta's client provider (MetaProvider, used by the route head()'s HeadContent)
+ * scans for and REMOVES on a client-only render() before it (re)declares its own tags.
+ * Without it the client HeadContent, finding no reconcilable prior tags, APPENDS a second
+ * copy of every CSS/preload link, leaving the shell head with duplicate stylesheets that
+ * never reconcile. With it, browsing from the shell reconciles the head cleanly (one link
+ * per asset, the route's document.title applied) exactly as the hydration path does. The
+ * links are still present for FOUC prevention before the entry runs; the reconciliation
+ * only swaps them for HeadContent's equivalents once it mounts. Shell-only — the normal
+ * SSR head (RouterServer) already emits its own data-sm tags and is untouched.
  */
 function renderOfflineShell(ssrContext: SsrContext): string {
 	const stylesheets = ssrContext.cssUrls
-		.map((href) => `<link rel="stylesheet" href="${href}">`)
+		.map((href) => `<link rel="stylesheet" href="${href}" data-sm="">`)
 		.join("");
 	const preloads = ssrContext.preloadScriptUrls
-		.map((href) => `<link rel="preload" as="script" href="${href}">`)
+		.map((href) => `<link rel="preload" as="script" href="${href}" data-sm="">`)
 		.join("");
 	const scripts = ssrContext.scriptUrls
 		.map((src) => `<script src="${src}" defer></script>`)
