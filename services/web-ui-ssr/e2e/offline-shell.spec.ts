@@ -146,19 +146,27 @@ test.describe("offline shell (never-visited route, SW-served)", () => {
 
 			// ── 6) HEAD RECONCILES CLEANLY in the shell render path (F7). The route
 			// head()'s client HeadContent reconciles against the shell's static <head> only
-			// because those static links carry `data-sm` (renderOfflineShell) — the marker
+			// because EVERY static tag it also declares (charset + viewport metas AND the
+			// CSS/preload links) carries `data-sm` (renderOfflineShell) — the marker
 			// @solidjs/meta's client provider removes before it (re)declares. Without it the
-			// provider APPENDS a second copy of every stylesheet, leaving duplicate CSS links
-			// that never reconcile. Assert the detail route's title applied AND exactly one
-			// stylesheet link (no duplicate) — the latter is what fails without the fix. ──
+			// provider APPENDS a second copy of each, leaving duplicate metas/stylesheets that
+			// never reconcile. Assert the detail route's title applied AND exactly one of each
+			// reconciled head tag (no duplicates) — what fails without the fix. This also
+			// guards the undocumented data-sm contract against future @solidjs/meta bumps. ──
 			await expect.poll(() => page.title()).toBe(`${title} | Web UI SSR`);
+			await expect.poll(() => page.locator("head title").count()).toBe(1);
+			await expect.poll(() => page.locator("head meta[charset]").count()).toBe(1);
+			await expect.poll(() => page.locator('head meta[name="viewport"]').count()).toBe(1);
 			await expect.poll(() => page.locator('head link[rel="stylesheet"]').count()).toBe(1);
 
 			// …and it keeps reconciling across in-shell SPA navigation: hopping to the
-			// (persisted) list updates the title, still with a single reconciled stylesheet.
+			// (persisted) list updates the title, still with a single reconciled tag of each.
 			await page.getByRole("link", { name: "Todos" }).first().click();
 			await expect(page).toHaveURL(/\/todos$/);
 			await expect.poll(() => page.title()).toBe("Todos | Web UI SSR");
+			await expect.poll(() => page.locator("head title").count()).toBe(1);
+			await expect.poll(() => page.locator("head meta[charset]").count()).toBe(1);
+			await expect.poll(() => page.locator('head meta[name="viewport"]').count()).toBe(1);
 			await expect.poll(() => page.locator('head link[rel="stylesheet"]').count()).toBe(1);
 		} finally {
 			await context.setOffline(false);

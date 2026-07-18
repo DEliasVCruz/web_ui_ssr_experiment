@@ -161,16 +161,19 @@ async function handleSsr(c: Context): Promise<Response> {
  * (not hydrate), so the route loader paints from the persisted IndexedDB cache. All
  * URLs originate from our own build manifest, so no user-controlled interpolation.
  *
- * HEAD RECONCILIATION (F7). The static head links below carry `data-sm` — the marker
+ * HEAD RECONCILIATION (F7). EVERY static head tag the route head() also declares — the
+ * charset + viewport metas AND the CSS/preload links — carries `data-sm`, the marker
  * @solidjs/meta's client provider (MetaProvider, used by the route head()'s HeadContent)
  * scans for and REMOVES on a client-only render() before it (re)declares its own tags.
  * Without it the client HeadContent, finding no reconcilable prior tags, APPENDS a second
- * copy of every CSS/preload link, leaving the shell head with duplicate stylesheets that
- * never reconcile. With it, browsing from the shell reconciles the head cleanly (one link
- * per asset, the route's document.title applied) exactly as the hydration path does. The
- * links are still present for FOUC prevention before the entry runs; the reconciliation
- * only swaps them for HeadContent's equivalents once it mounts. Shell-only — the normal
- * SSR head (RouterServer) already emits its own data-sm tags and is untouched.
+ * copy of each, leaving the shell head with duplicate metas/stylesheets that never
+ * reconcile (cascading metas dedup only among MetaProvider-managed tags, so an untagged
+ * static charset/viewport is not replaced — 2× charset, 2× viewport). With data-sm on all
+ * of them, browsing from the shell reconciles the head cleanly (exactly one tag per asset,
+ * the route's document.title applied) exactly as the hydration path does. The tags are
+ * still present for FOUC prevention before the entry runs; the reconciliation only swaps
+ * them for HeadContent's equivalents once it mounts. Shell-only — the normal SSR head
+ * (RouterServer) already emits its own data-sm tags and is untouched.
  */
 function renderOfflineShell(ssrContext: SsrContext): string {
 	const stylesheets = ssrContext.cssUrls
@@ -184,8 +187,8 @@ function renderOfflineShell(ssrContext: SsrContext): string {
 		.join("");
 	return (
 		`<!DOCTYPE html><html lang="en" data-offline-shell><head>` +
-		`<meta charset="utf-8">` +
-		`<meta name="viewport" content="width=device-width, initial-scale=1.0">` +
+		`<meta charset="utf-8" data-sm="">` +
+		`<meta name="viewport" content="width=device-width, initial-scale=1.0" data-sm="">` +
 		`${stylesheets}${preloads}</head><body>${scripts}</body></html>`
 	);
 }

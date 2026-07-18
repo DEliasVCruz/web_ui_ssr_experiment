@@ -58,100 +58,6 @@ async function rowClientId(page: Page, title: string): Promise<string> {
 	return id;
 }
 
-/** Polls until the paused-mutation queue has been persisted to IndexedDB. */
-async function waitForQueuePersisted(page: Page): Promise<void> {
-	await expect
-		.poll(
-			() =>
-				page.evaluate(
-					() =>
-						new Promise<boolean>((resolve) => {
-							void indexedDB.databases().then((dbs) => {
-								if (!dbs.some((d) => d.name === "keyval-store")) {
-									resolve(false);
-									return;
-								}
-								const req = indexedDB.open("keyval-store");
-								req.onerror = () => {
-									resolve(false);
-								};
-								req.onsuccess = () => {
-									const db = req.result;
-									if (!db.objectStoreNames.contains("keyval")) {
-										db.close();
-										resolve(false);
-										return;
-									}
-									const r = db
-										.transaction("keyval", "readonly")
-										.objectStore("keyval")
-										.get("web-ui-paused-mutations");
-									r.onerror = () => {
-										db.close();
-										resolve(false);
-									};
-									r.onsuccess = () => {
-										const raw = r.result as string | undefined;
-										db.close();
-										resolve(typeof raw === "string" && raw.includes("createTodo"));
-									};
-								};
-							});
-						}),
-				),
-			{ timeout: FLUSH_TIMEOUT_MS },
-		)
-		.toBe(true);
-}
-
-/** Polls until the paused-mutation queue entry is ABSENT from IndexedDB. */
-async function waitForQueueEmpty(page: Page): Promise<void> {
-	await expect
-		.poll(
-			() =>
-				page.evaluate(
-					() =>
-						new Promise<boolean>((resolve) => {
-							void indexedDB.databases().then((dbs) => {
-								if (!dbs.some((d) => d.name === "keyval-store")) {
-									resolve(true);
-									return;
-								}
-								const req = indexedDB.open("keyval-store");
-								req.onerror = () => {
-									resolve(true);
-								};
-								req.onsuccess = () => {
-									const db = req.result;
-									if (!db.objectStoreNames.contains("keyval")) {
-										db.close();
-										resolve(true);
-										return;
-									}
-									const r = db
-										.transaction("keyval", "readonly")
-										.objectStore("keyval")
-										.get("web-ui-paused-mutations");
-									r.onerror = () => {
-										db.close();
-										resolve(true);
-									};
-									r.onsuccess = () => {
-										const raw = r.result as string | undefined;
-										db.close();
-										// Empty iff the key is gone entirely (persist() del's it when no
-										// queued mutation remains) or holds no createTodo.
-										resolve(raw === undefined || !raw.includes("createTodo"));
-									};
-								};
-							});
-						}),
-				),
-			{ timeout: FLUSH_TIMEOUT_MS },
-		)
-		.toBe(true);
-}
-
 /** Reads the raw persisted paused-mutations JSON string from IndexedDB (or undefined). */
 function readPersistedQueue(page: Page): Promise<string | undefined> {
 	return page.evaluate(
@@ -207,6 +113,25 @@ async function waitForQueueGone(page: Page): Promise<void> {
 		.poll(() => readPersistedQueue(page).then((raw) => raw === undefined), {
 			timeout: FLUSH_TIMEOUT_MS,
 		})
+		.toBe(true);
+}
+
+/** Polls until a queued CREATE has been persisted to IndexedDB. */
+async function waitForQueuePersisted(page: Page): Promise<void> {
+	await waitForQueueContains(page, "createTodo");
+}
+
+/**
+ * Polls until the persisted queue holds no queued CREATE — either the whole entry is
+ * gone (persist() del's it when nothing remains) or it no longer contains a createTodo.
+ */
+async function waitForQueueEmpty(page: Page): Promise<void> {
+	await expect
+		.poll(
+			() =>
+				readPersistedQueue(page).then((raw) => raw === undefined || !raw.includes("createTodo")),
+			{ timeout: FLUSH_TIMEOUT_MS },
+		)
 		.toBe(true);
 }
 
