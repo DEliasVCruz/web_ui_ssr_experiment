@@ -160,7 +160,7 @@ Solution (in `packages-java.nix`), no `manualMvnArtifacts` guesswork:
    bump. **`doCheck = false`**: the Testcontainers unit + `*IT` tests need a
    container daemon the sandbox lacks — they stay in the impure CI/e2e path.
 
-Verified on aarch64-darwin (Java is arch-portable): `nix build .#business-logic-java`
+Verified on aarch64-darwin (Java is arch-portable): `nix build --impure .#business-logic-java`
 BUILD SUCCESS incl. hermetic jOOQ codegen; the jar boots through the full avaje DI
 graph + HikariCP (fails only on the absent DB socket).
 
@@ -197,9 +197,12 @@ consumes (Option A). It mirrors `docker-compose.yml` (postgres + business-logic 
 web-ui-ssr) and adds the `pw-browser` CDP service (the devenv `playwright:up`
 flags + `host.docker.internal` + a sized `/dev/shm`). Because it references image
 **name:tag strings**, the YAML builds on darwin and `podman compose -f … config`
-parses clean. `apps.up` brings it up via `podman compose`. Full `up` needs the
-service images realized (x86_64-linux) + loaded (`copyToPodman`) on a Linux-capable
-builder; postgres pulls + runs standalone regardless.
+parses clean. A top-level `name: web-ui-ssr-experiment` is injected (post-processed
+with `jq`) so the project + `postgres-data` volume identity is pinned in the file
+regardless of the invoking cwd (arion only emits the inert `x-arion.project.name`).
+`apps.up` brings it up via `podman compose`. Full `up` needs the service images
+realized (x86_64-linux) + loaded (`copyToPodman`) on a Linux-capable builder;
+postgres pulls + runs standalone regardless.
 
 ## Deviations from the design note
 

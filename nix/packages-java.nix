@@ -108,9 +108,14 @@
         # postgres binaries for jooq-codegen.sh (initdb/pg_ctl/createdb) — needed
         # in BOTH phases (both run generate-sources). jdk25 for the javadoc/tools
         # the annotation processors touch. maven is auto-added by buildMavenPackage.
+        # stripJavaArchivesHook zeroes the zip mtimes in the OUTPUT jars
+        # (business-logic-java.jar + libs/*.jar + adapter) at fixupPhase, so the
+        # final reactor derivation is bit-reproducible (the FOD sets dontFixup, so
+        # the hook is a no-op there — its FOD determinism is handled below).
         nativeBuildInputs = [
           pkgs.jdk25
           pkgs.postgresql_17
+          pkgs.stripJavaArchivesHook
         ];
 
         # Skip test EXECUTION (Testcontainers needs a container daemon); see above.
@@ -127,11 +132,28 @@
             export MAVEN_ARGS="-Dmaven.repo.local=$out/.m2"
             ${installAdapter}
           '';
+          # FOD DETERMINISM. The preBuild `mvn install` of the parent pom + adapter
+          # writes NON-reproducible files into $out/.m2 that buildMavenPackage's
+          # own prune (only *.lastUpdated / resolver-status.properties /
+          # _remote.repositories) does not strip: (a) the locally-built
+          # connect-unary-adapter SNAPSHOT jar (zip mtimes) and (b) 4×
+          # maven-metadata-local.xml carrying wall-clock <lastUpdated> stamps — all
+          # under com/webuipoc. Delete the whole locally-installed group plus any
+          # stray *-local metadata after buildMavenPackage's prune (runHook
+          # postInstall). Phase-2 re-installs parent+adapter from source into its
+          # writable .m2 copy (afterDepsSetup) before the outer mvn, so nothing the
+          # offline build needs is lost. Proven: two `nix build --rebuild` of the
+          # FOD drv reproduce this mvnHash.
+          postInstall = ''
+            rm -rf "$out/.m2/com/webuipoc"
+            find "$out/.m2" -name 'maven-metadata-local.xml' -delete
+          '';
         };
-        # Pin after the first build (fakeHash → read the got: value). Captured on
-        # aarch64-darwin; the .m2 is generated jars + downloaded artifacts, which
-        # are arch-independent, so this single hash is portable to x86_64-linux.
-        mvnHash = "sha256-bV/HI/BBCHL0fXywzxCIcxZgT0h9zQZA7RPGMjPVDQk=";
+        # Pin after the first build (fakeHash → read the got: value). The FOD is
+        # deterministic (see mvnFetchExtraArgs.postInstall); its .m2 is downloaded
+        # artifacts (arch-independent coordinates), so this single hash is portable
+        # across build hosts.
+        mvnHash = "sha256-RKd3isF1Ix5hVIY5bqQY3neQezLQum0m+ukbs/2wAuk=";
 
         # ── phase-2 (sealed, offline) ──────────────────────────────────────
         # preBuild copies buf-java again; afterDepsSetup (after $mvnDeps is set,

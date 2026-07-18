@@ -103,11 +103,23 @@
           )
         ];
       };
+
+      # Arion sets only the INERT `x-arion.project.name`; it emits no top-level
+      # compose `name:`, so a consumer's project identity would default to the
+      # invoking directory's basename — running `podman compose -f …` from a
+      # foreign cwd would mint a DIFFERENT project + a `<cwd>_postgres-data` volume,
+      # silently splitting state from devenv's `web-ui-ssr-experiment` stack.
+      # Inject the top-level `name:` (Compose spec v2) so identity is pinned in the
+      # file itself — every consumer (apps.up AND a bare `podman compose config`
+      # from any cwd) resolves the same project/volume names.
+      namedCompose = pkgs.runCommand "docker-compose.yaml" { nativeBuildInputs = [ pkgs.jq ]; } ''
+        jq '. + { name: "web-ui-ssr-experiment" }' ${composition.config.out.dockerComposeYaml} > "$out"
+      '';
     in
     {
       # `nix build .#arion-compose` → the generated docker-compose YAML (Option A
-      # artifact). `nix eval .#packages.<sys>.arion-compose` inspects it. apps.up
-      # (nix/apps.nix) brings the stack up against this file.
-      packages.arion-compose = composition.config.out.dockerComposeYaml;
+      # artifact) with a pinned top-level `name:`. `nix eval .#packages.<sys>
+      # .arion-compose` inspects it. apps.up (nix/apps.nix) brings the stack up.
+      packages.arion-compose = namedCompose;
     };
 }

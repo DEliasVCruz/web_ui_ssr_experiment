@@ -27,9 +27,13 @@
       # instantiates a Linux skopeo.
       n2c = inputs'.nix2container.packages.nix2container;
 
-      # A JRE for the Java runtime image (mirrors eclipse-temurin:25-jre — the
-      # runtime stage needs no compiler). The IMAGE is x86_64-linux, so this is
-      # the Linux JRE closure.
+      # Java runtime for the business-logic image. NOTE: this is the full HEADLESS
+      # JDK 25 (~380 MB closure), NOT a trimmed JRE — nixpkgs ships no
+      # `temurin-jre-25` and the Dockerfile's eclipse-temurin:25-jre has no direct
+      # nixpkgs analogue. It runs the jar correctly; shrinking it to a jlink'd
+      # module set (jdeps → custom runtime) is a deploy-size optimization deferred
+      # to 2pk.4, kept out of scope here to avoid guessing Helidon's module needs.
+      # The image is x86_64-linux, so this is the Linux JDK closure.
       jre = pkgs.jdk25_headless;
 
       # ══ web-ui-ssr — bun runtime + dist, vendor BELOW app ═════════════════
@@ -174,10 +178,13 @@
       _module.args.imageInfo = imageInfo;
 
       # ── Image packages — x86_64-linux ONLY (Fly.io deploy arch; Daniel's
-      # ruling). They EVALUATE from aarch64-darwin (`nix eval` / `nix build
-      # --dry-run` of packages.x86_64-linux.image-*) but REALIZE on Linux (no
-      # linux-builder here per task scope; 2pk.4 builds them on CI agents and
-      # pushes via nix2container copyToRegistry/copyToPodman).
+      # ruling). They can NOT be evaluated OR realized from aarch64-darwin: the
+      # pinned devenv-nixpkgs builds its patched pkgs via a per-system
+      # `applyPatches` derivation it then imports (an IFD), so instantiating
+      # `legacyPackages.x86_64-linux` needs a Linux builder — this blocks eval too,
+      # not just realization (see nix/README.md). 2pk.4 builds + pushes them on
+      # Linux CI agents via nix2container copyToRegistry/copyToPodman. The image
+      # plumbing was smoke-validated by building aarch64-darwin variants (README).
       packages = lib.optionalAttrs (system == "x86_64-linux") {
         image-web-ui-ssr = imageWebUiSsr;
         image-business-logic-java = imageBusinessLogicJava;
