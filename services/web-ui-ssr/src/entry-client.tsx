@@ -1,5 +1,6 @@
 import "./styles.css";
 import { Serwist as SerwistWindow } from "@serwist/window";
+import { RouterProvider } from "@tanstack/solid-router";
 import { RouterClient } from "@tanstack/solid-router/ssr/client";
 import { hydrate, render } from "solid-js/web";
 import { type ActionHandle, beginAction, endAction } from "./observability/browser-events";
@@ -94,8 +95,16 @@ router.subscribe("onRendered", closeNavAction);
 // there is nothing to hydrate against, so client-render instead and let the route
 // loader paint from the persisted query cache (1w9.3). One entry, one branch; no
 // separate offline build.
+//
+// It MUST be RouterProvider here, not RouterClient: RouterClient is the SSR-hydration
+// entry — with no dehydrated matches it calls router-core's `hydrate()`, which reads
+// the SSR router-state script the shell does not carry and throws "Invariant failed"
+// (the offline route then renders a blank body). RouterProvider is the plain
+// client-only render: it mounts <Matches> and drives a normal client-side initial
+// load of the current URL, whose loader resolves offlineFirst from the persisted
+// IndexedDB cache (1w9.3). The online path below still hydrates via RouterClient.
 if (document.documentElement.hasAttribute("data-offline-shell")) {
-	render(() => <RouterClient router={router} />, document.body);
+	render(() => <RouterProvider router={router} />, document.body);
 } else {
 	hydrate(() => <RouterClient router={router} />, document.body);
 }

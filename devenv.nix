@@ -245,35 +245,66 @@ in
       # the podman machine socket (see enterShell), so this requires
       # `podman machine start` to have been run (docs/podman.md).
       exec = ''
-        # Run headless Chromium container with CDP endpoint.
+        # Run the shared NEW-HEADLESS Chromium container with a CDP endpoint.
         #
-        # Secure-context flag (task 1w9.2): the in-container browser reaches the app
-        # over plain HTTP at host.docker.internal:<ephemeral port>, so Service Worker
+        # NEW HEADLESS (task 1w9.5): the previous image (chromedp/headless-shell) runs
+        # OLD headless, which PROVABLY ignores --unsafely-treat-insecure-origin-as-secure
+        # (Playwright #22944; confirmed live — flag present in argv, navigator.serviceWorker
+        # still undefined). New headless HONOURS the flag (verified live: isSecureContext
+        # true, "serviceWorker" in navigator true on http://host.docker.internal:<port>),
+        # so e2e/sw.spec.ts genuinely EXECUTES instead of skipping. The image is built
+        # locally from tooling/docker/playwright-browser (a new-headless Chromium plus a
+        # socat bridge — see below and that dir's run.sh).
+        #
+        # Secure-context flag (task 1w9.2): the in-container browser reaches the app over
+        # plain HTTP at host.docker.internal:<ephemeral port>, so Service Worker
         # registration is blocked by default (SW needs a secure context, and the
-        # host.docker.internal:<port> origin is neither https nor localhost). We
-        # allowlist it with --unsafely-treat-insecure-origin-as-secure. The value is a
-        # HOSTNAME WILDCARD (*.docker.internal) — hostname patterns (no scheme) match
-        # the host on ANY scheme and ANY port, which is required because ci:e2e picks
-        # an ephemeral web port unknown at container-start (post-iq2.3). --user-data-dir
-        # is the companion incantation Chromium wants for the flag to take effect.
-        # The flag is ADDITIVE and harmless to every other spec (they don't register a
-        # SW / go offline); it only unblocks the one sw.spec.ts. KNOWN RISK: old
-        # headless (chromedp/headless-shell) may ignore the flag (Playwright #22944) —
-        # sw.spec.ts probes registration at runtime and skips (loudly) if so.
+        # host.docker.internal:<port> origin is neither https nor localhost). We allowlist
+        # it with --unsafely-treat-insecure-origin-as-secure. The value is a HOSTNAME
+        # WILDCARD (*.docker.internal) — hostname patterns (no scheme) match the host on
+        # ANY scheme and ANY port, which is required because ci:e2e picks an ephemeral web
+        # port unknown at container-start (post-iq2.3). --user-data-dir is the companion
+        # incantation Chromium wants for the flag to take effect. Both are forwarded into
+        # the browser argv via run.sh's `$@`.
         #
-        # These args are forwarded to headless-shell via run.sh's `$@` (which also
-        # hardcodes --no-sandbox and the CDP port), so the CDP endpoint is preserved.
-        # Recreate the shared container when it predates the flag (a prior run without
-        # it), detected by inspecting its Cmd — otherwise reuse it.
-        if docker ps --format '{{.Names}}' | grep -q '^playwright-browser$' \
-          && docker inspect playwright-browser --format '{{json .Config.Cmd}}' 2>/dev/null \
-             | grep -q 'unsafely-treat-insecure-origin-as-secure'; then
-          echo "Playwright browser already running (secure-origin flag present) on http://localhost:9222"
+        # CDP wiring (preserved): new-headless Chromium binds --remote-debugging-port to
+        # 127.0.0.1 regardless of --remote-debugging-address, so run.sh runs socat to
+        # bridge the published 0.0.0.0:9222 to Chromium's loopback DevTools on :9223 —
+        # the CDP endpoint stays reachable from the host and test containers on :9222
+        # exactly as with headless-shell (whose own run.sh did the same).
+        #
+        # BUILD with `podman build`, run/inspect with `docker` (DOCKER_HOST → the same
+        # podman engine): the docker CLI's buildx defaults to Docker Desktop's
+        # docker-container driver here, which ignores DOCKER_HOST and would build into a
+        # place `docker run` can't see.
+        IMAGE=web-ui-pw-browser:local
+        echo "Building $IMAGE (new-headless Chromium + socat for SW e2e)..."
+        podman build -t "$IMAGE" tooling/docker/playwright-browser
+
+        TARGET_IMAGE_ID=$(docker inspect "$IMAGE" --format '{{.Id}}' 2>/dev/null || true)
+
+        # Reuse the shared container ONLY if it is running from the CURRENT image build
+        # AND still carries the secure-origin flag in its Cmd; otherwise force-recreate.
+        # This subsumes the old stale-Cmd check (a prior run without the flag) and also
+        # recreates when run.sh/the Dockerfile changed (new image id) or when the old
+        # headless-shell container is still up.
+        recreate=1
+        if docker ps --format '{{.Names}}' | grep -q '^playwright-browser$'; then
+          container_image_id=$(docker inspect playwright-browser --format '{{.Image}}' 2>/dev/null || true)
+          container_cmd=$(docker inspect playwright-browser --format '{{json .Config.Cmd}}' 2>/dev/null || true)
+          if [ -n "$TARGET_IMAGE_ID" ] && [ "$container_image_id" = "$TARGET_IMAGE_ID" ] \
+            && printf '%s' "$container_cmd" | grep -q 'unsafely-treat-insecure-origin-as-secure'; then
+            recreate=0
+          fi
+        fi
+
+        if [ "$recreate" -eq 0 ]; then
+          echo "Playwright browser already running (current image + secure-origin flag) on http://localhost:9222"
         else
           docker rm -f playwright-browser 2>/dev/null || true
-          echo "Starting headless Chromium container (with insecure-origin-as-secure for SW e2e)..."
+          echo "Starting new-headless Chromium container (with insecure-origin-as-secure for SW e2e)..."
           docker run -d --name playwright-browser --shm-size=2g -p 9222:9222 \
-            chromedp/headless-shell:latest \
+            "$IMAGE" \
             --user-data-dir=/tmp/pw-profile \
             "--unsafely-treat-insecure-origin-as-secure=*.docker.internal"
         fi
@@ -296,7 +327,7 @@ in
         fi
         echo "Playwright browser running on http://localhost:9222"
       '';
-      description = "Start headless Chromium container (podman) with CDP on port 9222";
+      description = "Build+start new-headless Chromium container (podman) with CDP on port 9222";
     };
     "playwright:down" = {
       exec = ''

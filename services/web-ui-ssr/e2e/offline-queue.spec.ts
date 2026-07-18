@@ -561,4 +561,130 @@ test.describe("offline mutation queue", () => {
 			}
 		}
 	});
+
+	test("the reload-survival flush fires NO view transition (background reconciliation, not a user action)", async ({
+		page,
+	}) => {
+		// A queue flush is BACKGROUND reconciliation, not a user action: query-core
+		// never re-runs onMutate on a RESTORED mutation (so the VT-wrapped optimistic
+		// append is skipped — see todos.index.tsx), and the replay reconciliation is
+		// settleInvalidate, deliberately NOT withViewTransition (mutation-defaults.ts).
+		// So a reload-survival flush must fire ZERO document.startViewTransition calls:
+		// the survivor's row appears via a plain refetch, with no transition. (The LIVE
+		// optimistic create DOES wrap its append in a VT — view-transitions.spec.ts.)
+		const title = `E2E_VTFREE_${String(Date.now())}`;
+		let clientId: string | undefined;
+		// Spy on startViewTransition before any page script, on EVERY load/navigation
+		// (addInitScript persists across the reload below); counts onto window.__vtCalls.
+		await page.addInitScript(() => {
+			const w = window as unknown as { __vtCalls: number };
+			w.__vtCalls = 0;
+			const proto = Document.prototype as Document & {
+				startViewTransition?: Document["startViewTransition"];
+			};
+			const original = proto.startViewTransition;
+			if (typeof original === "function") {
+				proto.startViewTransition = function patched(
+					this: Document,
+					...args: Parameters<Document["startViewTransition"]>
+				): ViewTransition {
+					w.__vtCalls += 1;
+					return original.apply(this, args);
+				};
+			}
+		});
+		try {
+			await page.goto("/todos");
+			await waitForHydration(page);
+
+			await goOffline(page);
+			await page.locator(ADD_INPUT_SELECTOR).fill(title);
+			await page.getByRole("button", { name: "Add", exact: true }).click();
+			await expect(page.locator("main ul li", { hasText: title })).toBeVisible();
+			clientId = await rowClientId(page, title);
+			await waitForQueuePersisted(page);
+
+			// ── Reload: fresh document; the restored create resumes+flushes at startup ─
+			await page.goto("/todos");
+			await waitForHydration(page);
+
+			// The flush lands the survivor on the server and the reconciliation refetch
+			// brings the row into the rendered list…
+			await expect
+				.poll(() => listBackendTodos().then((ts) => ts.some((t) => t.id === clientId)), {
+					timeout: FLUSH_TIMEOUT_MS,
+				})
+				.toBe(true);
+			await expect(page.locator("main ul li", { hasText: title })).toBeVisible();
+			// …give any stray transition its full chance to fire, then assert none did.
+			await page.waitForLoadState("networkidle");
+			expect(
+				await page.evaluate(() => (window as unknown as { __vtCalls: number }).__vtCalls),
+			).toBe(0);
+		} finally {
+			const leftover = (await listBackendTodos()).find((t) => t.title === title);
+			if (leftover) await deleteBackendTodo(leftover.id);
+		}
+	});
+
+	test("flush emits EXACTLY ONE browser wide event per queued action (offline onMutate emits none)", async ({
+		page,
+		context,
+	}) => {
+		// The offline onMutate emits NOTHING (the action is queued, not done); the one
+		// and only wide event for a queued action is emitted at REPLAY, flagged
+		// offline_queued (browser-events.ts). So flushing a single queued create must
+		// yield EXACTLY ONE create_todo event — never zero (event lost) and never two
+		// (the action double-counted in observability). Test 1 above proves the flag +
+		// trace correlation with `.some()`; this pins the COUNT.
+		const title = `E2E_ONEEVENT_${String(Date.now())}`;
+		let clientId: string | undefined;
+		const createEvents: BrowserWideEventLine[] = [];
+		page.on("console", (msg) => {
+			const text = msg.text();
+			if (!text.startsWith("{")) return;
+			try {
+				const parsed = JSON.parse(text) as BrowserWideEventLine;
+				if (parsed.component === "web-ui-browser" && parsed.action === "create_todo") {
+					createEvents.push(parsed);
+				}
+			} catch {
+				// not one of our JSON wide-event lines
+			}
+		});
+		try {
+			await page.goto("/todos");
+			await waitForHydration(page);
+
+			// Real offline so the enqueue is honestly captured as offline_queued.
+			await context.setOffline(true);
+			await page.locator(ADD_INPUT_SELECTOR).fill(title);
+			await page.getByRole("button", { name: "Add", exact: true }).click();
+			await expect(page.locator("main ul li", { hasText: title })).toBeVisible();
+			clientId = await rowClientId(page, title);
+
+			// Queued, not sent: the offline onMutate emitted NO wide event.
+			expect(createEvents).toHaveLength(0);
+
+			// ── Reconnect: flush ──────────────────────────────────────────────────────
+			await context.setOffline(false);
+			await expect
+				.poll(() => listBackendTodos().then((ts) => ts.some((t) => t.id === clientId)), {
+					timeout: FLUSH_TIMEOUT_MS,
+				})
+				.toBe(true);
+
+			// Exactly one create_todo wide event, emitted at replay, flagged offline_queued.
+			await expect.poll(() => createEvents.length, { timeout: FLUSH_TIMEOUT_MS }).toBe(1);
+			// Let any erroneous second emission surface, then re-assert exactly one.
+			await page.waitForLoadState("networkidle");
+			expect(createEvents).toHaveLength(1);
+			expect(createEvents[0]?.offline_queued).toBe(true);
+		} finally {
+			if (clientId !== undefined) {
+				const leftover = (await listBackendTodos()).find((t) => t.id === clientId);
+				if (leftover) await deleteBackendTodo(leftover.id);
+			}
+		}
+	});
 });
