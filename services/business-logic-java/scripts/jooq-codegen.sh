@@ -46,10 +46,32 @@ cleanup() {
   if [ -d "$PGDATA" ]; then
     pg_ctl -D "$PGDATA" -m immediate -w stop >/dev/null 2>&1 || true
   fi
-  rm -rf "$WORK"
+  # On failure, surface the postgres log BEFORE deleting $WORK — otherwise a
+  # `pg_ctl start` failure would destroy its own diagnostics.
+  if [ "$status" -ne 0 ] && [ -f "$PGLOG" ]; then
+    echo "jooq-codegen: FAILED (status $status) — last 50 lines of postgres log:" >&2
+    tail -50 "$PGLOG" >&2 || true
+  fi
+  # $SOCKDIR is normally inside $WORK; when relocated (see the guard below) it is
+  # separate, so remove both — rm -rf on an already-gone path is a no-op.
+  rm -rf "$WORK" "$SOCKDIR"
   return $status
 }
 trap cleanup EXIT INT TERM
+
+# Guard the unix-socket path length. Postgres appends "/.s.PGSQL.<port>" (up to
+# 15 chars) to $SOCKDIR, and the whole path must fit the sockaddr_un sun_path
+# limit (104 on macOS/BSD, 108 on Linux). A deep CI $TMPDIR can blow that; fall
+# back to a short socket dir under /tmp rather than fail cryptically (and per the
+# cleanup above, a failure here would otherwise delete its own explanation). The
+# relocated dir is cleaned up by cleanup() via $SOCKDIR.
+if [ $(( ${#SOCKDIR} + 15 )) -gt 100 ]; then
+  SOCKDIR="$(mktemp -d "/tmp/jooq-pg.XXXXXX")"
+  if [ $(( ${#SOCKDIR} + 15 )) -gt 100 ]; then
+    echo "jooq-codegen: unix-socket path too long even under /tmp ($SOCKDIR); set TMPDIR to a short path" >&2
+    exit 1
+  fi
+fi
 
 mkdir -p "$SOCKDIR"
 
@@ -90,7 +112,12 @@ echo "jooq-codegen: flyway migrate + jOOQ codegen against $JDBC_URL"
 # -Pjooq-codegen activates the flyway-maven-plugin + jooq-codegen-maven config
 # in this module's pom. Fully-qualified goals so the versions/config are taken
 # from that profile regardless of the invoking shell's plugin-prefix mappings.
-# MAVEN_ARGS (e.g. "-o" for offline) is forwarded when set.
+# MAVEN_ARGS (e.g. "-o" for offline) is forwarded when set. NOTE: this nested mvn
+# does NOT inherit the OUTER mvn's CLI flags (-o, -s, -Dmaven.repo.local, ...);
+# pass anything the codegen must share via MAVEN_ARGS. Maven 3.9+ also reads
+# MAVEN_ARGS from the environment natively, so those args are seen twice — a
+# harmless no-op for idempotent flags like -o.
+# shellcheck disable=SC2086  # MAVEN_ARGS is intentionally word-split into flags.
 mvn ${MAVEN_ARGS:-} -q -f "$MODULE_DIR/pom.xml" -Pjooq-codegen \
   org.flywaydb:flyway-maven-plugin:migrate \
   org.jooq:jooq-codegen-maven:generate \

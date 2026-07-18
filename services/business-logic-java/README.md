@@ -77,6 +77,13 @@ module's `jooq-codegen` Maven profile, keeping their versions pinned to the
 reactor. (The integration **tests** below still use Testcontainers/podman — that is
 deliberate and separate from codegen.)
 
+The codegen runs Flyway + jOOQ in a **nested** `mvn` invocation, which does **not**
+inherit the outer Maven's CLI flags (`-o`, `-s <settings>`, `-Dmaven.repo.local`,
+…). To share such flags with the codegen (e.g. offline mode in a sandbox), set the
+`MAVEN_ARGS` environment variable — the script forwards it to the nested `mvn`
+(and Maven 3.9+ reads it from the env natively too, so idempotent flags like `-o`
+are simply seen twice, harmlessly).
+
 ## Build & test
 
 This service is a module of the root Maven reactor (`../../pom.xml`, which also
