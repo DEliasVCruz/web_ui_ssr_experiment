@@ -130,11 +130,12 @@
       <artifactId>flyway-database-postgresql</artifactId>
     </dependency>
     <!-- jOOQ runtime: the typed DSL TodoRepository executes, and the library the
-         generated metamodel (target/generated-sources/jooq, emitted by the
-         testcontainers-jooq-codegen plugin below) compiles against. Runtime dep
-         (default scope, NEVER test — the scope-mediation trap). Version from the
-         parent's dependencyManagement; the codegen plugin is pinned to the same
-         version there, so generated code and runtime cannot drift. -->
+         generated metamodel (target/generated-sources/jooq, emitted by the hermetic
+         codegen — scripts/jooq-codegen.sh + the `jooq-codegen` profile below)
+         compiles against. Runtime dep (default scope, NEVER test — the
+         scope-mediation trap). Version from the parent's dependencyManagement; the
+         codegen runs jooq-codegen-maven at the same version, so generated code and
+         runtime cannot drift. -->
     <dependency>
       <groupId>org.jooq</groupId>
       <artifactId>jooq</artifactId>
@@ -312,7 +313,12 @@
       </plugin>
 
       <!-- Compile the buf-generated Java sources (gitignored; run `bun run generate`
-           from the repo root first — see README) -->
+           from the repo root first — see README) plus the jOOQ metamodel emitted
+           by the hermetic codegen below. The jOOQ sources land under
+           target/generated-sources/jooq; unlike the old testcontainers-jooq plugin
+           (which registered its own compile source root in-session), the hermetic
+           codegen produces them from a NESTED maven invocation, so this outer build
+           must add that directory as a source root itself. -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>build-helper-maven-plugin</artifactId>
@@ -327,68 +333,60 @@
               <sources>
                 <source>${project.basedir}/generated-sources/protobuf</source>
                 <source>${project.basedir}/generated-sources/grpc</source>
+                <source>${project.build.directory}/generated-sources/jooq</source>
               </sources>
             </configuration>
           </execution>
         </executions>
       </plugin>
 
-      <!-- jOOQ codegen against the REAL schema (task wdt.4): at generate-sources
-           the plugin starts a throwaway postgres:17-alpine via Testcontainers (on
-           the podman machine — DOCKER_HOST etc. come from the devenv shell, same
-           wiring the repository tests use), applies THIS module's actual Flyway
-           migrations (filesystem location below; the plugin-classpath Flyway is
-           force-aligned to the repo's 12.11 pin in the parent's pluginManagement),
-           and generates the typed metamodel from the live catalog. Consequences,
-           accepted deliberately:
-             * `mvn verify` (and even `mvn compile`) now REQUIRES a running
-               container runtime, exactly like the repository tests already do.
+      <!-- jOOQ codegen against the REAL schema (task wdt.4, made hermetic in 2pk.6):
+           at generate-sources the exec-maven-plugin below runs scripts/jooq-codegen.sh,
+           which starts an EPHEMERAL PostgreSQL from the devenv/nix environment (initdb
+           + pg_ctl on a loopback port and a unix socket in a private temp dir — NO
+           container runtime, NO Docker socket), applies THIS module's actual Flyway
+           migrations, runs jOOQ's generator against the live catalog, then tears the
+           database down. The Flyway + jOOQ steps run through a nested maven invocation
+           of the `jooq-codegen` profile (see <profiles> below), so their versions stay
+           pinned by the reactor and generated code can never drift from the runtime
+           jOOQ/Flyway pins. Consequences, unchanged from the container approach except
+           for the runtime dependency:
+             * `mvn verify` (and even `mvn compile`) runs the codegen at
+               generate-sources, but now needs ONLY the postgres binaries on PATH — no
+               Docker socket. This is what makes a pure Nix build of this module
+               possible (2pk.3); the same script runs in a Nix sandbox.
              * Generated sources land under target/generated-sources/jooq — inside
-               target/, so they are gitignored by the existing
-               services/business-logic-java/target/ entry and invisible to
-               Spotless (whose globs cover src/{main,test}/java only). The plugin
-               calls project.addCompileSourceRoot() itself (verified in its
-               sources), so no build-helper wiring is needed for compilation.
-             * TARGET PACKAGE com.webuipoc.jooq is chosen DELIBERATELY outside
-               both ArchUnit analysis roots (com.webuipoc.businesslogic here,
-               com.webuipoc.connect in the adapter), so no architecture rule can
-               fire ON generated classes — the same by-construction exclusion the
-               buf-generated todo.v1 sources rely on. Rules still police
-               DEPENDENCIES ON it (see ArchitectureTest's jOOQ confinement rule).
+               target/, so gitignored by the existing target/ entry and invisible to
+               Spotless (globs cover src/{main,test}/java only). Because the codegen
+               runs in a nested maven session, its addCompileSourceRoot does NOT reach
+               this build, so the build-helper add-source above registers the directory
+               for compilation explicitly.
+             * TARGET PACKAGE com.webuipoc.jooq is chosen DELIBERATELY outside both
+               ArchUnit analysis roots (com.webuipoc.businesslogic here,
+               com.webuipoc.connect in the adapter), so no architecture rule can fire
+               ON generated classes — the same by-construction exclusion the
+               buf-generated todo.v1 sources rely on. Rules still police DEPENDENCIES
+               ON it (see ArchitectureTest's jOOQ confinement rule).
              * flyway_schema_history is excluded from generation: it is Flyway's
                bookkeeping table, not part of the domain schema. -->
+      <!-- exec-maven-plugin: the `generate-jooq-sources` execution drives the
+           hermetic codegen at generate-sources; the plugin-level <mainClass> serves
+           the CLI `mvn exec:java` used to run the server (see ## Run in the README). -->
       <plugin>
-        <groupId>org.testcontainers</groupId>
-        <artifactId>testcontainers-jooq-codegen-maven-plugin</artifactId>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <configuration>
+          <mainClass>${mainClass}</mainClass>
+        </configuration>
         <executions>
           <execution>
             <id>generate-jooq-sources</id>
             <phase>generate-sources</phase>
             <goals>
-              <goal>generate</goal>
+              <goal>exec</goal>
             </goals>
             <configuration>
-              <database>
-                <type>POSTGRES</type>
-                <containerImage>postgres:17-alpine</containerImage>
-              </database>
-              <flyway>
-                <locations>filesystem:${project.basedir}/src/main/resources/db/migration</locations>
-              </flyway>
-              <jooq>
-                <generator>
-                  <database>
-                    <name>org.jooq.meta.postgres.PostgresDatabase</name>
-                    <inputSchema>public</inputSchema>
-                    <includes>.*</includes>
-                    <excludes>flyway_schema_history</excludes>
-                  </database>
-                  <target>
-                    <packageName>com.webuipoc.jooq</packageName>
-                    <directory>${project.build.directory}/generated-sources/jooq</directory>
-                  </target>
-                </generator>
-              </jooq>
+              <executable>${project.basedir}/scripts/jooq-codegen.sh</executable>
             </configuration>
           </execution>
         </executions>
@@ -459,14 +457,6 @@
         </executions>
       </plugin>
 
-      <!-- `mvn exec:java` runs the server -->
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>exec-maven-plugin</artifactId>
-        <configuration>
-          <mainClass>${mainClass}</mainClass>
-        </configuration>
-      </plugin>
       <!-- avaje-inject build support: the `provides` goal writes the module
            metadata the annotation processor reads for external-dependency
            detection (the <?m2e execute?> PI makes it run in Eclipse/VS Code
@@ -487,4 +477,85 @@
       </plugin>
     </plugins>
   </build>
+
+  <!-- jooq-codegen: NOT part of the default lifecycle. Activated only by the
+       hermetic codegen script (scripts/jooq-codegen.sh, driven by exec-maven-plugin
+       at generate-sources) via a nested `mvn -Pjooq-codegen
+       org.flywaydb:flyway-maven-plugin:migrate org.jooq:jooq-codegen-maven:generate`
+       against the ephemeral Postgres the script starts. Keeping the config in a
+       profile (rather than bound to a phase) means the outer `mvn verify` never
+       double-runs Flyway/jOOQ, and the versions stay pinned to the reactor's
+       ${version.flyway}/${version.jooq}/${version.pgjdbc} — so generated code can
+       never drift from the runtime pins. The jdbc.* coordinates are supplied by the
+       script as -D properties (loopback URL + trust auth). -->
+  <profiles>
+    <profile>
+      <id>jooq-codegen</id>
+      <build>
+        <plugins>
+          <!-- Apply the module's real Flyway migrations to the ephemeral DB.
+               flyway-database-postgresql rides along on the plugin classpath: it is
+               the jdbc:postgresql dialect module, required since Flyway 10. -->
+          <plugin>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-maven-plugin</artifactId>
+            <version>${version.flyway}</version>
+            <configuration>
+              <url>${jooq.codegen.jdbc.url}</url>
+              <user>${jooq.codegen.jdbc.user}</user>
+              <password>${jooq.codegen.jdbc.password}</password>
+              <locations>
+                <location>filesystem:${project.basedir}/src/main/resources/db/migration</location>
+              </locations>
+            </configuration>
+            <dependencies>
+              <dependency>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-database-postgresql</artifactId>
+                <version>${version.flyway}</version>
+              </dependency>
+            </dependencies>
+          </plugin>
+          <!-- jOOQ generator against the live catalog. The generator config is
+               IDENTICAL to the retired testcontainers-jooq plugin's (PostgresDatabase,
+               public schema, exclude flyway_schema_history, target package
+               com.webuipoc.jooq, target dir target/generated-sources/jooq) so the
+               emitted sources are unchanged. The pgjdbc driver is added to the plugin
+               classpath (jooq-codegen-maven does not bundle a JDBC driver). -->
+          <plugin>
+            <groupId>org.jooq</groupId>
+            <artifactId>jooq-codegen-maven</artifactId>
+            <version>${version.jooq}</version>
+            <configuration>
+              <jdbc>
+                <driver>org.postgresql.Driver</driver>
+                <url>${jooq.codegen.jdbc.url}</url>
+                <user>${jooq.codegen.jdbc.user}</user>
+                <password>${jooq.codegen.jdbc.password}</password>
+              </jdbc>
+              <generator>
+                <database>
+                  <name>org.jooq.meta.postgres.PostgresDatabase</name>
+                  <inputSchema>public</inputSchema>
+                  <includes>.*</includes>
+                  <excludes>flyway_schema_history</excludes>
+                </database>
+                <target>
+                  <packageName>com.webuipoc.jooq</packageName>
+                  <directory>${project.build.directory}/generated-sources/jooq</directory>
+                </target>
+              </generator>
+            </configuration>
+            <dependencies>
+              <dependency>
+                <groupId>org.postgresql</groupId>
+                <artifactId>postgresql</artifactId>
+                <version>${version.pgjdbc}</version>
+              </dependency>
+            </dependencies>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

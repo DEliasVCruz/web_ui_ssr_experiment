@@ -68,6 +68,14 @@ in
     # fallback compose provider for `podman compose`.
     pkgs.podman
     pkgs.podman-compose
+    # PostgreSQL server + client binaries (initdb/pg_ctl/createdb), used by the
+    # hermetic jOOQ codegen (task 2pk.6, services/business-logic-java/scripts/
+    # jooq-codegen.sh): an ephemeral throwaway Postgres started on a loopback
+    # port + unix socket in a temp dir, migrated with Flyway and introspected by
+    # jOOQ — NO container runtime / Docker socket needed for codegen. Pinned to
+    # 17 to match the integration tests' postgres:17 catalog. Integration TESTS
+    # still use Testcontainers/podman (deliberate, out of scope for 2pk.6).
+    pkgs.postgresql_17
     dockerfmt
     # protoc + grpc-java plugin, invoked by buf (buf.gen.yaml) to emit the
     # Java protobuf/gRPC sources for services/business-logic-java

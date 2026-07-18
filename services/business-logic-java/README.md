@@ -64,6 +64,19 @@ bun run generate   # buf generate → TS (packages/rpc/gen) + Java (here)
 Maven build as extra source roots (build-helper-maven-plugin), so run codegen
 once before the first Maven build.
 
+The **jOOQ metamodel** (`com.webuipoc.jooq`, under `target/generated-sources/jooq`,
+also gitignored) is generated at Maven `generate-sources` by `scripts/jooq-codegen.sh`
+(wired via exec-maven-plugin). The script is **hermetic — no container runtime /
+Docker socket**: it `initdb`s a throwaway PostgreSQL from the devenv/nix
+environment, starts it on a loopback port + a unix socket in a temp dir, applies
+the Flyway migrations under `src/main/resources/db/migration`, runs jOOQ's
+generator against the live catalog, then tears it all down. It needs only the
+postgres binaries on `PATH` and a writable `TMPDIR`, so the identical steps run in
+a future pure Nix build sandbox (task 2pk.3). Flyway + jOOQ run through the
+module's `jooq-codegen` Maven profile, keeping their versions pinned to the
+reactor. (The integration **tests** below still use Testcontainers/podman — that is
+deliberate and separate from codegen.)
+
 ## Build & test
 
 This service is a module of the root Maven reactor (`../../pom.xml`, which also

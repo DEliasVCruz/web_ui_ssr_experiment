@@ -112,12 +112,13 @@
     <version.plugin.jar>3.4.2</version.plugin.jar>
     <version.plugin.dependency>3.8.1</version.plugin.dependency>
     <version.plugin.exec>3.6.3</version.plugin.exec>
-    <!-- jOOQ codegen against a REAL throwaway Postgres container: the plugin
-         (org.testcontainers groupId, verified on Central) starts postgres via
-         Testcontainers, applies this repo's actual Flyway migrations, and runs
-         jOOQ's generator against the live catalog. 0.0.4 is the latest release
-         (2024); its bundled tool versions are overridden — see pluginManagement. -->
-    <version.plugin.tcjooq>0.0.4</version.plugin.tcjooq>
+    <!-- jOOQ codegen is hermetic (task 2pk.6): the flyway-maven-plugin +
+         jooq-codegen-maven run (versions ${version.flyway}/${version.jooq}) against an
+         ephemeral Postgres started WITHOUT a container runtime by
+         services/business-logic-java/scripts/jooq-codegen.sh. Their config lives in
+         that module's `jooq-codegen` profile; no shared plugin version is needed here.
+         (The retired testcontainers-jooq-codegen-maven-plugin needed a Docker socket
+         at build time — removed in 2pk.6.) -->
     <!-- Code style: Spotless drives palantir-java-format (120-col PALANTIR style)
          across both modules. palantir/google-java-format reach into jdk.compiler
          internals; Spotless' ModuleHelper opens those packages reflectively at
@@ -292,9 +293,9 @@
 
       <!-- jOOQ runtime (the DSL the repository executes; the generated metamodel
            compiles against it). BOM-unmanaged standalone pin like the rest of the
-           persistence stack; the codegen side is pinned to the SAME version via
-           the testcontainers-jooq-codegen plugin's dependency overrides below, so
-           generated code and runtime can never drift apart. -->
+           persistence stack; the hermetic codegen (business-logic-java's
+           `jooq-codegen` profile) runs jooq-codegen-maven at this SAME
+           ${version.jooq}, so generated code and runtime can never drift apart. -->
       <dependency>
         <groupId>org.jooq</groupId>
         <artifactId>jooq</artifactId>
@@ -385,82 +386,15 @@
           <artifactId>exec-maven-plugin</artifactId>
           <version>${version.plugin.exec}</version>
         </plugin>
-        <!-- testcontainers-jooq-codegen: version + PLUGIN-CLASSPATH OVERRIDES live
-             here; the execution + generator configuration (migrations location,
-             target package/directory) is module-specific and lives in
-             services/business-logic-java. The overrides matter (verified against
-             the 0.0.4 plugin pom + sources jar):
-
-             * jooq-codegen 3.18.3 is bundled -> overridden to ${version.jooq} so
-               the generator that emits the sources is the EXACT version the code
-               compiles and runs against (the plugin loads GenerationTool from its
-               own classloader; the project's jooq dep would NOT win otherwise).
-             * flyway-core 9.16.3 is bundled -> overridden to ${version.flyway}.
-               This is not cosmetic: Flyway 9.16.x HARD-FAILS on PostgreSQL 16+
-               ("Unsupported Database"), so the bundled line cannot migrate the
-               postgres:17-alpine codegen container at all. The plugin's
-               FlywayRunner API surface (FluentConfiguration
-               .loadDefaultConfigurationFiles()/.configuration(Map),
-               MigrateResult.migrationsExecuted; ConfigUtils/Location String
-               constants are compile-time-inlined) was verified present in
-               flyway-core 12.11.0 via javap. flyway-database-postgresql must ride
-               along (dialect module, required since Flyway 10); flyway-mysql (a
-               bundled 9.16.3 direct dep) is force-aligned too so Flyway's
-               ServiceLoader plugin discovery never mixes 9.x plugin classes with
-               the 12.x core.
-             * testcontainers 1.19.1 (testcontainers/jdbc/postgresql) -> aligned to
-               the repo-pinned ${version.testcontainers} (the line validated
-               against the podman machine in wdt.3).
-             * org.postgresql:postgresql is PROVIDED-scope in the plugin pom (i.e.
-               absent from its resolved classpath by design — the plugin README
-               requires consumers to supply the driver), so it is added here. -->
-        <plugin>
-          <groupId>org.testcontainers</groupId>
-          <artifactId>testcontainers-jooq-codegen-maven-plugin</artifactId>
-          <version>${version.plugin.tcjooq}</version>
-          <dependencies>
-            <dependency>
-              <groupId>org.jooq</groupId>
-              <artifactId>jooq-codegen</artifactId>
-              <version>${version.jooq}</version>
-            </dependency>
-            <dependency>
-              <groupId>org.flywaydb</groupId>
-              <artifactId>flyway-core</artifactId>
-              <version>${version.flyway}</version>
-            </dependency>
-            <dependency>
-              <groupId>org.flywaydb</groupId>
-              <artifactId>flyway-database-postgresql</artifactId>
-              <version>${version.flyway}</version>
-            </dependency>
-            <dependency>
-              <groupId>org.flywaydb</groupId>
-              <artifactId>flyway-mysql</artifactId>
-              <version>${version.flyway}</version>
-            </dependency>
-            <dependency>
-              <groupId>org.testcontainers</groupId>
-              <artifactId>testcontainers</artifactId>
-              <version>${version.testcontainers}</version>
-            </dependency>
-            <dependency>
-              <groupId>org.testcontainers</groupId>
-              <artifactId>jdbc</artifactId>
-              <version>${version.testcontainers}</version>
-            </dependency>
-            <dependency>
-              <groupId>org.testcontainers</groupId>
-              <artifactId>postgresql</artifactId>
-              <version>${version.testcontainers}</version>
-            </dependency>
-            <dependency>
-              <groupId>org.postgresql</groupId>
-              <artifactId>postgresql</artifactId>
-              <version>${version.pgjdbc}</version>
-            </dependency>
-          </dependencies>
-        </plugin>
+        <!-- jOOQ codegen is hermetic (task 2pk.6): flyway-maven-plugin +
+             jooq-codegen-maven, configured in the `jooq-codegen` profile of
+             services/business-logic-java and driven by that module's
+             scripts/jooq-codegen.sh against an ephemeral Postgres (no container
+             runtime). Their versions are pinned to ${version.flyway}/${version.jooq}
+             (with ${version.pgjdbc} for the driver) inline in that profile, so no
+             shared pluginManagement entry is needed here. The retired
+             testcontainers-jooq-codegen-maven-plugin (which needed a Docker socket at
+             build time) previously lived here. -->
         <!-- Spotless: version + shared configuration + the verify-phase check
              binding live here in pluginManagement (repo convention: versions and
              reusable config are managed once in the parent). The plugin is then
