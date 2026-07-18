@@ -102,7 +102,22 @@ if (isDev) {
 	const ssrContext = loadManifestSsrContext();
 	getSsrContext = () => ssrContext;
 
-	app.use("/static/*", serveStatic({ root: "dist/web" }));
+	// Long-lived immutable caching for the content-hashed build assets (mid-deploy
+	// stale-tab mitigation, 1w9.2 F5 — low-risk half only, no reload-on-controllerchange).
+	// Everything Rsbuild emits under /static carries a [contenthash] in its filename, so a
+	// given URL's bytes never change: cache it for a year and mark it `immutable` so the
+	// browser never even revalidates. This is deliberately scoped to /static/* — html
+	// (handleSsr), the offline shell (/offline), sw.js and manifest.json are served
+	// elsewhere and MUST stay revalidated so a redeploy is picked up on next load.
+	app.use(
+		"/static/*",
+		serveStatic({
+			root: "dist/web",
+			onFound: (_path, c) => {
+				c.header("Cache-Control", "public, max-age=31536000, immutable");
+			},
+		}),
+	);
 
 	// Serve the service worker at the ROOT path so its scope is "/" (a SW served
 	// under /static/ could only control /static/*). Built prod-only by
