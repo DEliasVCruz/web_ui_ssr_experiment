@@ -48,6 +48,13 @@
       # today: the prek runner + these eight hooks. Installed into .git/hooks via
       # config.pre-commit.installationScript in the shellHook below. Migrating the
       # hook set to lefthook is a SEPARATE task (2pk.2) — untouched here.
+      # The git-hooks flakeModule otherwise adds `checks.<system>.pre-commit`, which
+      # can never build in a sealed sandbox (hook entries like `ast-grep`/`bunx …`
+      # are not on the check's PATH), making plain `nix flake check` fail. Git hooks
+      # are a devshell concern here (installed via the shellHook); the real lint
+      # checks live in nix/checks.nix. So disable the auto-added check.
+      pre-commit.check.enable = false;
+
       pre-commit.settings = {
         package = pkgs.prek;
         hooks = {
@@ -166,6 +173,9 @@
 
           # ─── Install the prek git hooks (same set devenv installs) ─────────────
           ${config.pre-commit.installationScript}
+
+          # ─── Load .env (mirror devenv.nix's dotenv.enable = true) ──────────────
+          if [ -f .env ]; then set -a; . ./.env; set +a; fi
 
           # ─── bun install parity (mirror devenv.nix's enterShell) ───────────────
           if [ -f package.json ]; then

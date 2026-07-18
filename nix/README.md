@@ -12,13 +12,22 @@ structure + gap closure"* (project `main`).
 
 | File | Provides | State |
 |------|----------|-------|
-| `../flake.nix` | flake-parts entry; pins nixpkgs to devenv's (`cachix/devenv-nixpkgs/rolling`) | ✅ |
-| `devshell.nix` | `devShells.default` at parity with `devenv.nix` (bun, jdk25+maven, buf, podman, postgres_17, ast-grep, dockerfmt, hadolint, protoc plugins…), DOCKER_HOST wiring, prek git-hooks install | ✅ works |
-| `codegen.nix` | `packages.rpc-gen` — `buf generate` + wrap-jsonschema (TS/JSON-Schema + Java outputs) | ✅ builds (FOD) |
+| `../flake.nix` | flake-parts entry; pins nixpkgs + git-hooks to devenv.lock's **exact revs** (`devenv-nixpkgs` efff4732, `git-hooks.nix` 580633fa) | ✅ |
+| `devshell.nix` | `devShells.default` at parity with `devenv.nix` (bun, jdk25+maven, buf, podman, postgres_17, ast-grep, dockerfmt, hadolint, protoc plugins…), DOCKER_HOST wiring, `.env` load, prek git-hooks install | ✅ works |
+| `codegen.nix` | `packages.rpc-gen` — `buf generate` + wrap-jsonschema (TS/JSON-Schema + Java outputs) | ✅ builds (FOD); /ts + /java byte-identical to devenv |
 | `packages-ts.nix` | `packages.node-modules` (node_modules FOD) → `packages.web-ui-ssr` (panda + rsbuild → `dist/`) | ✅ builds |
 | `packages-java.nix` | `packages.business-logic-java`, `packages.connect-unary-adapter` | ⛔ **stubbed** (fail-at-build) |
 | `checks.nix` | `checks.{node-modules,rpc-gen,web-ui-ssr}` + `ci-biome`, `ci-eslint`, `ci-hygiene` | ✅ all build green |
 | `apps.nix` | `apps.{generate,up,e2e}` — impure `nix run` wrappers | wired |
+| pre-commit check | git-hooks flakeModule's auto-added `checks.<sys>.pre-commit` | **disabled** (`pre-commit.check.enable = false`) — hook tools aren't on the sandbox PATH; hooks are a devshell concern |
+
+> **Toolchain parity.** `flake.nix` pins nixpkgs and git-hooks to devenv.lock's
+> **exact commits** (not the moving `rolling`/`master` branches), so tool versions
+> match devenv byte-for-byte: **bun 1.3.11**, **protoc 34.0** (⇒ rpc-gen `/java`
+> stamps gencode `4.34.0`, honoring `pom.xml`'s invariant), jdk25, go 1.25.2.
+> This keeps the from-source plugin hashes copied from `devenv.nix` valid and was
+> verified: `rpc-gen`'s `/ts` **and** `/java` are byte-identical to a fresh devenv
+> `bun run generate`.
 
 ## What works today on aarch64-darwin
 
@@ -31,7 +40,8 @@ nix build --impure .#node-modules
 nix build --impure .#rpc-gen
 nix build --impure .#web-ui-ssr     # → ./result/dist (server + client bundles)
 
-# Evaluate the whole flake without building
+# Evaluate the whole flake without building (aarch64-darwin only by default;
+# add --all-systems to also evaluate the x86_64-linux outputs)
 nix flake check --no-build
 
 # Lint checks (all three build green on aarch64-darwin)
@@ -45,10 +55,19 @@ nix build --impure .#checks.aarch64-darwin.ci-hygiene
 `bun.lock` is **gitignored** in this repo (local-only convention). Flakes only
 see git-tracked files, so a pure eval cannot read `bun.lock`. The node_modules
 FOD therefore reads it from `$PWD` at build time, which requires
-`nix build --impure` **invoked from the repo root**. Under a pure eval
-(`nix flake check --no-build`) the lock path falls back to a tracked file so
-evaluation still succeeds — those paths never realize the FOD, so the fallback
-is never installed.
+`nix build --impure` **invoked from the repo root**.
+
+Under a pure eval (`nix flake check --no-build`) everything still **evaluates**:
+the lock path resolves to a tracked placeholder that is never consumed. If the
+FOD is ever *realized* without `--impure`, the build **fails fast** with an
+explicit pointer —
+
+```
+ERROR: bun.lock is gitignored and not visible to a pure build.
+       Run 'nix build --impure' from the repo root.
+```
+
+— instead of dying deep in bun with a misleading `InvalidLockfileVersion`.
 
 ## FOD hash update workflow
 

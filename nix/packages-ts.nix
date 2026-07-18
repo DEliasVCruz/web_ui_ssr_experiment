@@ -22,12 +22,14 @@
       # read it impurely from the working directory: building the TS packages
       # therefore requires `nix build --impure` invoked from the repo root.
       #
-      # Under PURE eval (e.g. `nix flake check --no-build`) getEnv returns "" and
-      # we fall back to a tracked file so evaluation/instantiation still succeeds;
-      # those code paths never REALIZE the FOD, so the placeholder lock is never
-      # used to actually install. See nix/README.md.
+      # Under PURE eval (e.g. `nix flake check --no-build`) getEnv returns "" so
+      # `impure` is false: evaluation/instantiation still succeeds (bunLock points
+      # at a tracked placeholder that is NEVER consumed), and the buildPhase
+      # fails FAST with an explicit --impure pointer if the FOD is ever realized
+      # without --impure — instead of dying deep in bun with InvalidLockfileVersion.
       pwd = builtins.getEnv "PWD";
-      bunLock = if pwd != "" then (/. + pwd) + "/bun.lock" else ../package.json;
+      impure = pwd != "";
+      bunLock = if impure then (/. + pwd) + "/bun.lock" else ../package.json;
 
       # Restore the FOD's captured node_modules trees (root + per-workspace) into
       # the build tree at their original relative paths.
@@ -59,8 +61,16 @@
         dontFixup = true;
         nativeBuildInputs = [ pkgs.bun ];
 
+        # "1" only under `--impure` (getEnv sees $PWD); "" under pure eval.
+        impureLock = if impure then "1" else "";
+
         buildPhase = ''
           runHook preBuild
+          if [ -z "$impureLock" ]; then
+            echo "ERROR: bun.lock is gitignored and not visible to a pure build." >&2
+            echo "       Run 'nix build --impure' from the repo root."            >&2
+            exit 1
+          fi
           export HOME="$TMPDIR"
           cp -R ${manifests}/. ./ws
           chmod -R u+w ./ws

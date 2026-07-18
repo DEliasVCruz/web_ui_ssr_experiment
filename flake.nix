@@ -6,17 +6,18 @@
   # flake-parts devshell + package derivations while devenv keeps working. See
   # nix/README.md.
   inputs = {
-    # Pinned to the SAME nixpkgs devenv resolves (cachix/devenv-nixpkgs/rolling)
-    # so package versions — protoc 34.x, jdk25, go 1.25.x — match devenv's shell
-    # and the from-source plugin hashes (dockerfmt, protoc-gen-jsonschema) carried
-    # over from devenv.nix stay valid.
-    nixpkgs.url = "github:cachix/devenv-nixpkgs/rolling";
+    # Pinned to the EXACT nixpkgs rev devenv.lock resolves (cachix/devenv-nixpkgs
+    # rolling → efff4732), not the moving `rolling` branch, so this flake's tool
+    # versions match devenv's byte-for-byte: bun 1.3.11, protoc 34.0 (rpc-gen /java
+    # stamps gencode 4.34.0 identically), jdk25, go 1.25.2 — which also keeps the
+    # from-source plugin hashes (dockerfmt, protoc-gen-jsonschema) copied from
+    # devenv.nix valid and keeps pom.xml's gencode invariant honest.
+    nixpkgs.url = "github:cachix/devenv-nixpkgs/efff47329167854ce48541c7ef731bf120753c7e";
     flake-parts.url = "github:hercules-ci/flake-parts";
-    # Same git-hooks.nix the devenv git-hooks integration wraps, pinned to the rev
-    # in devenv.lock. Its flake-parts module reproduces the prek hook install that
-    # devenv performs today (NOT lefthook — that is 2pk.2).
+    # git-hooks.nix pinned to the EXACT rev in devenv.lock (580633fa), so the prek
+    # runner + hooks reproduce devenv's install verbatim (NOT lefthook — that is 2pk.2).
     git-hooks = {
-      url = "github:cachix/git-hooks.nix";
+      url = "github:cachix/git-hooks.nix/580633fa3fe5fc0379905986543fd7495481913d";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
