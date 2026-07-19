@@ -85,8 +85,11 @@
       # $MAVEN_ARGS (exported just before this runs).
       installDeps = ''
         mvn -B -N install -f packages/java/build-bom/pom.xml
+        # The adapter derivation emits its jar under a stable version-less name, so no
+        # version coordinate is duplicated here; install:install-file reads the real GAV
+        # from -DpomFile.
         mvn -B install:install-file \
-          -Dfile=${adapter}/connect-unary-adapter-0.0.1-SNAPSHOT.jar \
+          -Dfile=${adapter}/connect-unary-adapter.jar \
           -DpomFile=${adapter}/pom.xml
       '';
 

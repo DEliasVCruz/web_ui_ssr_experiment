@@ -17,7 +17,8 @@ structure + gap closure"* (project `main`).
 | `lefthook.nix` | git-hooks: renders `../lefthook.yml` from Nix (source of truth for the 8-hook pre-commit set), `packages.lefthook-config` regen target, `checks.lefthook-config-sync` drift guard | ✅ (2pk.2) |
 | `codegen.nix` | `packages.rpc-gen` — `buf generate` + wrap-jsonschema (TS/JSON-Schema + Java outputs) | ✅ builds (FOD); /ts + /java byte-identical to devenv |
 | `packages-ts.nix` | `packages.node-modules` (node_modules FOD) → `packages.web-ui-ssr` (panda + rsbuild → `dist/`) | ✅ builds |
-| `packages-java.nix` | `packages.business-logic-java` (runnable jar + `libs/`), `packages.connect-unary-adapter` | ✅ **builds** (pure `buildMavenPackage`, hermetic jOOQ codegen) |
+| `../packages/java/connect-unary-adapter/nix` | `packages.connect-unary-adapter` (adapter jar + pom) | ✅ **builds** (pure `buildMavenPackage`; de-reactored 517) |
+| `../services/business-logic-java/nix` | `packages.business-logic-java` (runnable jar + `libs/`; injects the pre-built adapter) | ✅ **builds** (pure `buildMavenPackage`, hermetic jOOQ codegen; de-reactored 517) |
 | `images.nix` | `packages.image-{web-ui-ssr,business-logic-java,pw-browser}` — nix2container OCI images (**x86_64-linux only**) | ✅ eval/build **on Linux**; plumbing smoked on darwin (see below) |
 | `arion.nix` | `packages.arion-compose` — Arion "Option A" nix-built compose YAML | ✅ builds on darwin; `podman compose config` clean |
 | `checks.nix` | `checks.{node-modules,rpc-gen,web-ui-ssr}` + `ci-biome`, `ci-eslint`, `ci-hygiene` | ✅ all build green |
@@ -78,9 +79,10 @@ nix build --impure .#checks.aarch64-darwin.ci-biome
 nix build --impure .#checks.aarch64-darwin.ci-eslint
 nix build --impure .#checks.aarch64-darwin.ci-hygiene
 
-# Java reactor — pure buildMavenPackage incl. hermetic jOOQ codegen (no docker)
-nix build --impure .#business-logic-java     # → result/{business-logic-java.jar,libs/}
-nix build --impure .#connect-unary-adapter
+# Java units — per-unit pure buildMavenPackage incl. hermetic jOOQ codegen (no docker,
+# no reactor; de-reactored 517). Both are pure (committed sources), no --impure needed.
+nix build .#business-logic-java     # → result/{business-logic-java.jar,libs/}
+nix build .#connect-unary-adapter
 
 # Arion "Option A" compose (builds on darwin; consumable by podman/docker compose)
 nix build .#arion-compose                    # → result (docker-compose.yaml)

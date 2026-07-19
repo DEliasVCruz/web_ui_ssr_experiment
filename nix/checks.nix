@@ -91,6 +91,18 @@
         connect-unary-adapter = config.packages.connect-unary-adapter;
         business-logic-java = config.packages.business-logic-java;
 
+        # Drift guard (517): the <compilerArgs> + spotless/pmd/checkstyle blocks are
+        # duplicated across both units' poms (a BOM import can't carry build config).
+        # This asserts they stay byte-identical — same idea as lefthook-config-sync.
+        java-shared-build-config-sync =
+          pkgs.runCommand "java-shared-build-config-sync" { nativeBuildInputs = [ pkgs.python3 ]; }
+            ''
+              python3 ${../nix/java-shared-config-check.py} \
+                ${../packages/java/connect-unary-adapter/pom.xml} \
+                ${../services/business-logic-java/pom.xml}
+              touch $out
+            '';
+
         # ── Repo-wide lint checks (mirror the devenv ci:* tasks) ───────────
         # ci-proto-breaking is intentionally NOT a check: `buf breaking --against
         # .git#branch=main` needs the git history, which a sealed check derivation

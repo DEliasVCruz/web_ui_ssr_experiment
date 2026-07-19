@@ -105,8 +105,11 @@
           runHook preInstall
           mkdir -p "$out"
           # The adapter jar + its pom, both consumed by the business-logic-java build
-          # (injected into that unit's offline .m2 via install:install-file).
-          cp packages/java/connect-unary-adapter/target/connect-unary-adapter-*.jar "$out/"
+          # (injected into that unit's offline .m2 via install:install-file). The jar is
+          # emitted under a STABLE version-less name so the consumer references it
+          # without duplicating the version coordinate (install:install-file takes the
+          # real GAV from -DpomFile, so the on-disk filename is irrelevant to Maven).
+          cp packages/java/connect-unary-adapter/target/connect-unary-adapter-*.jar "$out/connect-unary-adapter.jar"
           cp packages/java/connect-unary-adapter/pom.xml "$out/pom.xml"
           runHook postInstall
         '';

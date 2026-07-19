@@ -61,12 +61,49 @@ RUN mkdir -p services/business-logic-java/generated-sources/protobuf \
 # jar into the image's ~/.m2, then package business-logic-java against them.
 # copy-dependencies drops the adapter jar into target/libs/ (referenced by the runnable
 # jar's Class-Path manifest). packages/java carries build-bom + connect-unary-adapter.
+#
+# .mvn is REQUIRED: it holds jvm.config's ten add-exports/add-opens for jdk.compiler
+# that Error Prone needs on JDK 16+ (javac runs in-process, fork=false), and it fixes
+# maven.multiModuleProjectDirectory (walked up from /build). Without it every unit's
+# compile dies with an IllegalAccessError from the Error Prone plugin. mvn discovers it
+# by walking up from each pom, so a single copy at /build/.mvn serves all three units.
+# The hermetic jOOQ codegen (scripts/jooq-codegen.sh, run at generate-sources) needs
+# postgres server+client binaries (initdb/pg_ctl/createdb) on PATH — the same tools
+# devenv/nix supply via postgresql_17 — plus a NON-ROOT user, since initdb refuses to
+# run as root. Install postgres, symlink its versioned server bindir onto PATH, and add
+# a build user. (Version-pin lint waived: the base image's apt suite floats with its tag.)
+# hadolint ignore=DL3008
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql \
+    && ln -sf /usr/lib/postgresql/*/bin/initdb /usr/lib/postgresql/*/bin/pg_ctl \
+        /usr/lib/postgresql/*/bin/createdb /usr/lib/postgresql/*/bin/postgres /usr/local/bin/ \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --shell /bin/bash builder
+
+COPY .mvn .mvn
 COPY packages/java packages/java
 COPY services/business-logic-java/pom.xml services/business-logic-java/pom.xml
 COPY services/business-logic-java/src services/business-logic-java/src
-RUN mvn -q -B -N install -f packages/java/build-bom/pom.xml \
-    && mvn -q -B -DskipTests install -f packages/java/connect-unary-adapter/pom.xml \
-    && mvn -q -B -DskipTests package -f services/business-logic-java/pom.xml
+# scripts/ carries jooq-codegen.sh, which exec-maven-plugin runs at generate-sources.
+COPY services/business-logic-java/scripts services/business-logic-java/scripts
+
+# Run the build as the non-root `builder` (initdb refuses root). chown the build tree —
+# including the buf/protoc sources generated above as root — so builder can read+write
+# it; the maven local repo then lives under /home/builder/.m2.
+RUN chown -R builder:builder /build
+USER builder
+# No bare -q: it swallows Error Prone's compile diagnostics into a bare "unknown
+# compilation problem". -B keeps the log non-interactive; -e surfaces stack traces.
+#
+# The adapter is `install`ed (into the image ~/.m2) so the service resolves it — but
+# `install` pulls in the `verify` phase, and the spotless/pmd/checkstyle gates bound
+# there read tooling/ configs that are NOT in the image (and an image build has no
+# business style-gating). Skip them exactly as the nix build does; they run in CI. The
+# service stops at `package` (before `verify`), so it needs no skips.
+RUN mvn -B -e -N install -f packages/java/build-bom/pom.xml \
+    && mvn -B -e -DskipTests -Dspotless.check.skip=true -Dpmd.skip=true -Dcpd.skip=true -Dcheckstyle.skip=true \
+        install -f packages/java/connect-unary-adapter/pom.xml \
+    && mvn -B -e -DskipTests package -f services/business-logic-java/pom.xml
 
 # Runtime stage: JRE only
 FROM eclipse-temurin:25-jre AS runtime
