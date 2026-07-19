@@ -37,41 +37,32 @@
       jre = pkgs.jdk25_headless;
 
       # ══ web-ui-ssr — bun runtime + dist, vendor BELOW app ═════════════════
-      # Layout mirrors services/web-ui-ssr/Dockerfile's runtime stage:
-      #   /app/node_modules, /app/packages/rpc/node_modules,
-      #   /app/services/web-ui-ssr/node_modules        (vendor — lower layer)
-      #   /app/packages/rpc (+ gen), /app/services/web-ui-ssr/{package.json,dist}
-      #                                                (app   — top layer)
+      # De-workspaced (5ae): the service is self-contained — a single per-unit
+      # node_modules with the @web-ui-poc/rpc package injected (no root/rpc
+      # node_modules, no bun workspace symlink):
+      #   /app/services/web-ui-ssr/node_modules            (vendor — lower layer)
+      #   /app/services/web-ui-ssr/{package.json,dist}      (app   — top layer)
       # The dist tree (server + client + rsbuild manifest + sw.js) is copied as
       # ONE derivation → ONE atomic layer, so a client/server/sw skew can never
       # ship (bd design intent).
-      nodeModules = config.packages.node-modules;
-
-      # rpc source WITHOUT gen/node_modules (git-tracked ∩ packages/rpc); gen is
-      # injected from rpc-gen so the workspace symlink @web-ui-poc/rpc resolves.
-      rpcSrc = lib.fileset.toSource {
-        root = ../packages/rpc;
-        fileset = lib.fileset.intersection (lib.fileset.gitTracked ../.) ../packages/rpc;
-      };
+      nodeModules = config.packages.web-ui-ssr-node-modules;
 
       webUiVendorRoot = pkgs.runCommand "web-ui-ssr-vendor-root" { } ''
-        mkdir -p "$out/app/packages/rpc" "$out/app/services/web-ui-ssr"
-        cp -R ${nodeModules}/node_modules "$out/app/node_modules"
-        if [ -d ${nodeModules}/packages/rpc/node_modules ]; then
-          cp -R ${nodeModules}/packages/rpc/node_modules "$out/app/packages/rpc/node_modules"
-        fi
-        if [ -d ${nodeModules}/services/web-ui-ssr/node_modules ]; then
-          cp -R ${nodeModules}/services/web-ui-ssr/node_modules "$out/app/services/web-ui-ssr/node_modules"
-        fi
+        mkdir -p "$out/app/services/web-ui-ssr"
+        cp -R ${nodeModules}/node_modules "$out/app/services/web-ui-ssr/node_modules"
+        chmod -R u+w "$out/app/services/web-ui-ssr/node_modules"
+        # Inject the nix-built @web-ui-poc/rpc over bun's file: copy (mirrors the
+        # dev postinstall symlink), so any runtime resolution of @web-ui-poc/rpc
+        # finds the generated code.
+        rm -rf "$out/app/services/web-ui-ssr/node_modules/@web-ui-poc/rpc"
+        mkdir -p "$out/app/services/web-ui-ssr/node_modules/@web-ui-poc"
+        cp -R ${config.packages.rpc} "$out/app/services/web-ui-ssr/node_modules/@web-ui-poc/rpc"
       '';
 
       webUiAppRoot = pkgs.runCommand "web-ui-ssr-app-root" { } ''
-        mkdir -p "$out/app/packages/rpc/gen" "$out/app/services/web-ui-ssr"
-        cp -R ${rpcSrc}/. "$out/app/packages/rpc/"
-        cp -R ${config.packages.rpc-gen}/ts/. "$out/app/packages/rpc/gen/"
+        mkdir -p "$out/app/services/web-ui-ssr"
         cp ${../services/web-ui-ssr/package.json} "$out/app/services/web-ui-ssr/package.json"
         cp -R ${config.packages.web-ui-ssr}/dist "$out/app/services/web-ui-ssr/dist"
-        cp ${../package.json} "$out/app/package.json"
       '';
 
       imageWebUiSsr = n2c.buildImage {

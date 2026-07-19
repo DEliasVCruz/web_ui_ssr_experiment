@@ -7,8 +7,9 @@
 #   • devenv shell  — devenv.nix enterShell runs `lefthook install`
 # so `nix develop` and `devenv shell` converge on identical .git/hooks content.
 #
-# The lefthook binary and every hook tool (buf, biome/eslint/dclint via bunx,
-# dockerfmt, hadolint, ast-grep) come from the devshell PATH — lefthook, unlike
+# The lefthook binary and most hook tools (buf, dclint via bunx, dockerfmt,
+# hadolint, ast-grep) come from the devshell PATH; biome + eslint run from the
+# `tooling` unit's node_modules/.bin (de-workspaced 5ae). lefthook, unlike
 # git-hooks.nix, does not auto-provision tools from nixpkgs (design note 2pk.1,
 # Gap 6: the switch is lateral — parallel Go runner gained, auto-tools lost).
 #
@@ -56,7 +57,9 @@
             };
             biome = {
               glob = "*.{js,cjs,mjs,jsx,ts,tsx,json}";
-              run = "bunx biome check --write --staged --no-errors-on-unmatched --colors=off";
+              # De-workspaced (5ae): biome lives in the `tooling` unit (no root
+              # node_modules), invoked by its committed bin path from the repo root.
+              run = "tooling/node_modules/.bin/biome check --write --staged --no-errors-on-unmatched --colors=off";
               stage_fixed = true;
             };
             dockerfmt = {
@@ -74,7 +77,10 @@
             };
             eslint = {
               glob = "*.{ts,tsx}";
-              run = "bunx eslint --no-warn-ignored --cache --cache-location node_modules/.cache/eslint {staged_files}";
+              # De-workspaced (5ae): eslint + plugins live in the `tooling` unit; the
+              # base config is the repo-root eslint.config.ts (auto-discovered). Cache
+              # under tooling/node_modules (the only guaranteed node_modules tree).
+              run = "tooling/node_modules/.bin/eslint --no-warn-ignored --cache --cache-location tooling/node_modules/.cache/eslint {staged_files}";
             };
             ast-grep = {
               glob = "*.{ts,tsx,java}";

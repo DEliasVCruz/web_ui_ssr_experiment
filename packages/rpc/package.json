@@ -1,11 +1,19 @@
 {
 	"name": "@web-ui-poc/rpc",
 	"version": "0.0.1",
+	"private": true,
 	"type": "module",
 	"exports": {
 		"./gen/*": "./gen/*.ts"
 	},
+	"scripts": {
+		"generate": "cd ../.. && buf generate && bun run packages/rpc/scripts/wrap-jsonschema.ts"
+	},
 	"dependencies": {
-		"@bufbuild/protobuf": "catalog:"
+		"@bufbuild/protobuf": "^2.11.0"
+	},
+	"devDependencies": {
+		"@bufbuild/protoc-gen-es": "^2.11.0",
+		"@connectrpc/protoc-gen-connect-query": "^2.0.1"
 	}
 }

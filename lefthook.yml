@@ -8,7 +8,8 @@ pre-commit:
       run: ast-grep scan
     biome:
       glob: '*.{js,cjs,mjs,jsx,ts,tsx,json}'
-      run: bunx biome check --write --staged --no-errors-on-unmatched --colors=off
+      run: tooling/node_modules/.bin/biome check --write --staged --no-errors-on-unmatched
+        --colors=off
       stage_fixed: true
     buf-format:
       glob: '*.proto'
@@ -26,8 +27,8 @@ pre-commit:
       stage_fixed: true
     eslint:
       glob: '*.{ts,tsx}'
-      run: bunx eslint --no-warn-ignored --cache --cache-location node_modules/.cache/eslint
-        {staged_files}
+      run: tooling/node_modules/.bin/eslint --no-warn-ignored --cache --cache-location
+        tooling/node_modules/.cache/eslint {staged_files}
     hadolint:
       glob: '{Dockerfile,Dockerfile.*,*/Dockerfile,*/Dockerfile.*}'
       run: hadolint --config tooling/docker/hadolint.yaml {staged_files}

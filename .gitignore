@@ -1,5 +1,8 @@
 node_modules/
-bun.lock
+# Per-unit bun.lock files are COMMITTED (de-workspaced 5ae): each TS unit
+# (packages/rpc, services/web-ui-ssr, tooling) owns its own lockfile, and
+# committing them makes the nix node_modules FODs PURE (no --impure / $PWD
+# read). Do NOT re-add a `bun.lock` ignore.
 
 # Generated protobuf/connect-es code
 packages/rpc/gen/

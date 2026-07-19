@@ -45,8 +45,14 @@
       imports = [
         ./nix/devshell.nix
         ./nix/lefthook.nix
-        ./nix/codegen.nix
-        ./nix/packages-ts.nix
+        # De-workspaced (5ae): each TS unit's nix module lives in its own directory
+        # (self-contained). rpc's module folds in the former nix/codegen.nix
+        # (rpc-gen) + its node_modules + the importable @web-ui-poc/rpc package;
+        # web-ui-ssr's folds in the former nix/packages-ts.nix build; tooling owns
+        # the repo-wide lint toolchain node_modules.
+        ./packages/rpc/nix
+        ./services/web-ui-ssr/nix
+        ./tooling/nix
         ./nix/packages-java.nix
         ./nix/images.nix
         ./nix/arion.nix

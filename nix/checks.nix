@@ -8,17 +8,23 @@
     }:
     let
       # Whole tracked source tree (git-filtered: node_modules/gen/dist are gitignored
-      # and injected below). Shared by the workspace lint checks.
+      # and injected below). Shared by the repo-wide lint checks.
       fullSrc = lib.fileset.toSource {
         root = ../.;
         fileset = ../.;
       };
 
-      # Assemble a runnable workspace (source + node_modules FOD + generated rpc
-      # code), then run `cmd`. Reuses the same restore recipe as the TS build.
-      # NOTE: depends on the node_modules FOD, so building these checks needs
-      # `nix build --impure` (bun.lock is gitignored — see nix/packages-ts.nix).
-      mkWorkspaceCheck =
+      # Assemble a runnable de-workspaced tree (source + the per-unit node_modules
+      # FODs + generated rpc code + the injected @web-ui-poc/rpc package), then run
+      # `cmd` from the repo root with the tooling toolchain on PATH.
+      #
+      # De-workspaced (5ae): there is NO root node_modules. Each unit has its own —
+      #   * tooling/node_modules       → biome/eslint/knip/syncpack/depcruise + plugins
+      #   * packages/rpc/node_modules  → buf codegen plugins + @bufbuild/protobuf
+      #   * services/web-ui-ssr/node_modules → the app's deps
+      # web-ui-ssr's node_modules/@web-ui-poc/rpc is injected (the nix rpc package),
+      # mirroring the dev-loop postinstall symlink. All committed locks → PURE.
+      mkRepoCheck =
         {
           name,
           cmd,
@@ -36,19 +42,27 @@
           buildPhase = ''
             runHook preBuild
             export HOME="$TMPDIR"
-            cp -R ${config.packages.node-modules}/node_modules ./node_modules
-            chmod -R u+w ./node_modules
-            for d in packages/rpc services/web-ui-ssr; do
-              if [ -d "${config.packages.node-modules}/$d/node_modules" ]; then
-                mkdir -p "$d"
-                cp -R "${config.packages.node-modules}/$d/node_modules" "$d/node_modules"
-                chmod -R u+w "$d/node_modules"
-              fi
-            done
+
+            # Restore each unit's node_modules from its FOD.
+            cp -R ${config.packages.tooling-node-modules}/node_modules tooling/node_modules
+            cp -R ${config.packages.rpc-node-modules}/node_modules packages/rpc/node_modules
+            cp -R ${config.packages.web-ui-ssr-node-modules}/node_modules services/web-ui-ssr/node_modules
+            chmod -R u+w tooling/node_modules packages/rpc/node_modules services/web-ui-ssr/node_modules
+
+            # Generated rpc TS the @web-ui-poc/rpc package exports.
             mkdir -p packages/rpc/gen
             cp -R ${config.packages.rpc-gen}/ts/. packages/rpc/gen/
             chmod -R u+w packages/rpc/gen
-            export PATH="$PWD/node_modules/.bin:$PATH"
+
+            # Inject the nix-built @web-ui-poc/rpc over bun's file: copy (mirrors the
+            # dev postinstall symlink). No bun workspace resolution.
+            rm -rf services/web-ui-ssr/node_modules/@web-ui-poc/rpc
+            mkdir -p services/web-ui-ssr/node_modules/@web-ui-poc
+            cp -R ${config.packages.rpc} services/web-ui-ssr/node_modules/@web-ui-poc/rpc
+            chmod -R u+w services/web-ui-ssr/node_modules/@web-ui-poc/rpc
+
+            # Repo-wide lint binaries come from the tooling unit.
+            export PATH="$PWD/tooling/node_modules/.bin:$PATH"
 
             # Panda's generated styled-system/ is a source input the web-ui-ssr TS
             # imports; type-aware linters (ci-eslint) resolve `error`-typed values
@@ -65,31 +79,36 @@
     {
       checks = {
         # ── Buildable packages surfaced as checks ──────────────────────────
-        # (Realized only under `nix build --impure` / `nix flake check --impure`;
-        # they evaluate cleanly under `nix flake check --no-build`.)
-        node-modules = config.packages.node-modules;
+        tooling-node-modules = config.packages.tooling-node-modules;
+        rpc-node-modules = config.packages.rpc-node-modules;
+        web-ui-ssr-node-modules = config.packages.web-ui-ssr-node-modules;
         rpc-gen = config.packages.rpc-gen;
         web-ui-ssr = config.packages.web-ui-ssr;
 
-        # ── Pure workspace lint checks (mirror the devenv ci:* tasks) ──────
+        # ── Repo-wide lint checks (mirror the devenv ci:* tasks) ───────────
         # ci-proto-breaking is intentionally NOT a check: `buf breaking --against
         # .git#branch=main` needs the git history, which a sealed check derivation
-        # does not have. It stays a devenv task (and can become a `nix run` app at
-        # cutover), same impurity class as ci:e2e.
-        ci-biome = mkWorkspaceCheck {
+        # does not have. It stays a devenv task (same impurity class as ci:e2e).
+        ci-biome = mkRepoCheck {
           name = "ci-biome";
           cmd = "biome check . --config-path tooling/biome/ci.json";
         };
-        ci-eslint = mkWorkspaceCheck {
+        ci-eslint = mkRepoCheck {
           name = "ci-eslint";
           cmd = "eslint --config tooling/eslint/ci.ts";
         };
-        ci-hygiene = mkWorkspaceCheck {
+        # De-workspaced hygiene: syncpack (the single authoritative version
+        # enforcer), per-unit knip (unused files/exports/deps — one run per unit
+        # since knip needs a package.json root and there is no longer a workspace
+        # root), and dependency-cruiser (module-boundary / import-direction). sherif
+        # was dropped: it is a bun-workspace linter with no non-workspace mode.
+        ci-hygiene = mkRepoCheck {
           name = "ci-hygiene";
           cmd = ''
             syncpack lint
-            sherif -r multiple-dependency-versions -r unsync-similar-dependencies -r packages-without-package-json --fail-on-warnings
-            knip
+            ( cd tooling && knip )
+            ( cd packages/rpc && knip )
+            ( cd services/web-ui-ssr && knip )
             depcruise services packages --config .dependency-cruiser.cjs
           '';
         };

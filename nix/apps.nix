@@ -9,9 +9,9 @@
     }:
     let
       # `nix run .#generate` — buf generate + wrap-jsonschema (= devenv's buf:generate
-      # task / `bun run generate`). IMPURE: runs against the working-tree node_modules
-      # (buf resolves the node-based protoc-gen-es / connect-query plugins from
-      # node_modules/.bin, exactly as `bun run generate` does). Run from the repo root.
+      # task). IMPURE: runs against the working-tree node_modules (buf resolves the
+      # node-based protoc-gen-es / connect-query plugins from packages/rpc's
+      # node_modules/.bin, de-workspaced 5ae). Run from the repo root.
       generate = pkgs.writeShellApplication {
         name = "generate";
         runtimeInputs = [
@@ -22,7 +22,11 @@
           pkgs.protoc-gen-grpc-java
           repoTools.protoc-gen-jsonschema
         ];
-        text = ''exec bun run generate "$@"'';
+        text = ''
+          export PATH="$PWD/packages/rpc/node_modules/.bin:$PATH"
+          buf generate
+          exec bun run packages/rpc/scripts/wrap-jsonschema.ts "$@"
+        '';
       };
 
       # `nix run .#up` — Arion "Option A" (2pk.3): bring the local stack up

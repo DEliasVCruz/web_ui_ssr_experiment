@@ -1,0 +1,20 @@
+{
+	"name": "@web-ui-poc/tooling",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"description": "Repo-wide lint / hygiene toolchain (biome, eslint + plugins, knip, syncpack, sherif, dependency-cruiser). De-workspaced: these tools run repo-wide from the root via tooling/node_modules/.bin. See docs/workspace-hygiene.md.",
+	"devDependencies": {
+		"@biomejs/biome": "~2.4.12",
+		"@pandacss/eslint-plugin": "^0.3.2",
+		"@tanstack/eslint-plugin-query": "^5.99.2",
+		"@tanstack/eslint-plugin-router": "^1.162.0",
+		"dependency-cruiser": "^18.1.0",
+		"eslint": "^10.2.1",
+		"eslint-plugin-solid": "^0.14.5",
+		"knip": "^6.27.0",
+		"syncpack": "^15.3.2",
+		"typescript": "^5.7.2",
+		"typescript-eslint": "^8.59.0"
+	}
+}

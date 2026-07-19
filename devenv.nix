@@ -137,19 +137,26 @@ in
       unset _podman_sock
     fi
 
-    if [ -f package.json ]; then
-      lock_hash=""
-      if [ -f bun.lock ]; then
-        lock_hash=$(md5 -q bun.lock 2>/dev/null || md5sum bun.lock | cut -d' ' -f1)
+    # De-workspaced (5ae): there is NO root package.json / bun workspace. Each TS
+    # unit is self-contained with its own package.json + committed bun.lock, so we
+    # install per-unit (only when that unit's lockfile changed). web-ui-ssr's
+    # postinstall symlinks node_modules/@web-ui-poc/rpc → packages/rpc for the dev
+    # loop; install rpc first so that target exists.
+    for _unit in packages/rpc tooling services/web-ui-ssr; do
+      if [ -f "$_unit/package.json" ]; then
+        _lock_hash=""
+        if [ -f "$_unit/bun.lock" ]; then
+          _lock_hash=$(md5 -q "$_unit/bun.lock" 2>/dev/null || md5sum "$_unit/bun.lock" | cut -d' ' -f1)
+        fi
+        _cache_file="$_unit/node_modules/.devenv-lock-hash"
+        if [ ! -d "$_unit/node_modules" ] || [ ! -f "$_cache_file" ] || [ "$_lock_hash" != "$(cat "$_cache_file" 2>/dev/null)" ]; then
+          echo "Lock file changed, running bun install in $_unit..."
+          ( cd "$_unit" && bun install )
+          echo "$_lock_hash" > "$_cache_file"
+        fi
       fi
-      cache_file="node_modules/.devenv-lock-hash"
-
-      if [ ! -d node_modules ] || [ ! -f "$cache_file" ] || [ "$lock_hash" != "$(cat "$cache_file" 2>/dev/null)" ]; then
-        echo "Lock file changed, running bun install..."
-        bun install
-        echo "$lock_hash" > "$cache_file"
-      fi
-    fi
+    done
+    unset _unit _lock_hash _cache_file
 
     # ─── Install the lefthook git hooks (2pk.2) ───────────────────────────
     # Reads the committed ./lefthook.yml (rendered from nix/lefthook.nix), so this
@@ -163,32 +170,39 @@ in
 
   # Developer tasks
   tasks = {
+    # De-workspaced (5ae): the repo-wide lint toolchain lives in the `tooling` unit,
+    # so its binaries are invoked from tooling/node_modules/.bin (no root node_modules).
     "biome:check" = {
-      exec = "bunx biome check .";
+      exec = "tooling/node_modules/.bin/biome check .";
       description = "Run Biome formatter, linter and import sorting checks";
     };
     "biome:fix" = {
-      exec = "bunx biome check --write .";
+      exec = "tooling/node_modules/.bin/biome check --write .";
       description = "Auto-fix Biome formatter, linter and import sorting issues";
     };
     "biome:format" = {
-      exec = "bunx biome format --write .";
+      exec = "tooling/node_modules/.bin/biome format --write .";
       description = "Format code with Biome";
     };
     "biome:lint" = {
-      exec = "bunx biome lint .";
+      exec = "tooling/node_modules/.bin/biome lint .";
       description = "Lint code with Biome";
     };
     "ts:check" = {
-      exec = "bun run --filter '*' typecheck";
-      description = "Run TypeScript type checking across all workspaces";
+      # Only web-ui-ssr has hand-written TS (packages/rpc is buf-generated). Its
+      # typecheck script also chains the service-worker tsconfig.
+      exec = "cd services/web-ui-ssr && bun run typecheck";
+      description = "Run TypeScript type checking (web-ui-ssr: app + service worker)";
     };
     "buf:generate" = {
-      # `bun run generate` = `buf generate && bun run scripts/wrap-jsonschema.ts`;
-      # bun puts node_modules/.bin on PATH so buf resolves the node-based TS
-      # plugins, and the wrapper turns the proto-derived JSON Schema into the
-      # typed `as const` modules the frontend form validator is built from.
-      exec = "bun run generate";
+      # buf generate + wrap-jsonschema (de-workspaced 5ae). packages/rpc owns the
+      # buf codegen plugins (protoc-gen-es / connect-query); buf resolves them by
+      # name from packages/rpc/node_modules/.bin. The wrapper turns the proto-derived
+      # JSON Schema into the typed `as const` modules the frontend validator uses.
+      exec = ''
+        export PATH="$PWD/packages/rpc/node_modules/.bin:$PATH"
+        buf generate && bun run packages/rpc/scripts/wrap-jsonschema.ts
+      '';
       description = "Generate TypeScript + JSON Schema code from protobuf definitions";
     };
     "buf:format" = {
@@ -227,31 +241,38 @@ in
       '';
       description = "Lint Dockerfiles with hadolint (pass a path to lint a specific file)";
     };
+    # De-workspaced (5ae): eslint + its plugins live in the `tooling` unit. The base
+    # config is the repo-root eslint.config.ts (auto-discovered). Pass a path to scope.
     "eslint:check" = {
       exec = ''
+        export PATH="$PWD/tooling/node_modules/.bin:$PATH"
         if [ -n "$1" ]; then
-          bun run --filter "$1" lint:eslint
+          eslint "$1"
         else
-          echo "Usage: devenv tasks run eslint:check -- <package-name>"
+          echo "Usage: devenv tasks run eslint:check -- <path>"
           exit 1
         fi
       '';
-      description = "Run ESLint on a specific workspace (pass package name as argument)";
+      description = "Run ESLint on a specific path (pass a path as argument)";
     };
     "eslint:fix" = {
       exec = ''
+        export PATH="$PWD/tooling/node_modules/.bin:$PATH"
         if [ -n "$1" ]; then
-          bun run --filter "$1" lint:eslint -- --fix
+          eslint "$1" --fix
         else
-          echo "Usage: devenv tasks run eslint:fix -- <package-name>"
+          echo "Usage: devenv tasks run eslint:fix -- <path>"
           exit 1
         fi
       '';
-      description = "Run ESLint with auto-fix on a specific workspace (pass package name as argument)";
+      description = "Run ESLint with auto-fix on a specific path (pass a path as argument)";
     };
     "eslint:check:all" = {
-      exec = "bun run --filter '*' lint:eslint";
-      description = "Run ESLint across all workspaces";
+      exec = ''
+        export PATH="$PWD/tooling/node_modules/.bin:$PATH"
+        eslint services/web-ui-ssr/src
+      '';
+      description = "Run ESLint across the hand-written TS source (web-ui-ssr)";
     };
     "compose:lint" = {
       exec = ''bunx dclint . --recursive --config tooling/docker/dclintrc.yaml --exclude .devenv node_modules'';
@@ -357,43 +378,46 @@ in
       description = "Stop the Playwright Chromium container";
     };
     # ─── CI-only tasks (type-aware, slower) ──────────────────────────
+    # De-workspaced (5ae): CI linters run from the `tooling` unit's node_modules/.bin.
     "ci:biome" = {
-      exec = "bunx biome check . --config-path tooling/biome/ci.json";
+      exec = "tooling/node_modules/.bin/biome check . --config-path tooling/biome/ci.json";
       description = "Run Biome with type-aware rules (CI only)";
     };
     "ci:eslint" = {
-      exec = "bunx eslint --config tooling/eslint/ci.ts";
+      exec = "tooling/node_modules/.bin/eslint --config tooling/eslint/ci.ts";
       description = "Run ESLint with typescript-eslint type-checked rules (CI only)";
     };
     "ci:lint" = {
       exec = ''
+        export PATH="$PWD/tooling/node_modules/.bin:$PATH"
         echo "==> Biome (base + types domain)"
-        bunx biome check . --config-path tooling/biome/ci.json
+        biome check . --config-path tooling/biome/ci.json
         echo "==> ESLint (precommit + type-checked)"
-        bunx eslint --config tooling/eslint/ci.ts
+        eslint --config tooling/eslint/ci.ts
       '';
       description = "Run all CI linters (Biome types + ESLint type-checked)";
     };
-    # Workspace hygiene gate: dependency-version consistency (syncpack, the single
-    # authoritative version enforcer), orthogonal monorepo lints (sherif, lint-only —
-    # its version rules are disabled so it never fights syncpack), unused
-    # files/exports/dependencies (knip), and module-boundary / import-direction
-    # rules (dependency-cruiser). All are also exposed as root package.json scripts
-    # (lint:deps / lint:workspaces / lint:knip / lint:boundaries). Config &
-    # rationale: .syncpackrc.json, knip.jsonc, .dependency-cruiser.cjs,
-    # docs/workspace-hygiene.md, docs/architecture-boundaries.md.
+    # Hygiene gate (de-workspaced 5ae): dependency-version consistency (syncpack, the
+    # single authoritative version enforcer), unused files/exports/dependencies (knip,
+    # run PER UNIT since knip needs a package.json root and there is no longer a
+    # workspace root), and module-boundary / import-direction rules
+    # (dependency-cruiser). sherif was dropped: it is a bun-workspace linter with no
+    # non-workspace mode, and de-workspacing removed the root it analysed. Config &
+    # rationale: .syncpackrc.json, {tooling,packages/rpc,services/web-ui-ssr}/knip.json,
+    # .dependency-cruiser.cjs, docs/workspace-hygiene.md, docs/architecture-boundaries.md.
     "ci:hygiene" = {
       exec = ''
-        echo "==> syncpack (dependency-version consistency + workspace: pinning)"
-        bunx syncpack lint
-        echo "==> sherif (monorepo lints, version rules delegated to syncpack)"
-        bunx sherif -r multiple-dependency-versions -r unsync-similar-dependencies -r packages-without-package-json --fail-on-warnings
-        echo "==> knip (unused files / exports / dependencies)"
-        bunx knip
+        export PATH="$PWD/tooling/node_modules/.bin:$PATH"
+        echo "==> syncpack (dependency-version consistency)"
+        syncpack lint
+        echo "==> knip (unused files / exports / dependencies — per unit)"
+        ( cd tooling && knip )
+        ( cd packages/rpc && knip )
+        ( cd services/web-ui-ssr && knip )
         echo "==> dependency-cruiser (module boundaries / import direction)"
-        bunx depcruise services packages --config .dependency-cruiser.cjs
+        depcruise services packages --config .dependency-cruiser.cjs
       '';
-      description = "Workspace hygiene: syncpack + sherif + knip + dependency-cruiser (dependency, dead-code & boundary lints)";
+      description = "Hygiene: syncpack + per-unit knip + dependency-cruiser (dependency, dead-code & boundary lints)";
     };
     "ci:e2e" = {
       # FULLY self-contained end-to-end Playwright run for web-ui-ssr: on a clean
@@ -508,7 +532,7 @@ in
 
         # ── Build + start the business-logic-java backend ─────────────────
         echo "==> Generating protobuf sources (buf) and building the Java reactor (connect-unary-adapter + business-logic-java)"
-        bun run generate
+        ( export PATH="$PWD/packages/rpc/node_modules/.bin:$PATH"; buf generate && bun run packages/rpc/scripts/wrap-jsonschema.ts )
         mvn -q -f pom.xml package
 
         echo "==> Starting business-logic-java backend on :$BACKEND_PORT (ephemeral Postgres, Flyway migrates on boot)"

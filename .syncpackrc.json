@@ -2,10 +2,10 @@
 	"$schema": "https://unpkg.com/syncpack@15.3.2/dist/schema.json",
 	"versionGroups": [
 		{
-			"label": "Internal @web-ui-poc/* packages are always consumed via the workspace: protocol",
+			"label": "Internal @web-ui-poc/* packages are de-workspaced: consumed via file: relative paths (local specifiers, not semver), so syncpack ignores them.",
 			"dependencies": ["@web-ui-poc/**"],
 			"dependencyTypes": ["prod", "dev", "peer"],
-			"pinVersion": "workspace:*"
+			"isIgnored": true
 		}
 	],
 	"semverGroups": [
