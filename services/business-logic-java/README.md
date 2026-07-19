@@ -34,16 +34,19 @@ datasource properties, so a bare operator-supplied `DATABASE_URL` cannot drop it
 | --- | --- | --- |
 | JDK | 25 (OpenJDK; nixpkgs `jdk25`, vendor varies by platform) | `nix/devshell.nix` |
 | Maven | 3.9.x | `nix/devshell.nix` |
-| protoc | 34.0 | `nix/devshell.nix` (`pkgs.protobuf`) |
-| protoc-gen-grpc-java | 1.80.0 | `nix/devshell.nix` (`pkgs.protoc-gen-grpc-java`) |
+| protoc | 35.1 | `nix/devshell.nix` (`pkgs.protobuf`) |
+| protoc-gen-grpc-java | 1.82.1 | `nix/devshell.nix` (`pkgs.protoc-gen-grpc-java`) |
 
-Pinned in `pom.xml`: Helidon `4.4.1`, protobuf-java `4.35.1`, grpc-java `1.82.2`.
+(Exact versions come from the pinned nixpkgs — see the toolchain table in
+[`../../nix/README.md`](../../nix/README.md).) Pinned in `pom.xml`: Helidon
+`4.4.1`, protobuf-java `4.35.1`, grpc-java `1.82.2`.
 
 Version constraints (protobuf 4.x enforces these at class-load time):
 
 - `protobuf-java` (runtime) must be ≥ the protoc gencode version (currently
-  `4.34.0` from nixpkgs protoc 34.0), same major version.
-- `grpc-java` (runtime) should be ≥ the `protoc-gen-grpc-java` plugin version.
+  `4.35.1` from nixpkgs protoc 35.1), same major version.
+- `grpc-java` (runtime) should be ≥ the `protoc-gen-grpc-java` plugin version
+  (currently `1.82.1` from nixpkgs).
 
 If a nixpkgs bump changes protoc or the grpc plugin, re-check these pins.
 
@@ -58,7 +61,6 @@ From the repo root (inside `nix develop`):
 
 ```sh
 nix run .#generate   # buf generate → TS (packages/rpc/gen) + Java (here)
-# (or `bun run generate` — the same package.json script, inside the dev shell)
 ```
 
 `generated-sources/protobuf` and `generated-sources/grpc` are wired into the
@@ -195,8 +197,10 @@ plus a conflict-fetch, both in one transaction (see its javadoc).
 `Dockerfile` (multi-stage, used by the root `docker-compose.yml`):
 
 1. **build** (`maven:3.9.16-eclipse-temurin-25`): fetches `protoc` 4.34.0 and
-   `protoc-gen-grpc-java` 1.80.0 from Maven Central (the same versions the nix
-   dev shell pins via nixpkgs, arch-selected via `TARGETARCH`), regenerates the Java
+   `protoc-gen-grpc-java` 1.80.0 from Maven Central (pinned INDEPENDENTLY of the
+   nix dev shell's protoc 35.1 via the Dockerfile's own `ARG`s — gencode 4.34.0
+   still satisfies pom.xml's `protobuf-java 4.35.1` runtime; arch-selected via
+   `TARGETARCH`), regenerates the Java
    sources from `proto/`, then builds the Java units standalone (de-reactored 517):
    `mvn -N install` the shared `build-bom` pom, `mvn install` the
    `connect-unary-adapter` jar (both into the image `~/.m2`), then `mvn package`

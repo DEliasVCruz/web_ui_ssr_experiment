@@ -167,7 +167,6 @@
         name = "generate";
         runtimeInputs = genInputs;
         text = ''
-          ${toolingBin}
           # buf resolves the node `local:` plugins (protoc-gen-es / connect-query)
           # from packages/rpc/node_modules/.bin, exactly as the dev loop does.
           export PATH="$PWD/packages/rpc/node_modules/.bin:$PATH"
@@ -636,39 +635,37 @@
           pkgs.git
         ];
         text = ''
-          # Prefer the controlling terminal (findings are informational and this
-          # always exits 0, so a plain stdout write could be swallowed by a caller).
-          if { : > /dev/tty; } 2>/dev/null; then TTY=/dev/tty; else TTY=/dev/stdout; fi
-          say() { echo "$@" > "$TTY"; }
-
-          say "==> Checking wire contract for breaking changes vs main (informational)"
+          # `nix run` streams stdout directly (no devenv task buffering), so just
+          # write findings to stdout — this stays visible on a plain run AND is
+          # capturable with `nix run .#ci-proto-breaking > findings.log`.
+          echo "==> Checking wire contract for breaking changes vs main (informational)"
           set +e
           OUTPUT=$(buf breaking --against ".git#branch=main" 2>&1)
           EXIT=$?
           set -e
           if [ "$EXIT" -eq 0 ]; then
-            say "OK Wire contract — no breaking changes vs main."
+            echo "OK Wire contract — no breaking changes vs main."
             exit 0
           fi
           if [ "$EXIT" -ne 100 ]; then
-            say ""
-            say "buf could not run the comparison (exit $EXIT) — check that a local"
-            say "main ref exists (buf compares against '.git#branch=main')."
-            say ""
-            say "$OUTPUT"
-            say ""
-            say "(informational only — pipeline NOT failed)"
+            echo ""
+            echo "buf could not run the comparison (exit $EXIT) — check that a local"
+            echo "main ref exists (buf compares against '.git#branch=main')."
+            echo ""
+            echo "$OUTPUT"
+            echo ""
+            echo "(informational only — pipeline NOT failed)"
             exit 0
           fi
-          say ""
-          say "================================================================"
-          say " WIRE CONTRACT BREAKING CHANGES vs main"
-          say " Allowed in this experiment — but make sure this is DELIBERATE."
-          say "================================================================"
-          say ""
-          say "$OUTPUT"
-          say ""
-          say "(informational only — pipeline NOT failed; buf exit was $EXIT)"
+          echo ""
+          echo "================================================================"
+          echo " WIRE CONTRACT BREAKING CHANGES vs main"
+          echo " Allowed in this experiment — but make sure this is DELIBERATE."
+          echo "================================================================"
+          echo ""
+          echo "$OUTPUT"
+          echo ""
+          echo "(informational only — pipeline NOT failed; buf exit was $EXIT)"
           exit 0
         '';
         meta.description = "INFORMATIONAL: show (never block on) proto wire-contract breaking changes vs main — was devenv ci:proto-breaking";

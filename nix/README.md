@@ -17,12 +17,13 @@ structure + gap closure"* (project `main`).
 | `devshell.nix` | `devShells.default` — the sole dev shell (bun, jdk25+maven, buf, podman, postgres_17, ast-grep, dockerfmt, hadolint, protoc plugins, nixfmt, shellcheck…), DOCKER_HOST wiring, `.env` load, per-unit bun install, **lefthook install** | ✅ works |
 | `lefthook.nix` | git-hooks: renders `../lefthook.yml` from Nix (source of truth for the 8-hook pre-commit set), `packages.lefthook-config` regen target, `checks.lefthook-config-sync` drift guard | ✅ (2pk.2) |
 | `../packages/rpc/nix` | `packages.rpc-gen` — `buf generate` + wrap-jsonschema (TS/JSON-Schema + Java outputs) | ✅ builds (FOD); deterministic (double `--rebuild`) |
-| `packages-ts.nix` | `packages.node-modules` (node_modules FOD) → `packages.web-ui-ssr` (panda + rsbuild → `dist/`) | ✅ builds |
+| `../services/web-ui-ssr/nix` | `packages.web-ui-ssr-node-modules` (FOD) → `packages.web-ui-ssr` (panda + rsbuild → `dist/`) | ✅ builds |
+| `../tooling/nix` | `packages.tooling-node-modules` (lint toolchain FOD) | ✅ builds |
 | `../packages/java/connect-unary-adapter/nix` | `packages.connect-unary-adapter` (adapter jar + pom) | ✅ **builds** (pure `buildMavenPackage`; de-reactored 517) |
 | `../services/business-logic-java/nix` | `packages.business-logic-java` (runnable jar + `libs/`; injects the pre-built adapter) | ✅ **builds** (pure `buildMavenPackage`, hermetic jOOQ codegen; de-reactored 517) |
 | `images.nix` | `packages.image-{web-ui-ssr,business-logic-java,pw-browser}` — nix2container OCI images (**x86_64-linux only**) | ✅ eval/build **on Linux**; plumbing smoked on darwin (see below) |
 | `arion.nix` | `packages.arion-compose` — Arion "Option A" nix-built compose YAML | ✅ builds on darwin; `podman compose config` clean |
-| `checks.nix` | `checks.{node-modules,rpc-gen,web-ui-ssr}` + `ci-biome`, `ci-eslint`, `ci-hygiene` | ✅ all build green |
+| `checks.nix` | the FOD/build packages surfaced as checks (`tooling-node-modules`, `rpc-node-modules`, `web-ui-ssr-node-modules`, `rpc-gen`, `web-ui-ssr`, `connect-unary-adapter`, `business-logic-java`, `java-shared-build-config-sync`) + the lint checks `ci-biome`/`ci-eslint`/`ci-hygiene`; plus `lefthook-config-sync` (from `lefthook.nix`) — 12 checks total | ✅ `nix flake check` green |
 | `apps.nix` | the full `nix run .#<app>` set — impure `nix run` wrappers (`up` = arion-backed) | wired |
 
 ### `nix run .#<app>` — the app set (replaces every former devenv task)
@@ -86,19 +87,19 @@ prek parity table (and the 8cc eslint-scoping fix) live in `nix/lefthook.nix`.
 # Dev shell (parity smoke)
 nix develop --command bash -c 'bun --version && java --version && mvn --version && buf --version'
 
-# TS build chain (see the --impure note below)
-nix build --impure .#node-modules
-nix build --impure .#rpc-gen
-nix build --impure .#web-ui-ssr     # → ./result/dist (server + client bundles)
+# TS build chain (all pure — committed bun.lock; no --impure)
+nix build .#rpc-node-modules .#tooling-node-modules .#web-ui-ssr-node-modules
+nix build .#rpc-gen
+nix build .#web-ui-ssr              # → ./result/dist (server + client bundles)
 
 # Evaluate the whole flake without building (aarch64-darwin only by default;
 # add --all-systems to also evaluate the x86_64-linux outputs)
 nix flake check --no-build
 
-# Lint checks (all three build green on aarch64-darwin)
-nix build --impure .#checks.aarch64-darwin.ci-biome
-nix build --impure .#checks.aarch64-darwin.ci-eslint
-nix build --impure .#checks.aarch64-darwin.ci-hygiene
+# Lint checks (all build green on aarch64-darwin)
+nix build .#checks.aarch64-darwin.ci-biome
+nix build .#checks.aarch64-darwin.ci-eslint
+nix build .#checks.aarch64-darwin.ci-hygiene
 
 # Java units — per-unit pure buildMavenPackage incl. hermetic jOOQ codegen (no docker,
 # no reactor; de-reactored 517). Both are pure (committed sources), no --impure needed.
@@ -110,45 +111,36 @@ nix build .#arion-compose                    # → result (docker-compose.yaml)
 podman compose -f result config              # parses clean
 ```
 
-## Why `--impure` for the TS builds
+## Purity — no `--impure`
 
-`bun.lock` is **gitignored** in this repo (local-only convention). Flakes only
-see git-tracked files, so a pure eval cannot read `bun.lock`. The node_modules
-FOD therefore reads it from `$PWD` at build time, which requires
-`nix build --impure` **invoked from the repo root**.
-
-Under a pure eval (`nix flake check --no-build`) everything still **evaluates**:
-the lock path resolves to a tracked placeholder that is never consumed. If the
-FOD is ever *realized* without `--impure`, the build **fails fast** with an
-explicit pointer —
-
-```
-ERROR: bun.lock is gitignored and not visible to a pure build.
-       Run 'nix build --impure' from the repo root.
-```
-
-— instead of dying deep in bun with a misleading `InvalidLockfileVersion`.
+Every per-unit `bun.lock` is **committed** (de-workspaced 5ae), so the flake
+sees them as git-tracked and all builds are **pure** — no `--impure` and no
+`$PWD` reads. (This was the whole point of committing the lockfiles.)
 
 ## FOD hash update workflow
 
-Two fixed-output derivations pin network fetches:
+The fixed-output derivations that pin network fetches:
 
-- `packages.node-modules` (`bun install`) — bump on **any `bun.lock` change**.
+- `packages.{rpc,tooling,web-ui-ssr}-node-modules` (`bun install`) — bump the
+  matching FOD on a change to that unit's `bun.lock`.
 - `packages.rpc-gen` (`buf generate` fetches the `bufbuild/protovalidate` BSR
   module) — bump on proto / `buf.*` / plugin / `wrap-jsonschema.ts` changes.
+- the two Maven FODs (`connect-unary-adapter` / `business-logic-java` `mvnHash`)
+  — bump on a dependency change or a maven/jdk bump.
 
 To update a hash:
 
-1. Set its `outputHash` to `pkgs.lib.fakeHash` (or flip one char).
-2. `nix build --impure .#node-modules` (or `.#rpc-gen`).
-3. Copy the `got: sha256-…` value from the mismatch error into `outputHash`.
+1. Set its `outputHash` / `mvnHash` to `pkgs.lib.fakeHash` (or flip one char).
+2. `nix build .#<attr>` (e.g. `.#rpc-node-modules`, `.#rpc-gen`).
+3. Copy the `got: sha256-…` value from the mismatch error into the hash.
+4. Prove determinism: `nix build .#<attr> --rebuild` twice.
 
-> **Per-system caveat (node-modules).** The pinned `node-modules` hash was
-> captured on **aarch64-darwin**. `bun install` pulls platform-specific native
-> deps (esbuild / `@rsbuild/core` / playwright-core binaries), so **x86_64-linux**
-> (the CI/deploy arch) resolves a *different* closure and needs its **own** hash.
-> At cutover, make `outputHash` a per-system lookup (`{ aarch64-darwin = …;
-> x86_64-linux = …; }.${system}`). `rpc-gen`'s output is generated code and is
+> **Per-system hashes are out of scope here.** These hashes were captured on
+> **aarch64-darwin**. `bun install` pulls platform-specific native deps
+> (esbuild / `@rsbuild/core` / playwright-core binaries), so **x86_64-linux**
+> (the deploy arch) resolves a *different* closure and would need its own hash.
+> Wiring a per-system `outputHash` lookup is owned by the **Linux realization
+> task (1vl)** — do NOT add it now. `rpc-gen`'s output is generated code and is
 > platform-independent, so its single hash is portable.
 
 ## Java build — de-reactored, per-unit FODs (2pk.3, de-reactored in 517)
@@ -218,7 +210,8 @@ sw skew — see the 2pk.5 asset-skew/skew-window note), `image-business-logic-ja
 to plain nixos-unstable removed its per-system `applyPatches` IFD, so
 `legacyPackages.x86_64-linux` no longer needs a Linux builder just to evaluate.
 Proven: `nix flake check --no-build --all-systems` passes from darwin and
-`nix eval .#packages.x86_64-linux.image-*.drvPath` resolves. They still cannot be
+`nix eval .#packages.x86_64-linux.image-business-logic-java.drvPath` (likewise
+`image-web-ui-ssr`, `image-pw-browser`) resolves. They still cannot be
 **realized** (built) on darwin — that needs an x86_64-linux builder for the Linux
 closure. Realization + `nix2container` `copyToRegistry`/`copyToPodman` happen on
 the Linux CI agents.

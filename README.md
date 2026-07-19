@@ -14,10 +14,14 @@ Proof-of-concept for the web UI SSR layer of a larger platform.
 │   └── business-logic-java/ # Java (Helidon SE) backend
 │       ├── src/             # Source code (Maven layout; *IT integration tests)
 │       └── pom.xml          # Standalone Maven build (no reactor; consumes packages/java/*)
-├── package.json             # Root with workspaces
+├── tooling/                 # Repo-wide lint toolchain (own package.json + bun.lock)
+├── packages/rpc/            # Generated Connect RPC client (own package.json + bun.lock)
 ├── tsconfig.json            # Shared TypeScript config
 └── docker-compose.yml       # Service orchestration
 ```
+
+Each TS unit is self-contained (own `package.json` + committed `bun.lock`) —
+there is **no** root `package.json` / bun workspace (de-workspaced).
 
 ## Quick Start
 
@@ -63,7 +67,7 @@ The local container runtime (for `docker-compose.yml` and Testcontainers) is
 **podman** — see [`docs/podman.md`](docs/podman.md) for one-time machine setup,
 the env wiring, and the Ryuk decision.
 
-Dependency-version consistency, shared version catalog, and unused-code lints
-(syncpack + bun catalog + sherif + knip) are described in
+Dependency-version consistency (syncpack), unused-code lints (per-unit knip),
+and module boundaries (dependency-cruiser) are described in
 [`docs/workspace-hygiene.md`](docs/workspace-hygiene.md) — run them with
-`bun run lint:hygiene` or `nix run .#ci-hygiene`.
+`nix run .#ci-hygiene`.

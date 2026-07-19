@@ -1,111 +1,67 @@
-# Workspace hygiene: syncpack + bun catalog + sherif + knip
+# Workspace hygiene: syncpack + knip + dependency-cruiser
 
-Three tools keep the bun workspaces honest. They have **non-overlapping**
-responsibilities so they never fight each other:
+The repo is **de-workspaced** (5ae): there is no root `package.json` and no bun
+workspace/catalog. Each TS unit (`tooling`, `packages/rpc`, `services/web-ui-ssr`)
+is self-contained with its own `package.json` + committed `bun.lock`. Three tools
+keep those units honest, with **non-overlapping** responsibilities:
 
-| Tool         | Owns                                                        | Fixes? |
-| ------------ | ---------------------------------------------------------- | ------ |
-| **syncpack** | dependency-version consistency + `workspace:` / range policy | yes (`syncpack fix`) |
-| **sherif**   | orthogonal monorepo lints (types placement, ordering, root fields) | lint-only here |
-| **knip**     | unused files / exports / dependencies                      | no (manual triage) |
+| Tool                    | Owns                                                     | Fixes? |
+| ----------------------- | ------------------------------------------------------- | ------ |
+| **syncpack**            | dependency-version consistency + range policy           | yes (`syncpack fix`) |
+| **knip** (per unit)     | unused files / exports / dependencies                   | no (manual triage) |
+| **dependency-cruiser**  | module boundaries / import direction                    | no (fix the import) |
 
-syncpack is the **single authoritative version enforcer**. sherif runs
-lint-only and its version rules are disabled, so it is never a second fixer.
+syncpack is the **single authoritative version enforcer**. (`sherif` was dropped
+in the de-workspacing — it is a bun-workspace linter with no non-workspace mode,
+and there is no longer a workspace root for it to analyse.)
 
 ## Commands
 
-Root `package.json` scripts (run from the repo root):
-
-```bash
-bun run lint:deps         # syncpack lint  — version consistency
-bun run fix:deps          # syncpack fix   — autofix version drift
-bun run lint:workspaces   # sherif (lint-only, version rules delegated to syncpack)
-bun run lint:knip         # knip           — unused files/exports/deps
-bun run lint:hygiene      # all three, sequentially
-```
-
-Or via the aggregate nix app (what CI runs):
+Run the aggregate hygiene gate (what CI runs) from the repo root inside
+`nix develop`:
 
 ```bash
 nix run .#ci-hygiene
 ```
 
-## Bun catalog (single version source of truth)
-
-Dependencies used by 2+ workspaces live in the root `package.json`
-`workspaces.catalog`, and each workspace references them with `catalog:`:
-
-```jsonc
-// package.json (root)
-"workspaces": {
-  "packages": ["packages/*", "services/*"],
-  "catalog": {
-    "@bufbuild/protobuf": "^2.11.0",
-    "@connectrpc/connect": "^2.1.1",
-    "@connectrpc/connect-web": "^2.1.1",
-    "typescript": "^5.7.2"
-  }
-}
-```
-
-Bumping one of these is now a one-line edit in the catalog. syncpack 15
-understands bun catalogs natively (they become `bunCatalog` dependency types)
-and treats catalog definitions/consumers as first-class, so it lints them for
-consistency without any extra configuration.
+That runs, in order: `syncpack lint`, `knip` once **per unit** (`tooling`,
+`packages/rpc`, `services/web-ui-ssr` — knip needs a `package.json` root and there
+is no longer a workspace root), then `depcruise services packages`. To autofix
+version drift specifically: `tooling/node_modules/.bin/syncpack fix` from the root.
 
 ## syncpack config (`.syncpackrc.json`)
 
-- **versionGroup** — internal `@web-ui-poc/*` packages must be consumed via the
-  `workspace:*` protocol (scoped to `prod`/`dev`/`peer` so it doesn't try to
-  rewrite the packages' own `version` field).
-- **semverGroups** — codify the repo's existing range policy so drift is caught:
+- **versionGroup** — the internal `@web-ui-poc/*` packages are de-workspaced and
+  consumed via `file:` relative paths (local specifiers, not semver), so syncpack
+  **ignores** them (`isIgnored: true`) rather than enforcing a `workspace:` protocol.
+- **semverGroups** — codify the repo's range policy so drift is caught:
   - `arktype` + `@ark/json-schema` → exact (runtime validator; patch drift is a
     wire-contract risk),
   - `@biomejs/biome` → tilde (a minor bump must not silently change lint/format
     output across the team),
   - everything else → caret (repo default).
 
-`syncpack fix` autofixes any range/consistency drift.
+`syncpack fix` autofixes any range/consistency drift. Because there is no bun
+catalog, a shared dependency's version lives in each consuming unit's
+`package.json`; syncpack is what keeps those copies in agreement.
 
-## sherif rules disabled (and why)
+## knip config (per-unit `knip.json`)
 
-sherif runs with three rules turned off:
+Each unit has its own `knip.json` (`tooling/`, `packages/rpc/`,
+`services/web-ui-ssr/`), run from that unit's directory. Notable entries:
 
-- `multiple-dependency-versions`, `unsync-similar-dependencies` — these enforce
-  version consistency, which is **syncpack's** job. Disabling them keeps syncpack
-  the single source of truth (no two tools disagreeing on the canonical version).
-- `packages-without-package-json` — the `packages/*` glob legitimately includes
-  `packages/java`, Maven-only units (`pom.xml`, no `package.json`; de-reactored 517).
-  Without this off, sherif emits a perpetual false-positive warning. sherif can't
-  ignore a directory that has no `package.json` to match by name, so the rule
-  itself is disabled.
-
-`--fail-on-warnings` makes the remaining warning-level rules
-(`non-existant-packages`, `root-package-dependencies`) actually gate.
-
-## knip config (`knip.jsonc`)
-
-- `ignoreExportsUsedInFile: true` — a few exports are consumed only within their
-  own module (the e2e fixture base-URL constants, the Ark UI toaster singleton).
-  They aren't cross-module imports, so knip's "unused export" report is a false
-  positive; suppressing it beats un-exporting working code.
-- Root `entry: ["tooling/eslint/ci.ts"]` — that config is loaded via
-  `eslint --config …` (the `nix run .#ci-eslint` app), never imported, so knip can't infer
-  it is reachable.
-- Root `ignoreDependencies`:
-  - `@bufbuild/protoc-gen-es`, `@connectrpc/protoc-gen-connect-query` — buf codegen
-    plugins invoked as `local:` protoc plugins in `buf.gen.yaml` (not importable JS).
-  - `solid-refresh` — the Solid HMR babel transform. `@rsbuild/plugin-solid` injects
-    it into the dev client build; `rsbuild.config.ts` only references it by string
-    (to strip it from the SSR build), so there is no static import for knip to see.
-- `packages/rpc` `ignoreDependencies: ["@bufbuild/protobuf"]` — that package is
-  nothing but buf-generated code under `gen/` (gitignored, so knip can't scan it).
-  The generated `todo_pb.ts` imports `@bufbuild/protobuf`; it's a real dependency,
+- `services/web-ui-ssr`: `ignoreExportsUsedInFile: true` — a few exports are
+  consumed only within their own module (the e2e fixture base-URL constants, the
+  Ark UI toaster singleton); they aren't cross-module imports, so knip's "unused
+  export" report is a false positive.
+- `tooling`: `tooling/eslint/ci.ts` is an entry — that config is loaded via
+  `eslint --config …` (the `nix run .#ci-eslint` app), never imported, so knip
+  can't infer it is reachable. `@bufbuild/protoc-gen-es` /
+  `@connectrpc/protoc-gen-connect-query` are ignored deps (buf `local:` protoc
+  plugins in `buf.gen.yaml`, not importable JS); `solid-refresh` is the Solid HMR
+  babel transform injected by `@rsbuild/plugin-solid` and referenced only by
+  string in `rsbuild.config.ts`.
+- `packages/rpc`: `ignoreDependencies: ["@bufbuild/protobuf"]` — that package is
+  nothing but buf-generated code under `gen/` (gitignored, so knip can't scan it);
+  the generated `todo_pb.ts` imports `@bufbuild/protobuf`, a real dependency
   invisible to knip only because the code is generated.
-
-### Dead code removed during setup
-
-- `@connectrpc/connect` was removed from `packages/rpc` — the generated code
-  imports only `@bufbuild/protobuf`; `@connectrpc/connect` was a genuinely unused
-  declaration (the Connect client is provided by the consuming services, which
-  declare it themselves).

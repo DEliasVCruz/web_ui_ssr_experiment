@@ -60,13 +60,15 @@ All wiring lives in the flake dev shell (`nix/devshell.nix`), so every
 | `TESTCONTAINERS_RYUK_DISABLED` | `true` | `env` block |
 | `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE` | `/var/run/docker.sock` | `env` block |
 
-`DOCKER_HOST` is **derived, not hardcoded**: `enterShell` runs
+`DOCKER_HOST` is **derived, not hardcoded**: the `nix develop` shellHook runs
 `podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}'` and
 exports `unix://<that path>` — but only if the socket actually exists. If the
 podman machine is not running (or not created), `DOCKER_HOST` is left untouched
-so `docker` keeps talking to whatever context is otherwise active. Outside the
-`nix develop` shell, `DOCKER_HOST` is never set by this repo, so Docker Desktop is
-unaffected.
+so `docker` keeps talking to whatever context is otherwise active. The
+container-using apps (`nix run .#java-verify` / `.#playwright-up` / `.#ci-e2e`)
+self-wire the same `DOCKER_HOST` at run time, so they work even when invoked via
+a bare `nix run` outside the dev shell; on a machine with the podman machine down
+it stays unset and Docker Desktop (if any) is unaffected.
 
 Testcontainers reads these three variables to find and use podman. That is the
 entire integration — there is **no** `~/.testcontainers.properties` file on the
@@ -146,8 +148,9 @@ unreachable. Either provider is just a client — it talks to the podman socket
 via `DOCKER_HOST` and does **not** touch the Docker Desktop daemon.
 
 The image builds run under **buildah** and honour the Dockerfiles' BuildKit
-`TARGETARCH` arg. `docker-compose.yml` has no healthchecks and only plain
-`depends_on`, so it maps cleanly with no compose-provider edits.
+`TARGETARCH` arg. `docker-compose.yml` uses a postgres `pg_isready` healthcheck
+with `depends_on: { condition: service_healthy }`, which podman's compose
+providers honour — so it maps cleanly with no compose-provider edits.
 
 ## Known rough edges
 

@@ -8,7 +8,7 @@ else in the hygiene stack:
 | Guardrail | Owns |
 | --------- | ---- |
 | **dependency-cruiser** (this doc) | import **direction** / module boundaries |
-| syncpack / sherif | dependency-**version** consistency across workspaces |
+| syncpack | dependency-**version** consistency across the per-unit `package.json`s |
 | knip | **unused** files / exports / dependencies (dead code) |
 | ast-grep (`rules/`) | structural code **patterns** (incl. _where_ a Connect transport may be built) |
 | strict tsconfig / biome / eslint | type & style discipline |
@@ -17,25 +17,25 @@ Config lives at the repo root in [`.dependency-cruiser.cjs`](../.dependency-crui
 
 ## Commands
 
-```bash
-bun run lint:boundaries    # depcruise — the CI gate (exit ≠ 0 on any violation)
-```
-
-Also runs inside the aggregate hygiene gate:
+The dependency-cruiser boundary check runs inside the aggregate hygiene gate
+(exit ≠ 0 on any violation):
 
 ```bash
-nix run .#ci-hygiene
+nix run .#ci-hygiene       # syncpack + per-unit knip + depcruise — the CI gate
 ```
 
 Regenerate the full, detailed module graph **on demand** (no committed binary artifact —
 the graph below is the hand-curated boundary map; the command emits the exhaustive one):
 
+Run from the repo root inside `nix develop` (depcruise from the tooling unit):
+
 ```bash
 # Mermaid (paste into any Markdown viewer)
-bun run lint:boundaries -- --output-type mermaid
-# or an interactive HTML report (opens the whole dependency tree)
-bunx depcruise services packages --config .dependency-cruiser.cjs \
-  --output-type dot | dot -T svg > graph.svg   # needs graphviz (`dot`)
+tooling/node_modules/.bin/depcruise services packages \
+  --config .dependency-cruiser.cjs --output-type mermaid
+# or an interactive SVG (opens the whole dependency tree)
+tooling/node_modules/.bin/depcruise services packages \
+  --config .dependency-cruiser.cjs --output-type dot | dot -T svg > graph.svg   # needs graphviz (`dot`)
 ```
 
 > graphviz (`dot`) is **not** in the nix dev shell; use the `mermaid` reporter, which needs no
