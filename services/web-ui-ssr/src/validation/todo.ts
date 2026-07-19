@@ -6,7 +6,7 @@ import {
 import { type } from "arktype";
 
 // The title field's JSON Schema, derived from the proto's buf.validate rules
-// (min_len/max_len -> minLength/maxLength) at `bun run generate` time. Because
+// (min_len/max_len -> minLength/maxLength) at `nix run .#generate` time. Because
 // the generated module is exported `as const`, these bounds are literal types,
 // so a constraint change in todo.proto flows through regeneration into this file
 // and breaks any test/behaviour that assumed the old numbers.

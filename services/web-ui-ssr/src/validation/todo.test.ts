@@ -17,7 +17,7 @@ import {
 // These tests are deliberately anchored to the CURRENT generated schema (read
 // straight from the wrapped module), never to hard-coded 1/100. That is what
 // makes constraint drift break the build: change min_len/max_len in
-// todo.proto, run `bun run generate`, and both the schema bounds AND the arktype
+// todo.proto, run `nix run .#generate`, and both the schema bounds AND the arktype
 // Type derived from them move together — so if the Type ever stopped enforcing
 // the proto's numbers, the boundary assertions below would fail.
 const schemaMin = createTodoRequestSchema.properties.title.minLength;
