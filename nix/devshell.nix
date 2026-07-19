@@ -130,6 +130,22 @@
           done
           unset _unit _lock_hash _cache_file
 
+          # ─── Bootstrap generated rpc code on a fresh clone ─────────────────────
+          # packages/rpc/gen/ (buf-generated TS the @web-ui-poc/rpc package exports)
+          # is gitignored, so a fresh clone lacks it and web-ui-ssr's typecheck/build
+          # would fail. rpc has no install hook that generates it, so generate it here
+          # when missing (buf + the node `local:` plugins from rpc's node_modules/.bin,
+          # laid down by the install loop above). Skipped once present — run
+          # `nix run .#generate` to refresh after a proto change. (Panda's
+          # styled-system/ is already produced by web-ui-ssr's `prepare` on install.)
+          if [ -f buf.gen.yaml ] && { [ ! -d packages/rpc/gen ] || [ -z "$(ls -A packages/rpc/gen 2>/dev/null)" ]; }; then
+            echo "Fresh clone: generating rpc code (buf generate + wrap-jsonschema)..."
+            (
+              export PATH="$PWD/packages/rpc/node_modules/.bin:$PATH"
+              buf generate && bun run packages/rpc/scripts/wrap-jsonschema.ts
+            ) || echo "rpc generate failed — run 'nix run .#generate' manually" >&2
+          fi
+
           # ─── Install the lefthook git hooks ────────────────────────────────────
           # Reads the committed ./lefthook.yml (rendered from nix/lefthook.nix).
           # --force installs into the shared worktree hooks dir even when a prior
