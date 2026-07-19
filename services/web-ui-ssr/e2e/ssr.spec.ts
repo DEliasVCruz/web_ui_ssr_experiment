@@ -63,6 +63,24 @@ test.describe("SSR raw HTML", () => {
 		}
 	});
 
+	test("every SSR document begins with exactly one <!DOCTYPE html>", async () => {
+		// Regression pin for 9ym: the streamed shell used to emit a DOUBLED prefix
+		// (`<!DOCTYPE html><!DOCTYPE html><html>…`) because both renderRouterToStream
+		// and the RouterServer it wraps emit their own doctype. entry-server strips
+		// the redundant one at the compose seam. Browsers tolerate the second, but
+		// the output is malformed — assert exactly one, at the very start, for every
+		// server-rendered document, including the offline shell (its own single
+		// doctype in src/index.ts renderOfflineShell).
+		const docs = await Promise.all(["/", "/todos", "/offline"].map((path) => fetchSsrHtml(path)));
+		for (const html of docs) {
+			// Starts with a single doctype — not the doubled prefix.
+			expect(html).toMatch(/^<!DOCTYPE html>(?!\s*<!DOCTYPE html>)/i);
+			// Exactly one across the whole document.
+			const count = html.match(/<!DOCTYPE html>/gi)?.length ?? 0;
+			expect(count).toBe(1);
+		}
+	});
+
 	test("/todos/:id renders the todo's dynamic title and status badge", async () => {
 		const todos = await listBackendTodos();
 		const todo = todos[0];
