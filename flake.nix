@@ -53,7 +53,12 @@
         ./packages/rpc/nix
         ./services/web-ui-ssr/nix
         ./tooling/nix
-        ./nix/packages-java.nix
+        # De-reactored (517): each Java unit's nix module lives in its own directory
+        # (self-contained), mirroring the TS units. build-bom is a pom-only unit with
+        # no derivation; the adapter builds packages.connect-unary-adapter, which the
+        # service module injects into its offline .m2 as a pre-built jar.
+        ./packages/java/connect-unary-adapter/nix
+        ./services/business-logic-java/nix
         ./nix/images.nix
         ./nix/arion.nix
         ./nix/checks.nix

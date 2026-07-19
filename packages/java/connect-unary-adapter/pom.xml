@@ -4,18 +4,71 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <parent>
-    <groupId>com.webuipoc</groupId>
-    <artifactId>web-ui-ssr-experiment-parent</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
-    <relativePath>../../../pom.xml</relativePath>
-  </parent>
-
+  <!-- STANDALONE unit (task 517: de-reactored). NO <parent>, NO reactor. Shared
+       dependency versions come from the build-bom BOM imported below (scope=import);
+       shared BUILD config (spotless/checkstyle/pmd/errorprone) can NOT ride a BOM
+       import, so it is spelled out per-unit here (duplicated with business-logic-java,
+       kept minimal). Build+test this module on its own: `mvn -q -f pom.xml verify`
+       from this directory (28 tests). -->
+  <groupId>com.webuipoc</groupId>
   <artifactId>connect-unary-adapter</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <name>connect-unary-adapter</name>
   <description>Service-agnostic adapter exposing any gRPC ServerServiceDefinition over the Connect protocol (unary RPCs) as a Helidon SE routing feature, with protovalidate enforcement.</description>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>25</maven.compiler.release>
+
+    <!-- avaje-jsonb: compile-time JSON codec (no runtime reflection) used ONLY by
+         this adapter, for the wide-event request-logging line emitted by
+         WideEventFilter (task iq2.1). Runtime API + the annotation-processor
+         generator (avaje-jsonb-generator) share this pin. Adapter-local (the
+         service does not use avaje-jsonb), so it lives here, not in build-bom. -->
+    <version.avaje.jsonb>3.14</version.avaje.jsonb>
+
+    <!-- Build plugin versions (this unit's subset). -->
+    <version.plugin.compiler>3.14.1</version.plugin.compiler>
+    <!-- Code style: Spotless drives palantir-java-format (120-col PALANTIR style).
+         palantir/google-java-format reach into jdk.compiler internals; Spotless'
+         ModuleHelper opens those packages reflectively at runtime (since spotless-lib
+         2.26.2), so no add-exports JVM flags are needed on JDK 25. -->
+    <version.plugin.spotless>3.8.0</version.plugin.spotless>
+    <version.palantir.javaformat>2.96.0</version.palantir.javaformat>
+    <!-- Static analysis (task d4n.7). Plugins bundle OLD engines by default
+         (maven-pmd-plugin 3.28.0 ships PMD 7.17; maven-checkstyle-plugin 3.6.0 ships
+         Checkstyle 9.3), so BOTH the plugin AND the engine are pinned explicitly — the
+         engine is overridden via the plugin's <dependencies>. PMD supports Java 25 since
+         7.16; Checkstyle since 13.6. -->
+    <version.plugin.pmd>3.28.0</version.plugin.pmd>
+    <version.pmd>7.26.0</version.pmd>
+    <version.plugin.checkstyle>3.6.0</version.plugin.checkstyle>
+    <version.checkstyle>13.8.0</version.checkstyle>
+
+    <!-- Error Prone + NullAway (task d4n.8). Error Prone 2.50.0 requires JDK 21+ but
+         reaches into jdk.compiler internals, so the add-exports/add-opens in
+         .mvn/jvm.config (repo root) are REQUIRED on JDK 16+. NullAway 0.13.7 needs
+         Error Prone >= 2.36; its JSpecify mode needs JDK 22+ (satisfied by JDK 25). -->
+    <version.errorprone>2.50.0</version.errorprone>
+    <version.nullaway>0.13.7</version.nullaway>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- Shared version management (task 517). This is the SOLE dependencyManagement
+           import and it is FIRST, so build-bom's load-bearing BOM ordering
+           (grpc/junit before helidon) is this unit's effective ordering. -->
+      <dependency>
+        <groupId>com.webuipoc</groupId>
+        <artifactId>build-bom</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 
   <dependencies>
     <!-- Helidon SE routing: the adapter is an HttpFeature installing handlers,
@@ -26,14 +79,14 @@
     </dependency>
 
     <!-- jSpecify @NullMarked / @Nullable (task d4n.8); read by NullAway in
-         JSpecify mode. Version from the parent's dependencyManagement. -->
+         JSpecify mode. Version from build-bom. -->
     <dependency>
       <groupId>org.jspecify</groupId>
       <artifactId>jspecify</artifactId>
     </dependency>
 
     <!-- protobuf-java: parse/serialize request/response Messages. Pinned via
-         parent dependencyManagement (>= the protoc gencode version). -->
+         build-bom (>= the protoc gencode version). -->
     <dependency>
       <groupId>com.google.protobuf</groupId>
       <artifactId>protobuf-java</artifactId>
@@ -54,7 +107,7 @@
       <groupId>io.grpc</groupId>
       <artifactId>grpc-protobuf</artifactId>
       <exclusions>
-        <!-- protobuf-java is pinned via parent dependencyManagement -->
+        <!-- protobuf-java is pinned via build-bom -->
         <exclusion>
           <groupId>com.google.protobuf</groupId>
           <artifactId>protobuf-java</artifactId>
@@ -67,23 +120,27 @@
          avaje-jsonb-generator (annotationProcessorPaths below) emits a
          reflection-free adapter for every @Json type (WideEvent, WideEventError)
          at build time; this is the runtime API those generated adapters and the
-         Jsonb builder compile/run against. Version from the parent's
-         dependencyManagement. Confined to the logging code — the proto debug
-         codec and the Connect error envelope keep using JsonFormat / hand-rolled
-         JSON (see ArchitectureTest's jsonb-confinement rule). -->
+         Jsonb builder compile/run against. Adapter-local version property (not in
+         build-bom): the service does not use avaje-jsonb, and the generator path
+         below shares the SAME ${version.avaje.jsonb} so the two can never drift.
+         Confined to the logging code — the proto debug codec and the Connect error
+         envelope keep using JsonFormat / hand-rolled JSON (see ArchitectureTest's
+         jsonb-confinement rule). -->
     <dependency>
       <groupId>io.avaje</groupId>
       <artifactId>avaje-jsonb</artifactId>
+      <version>${version.avaje.jsonb}</version>
     </dependency>
 
     <!-- protovalidate runtime: evaluates buf.validate.* constraints on every
          parsed request before dispatch. The jar also bundles the
-         build.buf.validate gencode the adapter references (FieldPath etc.). -->
+         build.buf.validate gencode the adapter references (FieldPath etc.).
+         Version from build-bom. -->
     <dependency>
       <groupId>build.buf</groupId>
       <artifactId>protovalidate</artifactId>
       <exclusions>
-        <!-- protobuf-java is pinned via parent dependencyManagement -->
+        <!-- protobuf-java is pinned via build-bom -->
         <exclusion>
           <groupId>com.google.protobuf</groupId>
           <artifactId>protobuf-java</artifactId>
@@ -112,14 +169,29 @@
     <plugins>
       <!-- Error Prone + NullAway (task d4n.8). This module has no other annotation
            processors, but once error_prone_core is listed javac disables classpath
-           auto-discovery, so both Error Prone and NullAway are listed explicitly.
-           The compilerArgs (-XDcompilePolicy=simple, -Xplugin:ErrorProne with the
-           NullAway/excluded-paths options) and the .mvn/jvm.config add-exports are
-           inherited from the parent pom's compiler pluginManagement. -->
+           auto-discovery, so both Error Prone and NullAway (plus avaje-jsonb-generator)
+           are listed explicitly.
+
+           The compilerArgs are inlined here (de-reactored 517: no parent to inherit
+           them from) and MUST stay in sync with services/business-logic-java's copy:
+           -XDcompilePolicy=simple is mandatory for Error Prone; javac runs in-process
+           (fork=false, default), so the required jdk.compiler add-exports/add-opens live
+           in .mvn/jvm.config (repo root) and apply to the Maven JVM hosting javac.
+           -XDaddTypeAnnotationsToSymbol=true is required on JDK 21+ for type-use
+           annotations (NullAway JSpecify mode). -XepExcludedPaths drops every
+           generated-sources tree from Error Prone analysis (this unit has none today,
+           but the exclusion is kept identical to the service for parity). -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
+        <version>${version.plugin.compiler}</version>
         <configuration>
+          <compilerArgs>
+            <arg>-XDcompilePolicy=simple</arg>
+            <arg>--should-stop=ifError=FLOW</arg>
+            <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+            <arg>-Xplugin:ErrorProne -XepExcludedPaths:.*/generated-sources/.* -Xep:NullAway:ERROR -XepOpt:NullAway:OnlyNullMarked -XepOpt:NullAway:JSpecifyMode=true</arg>
+          </compilerArgs>
           <annotationProcessorPaths>
             <path>
               <groupId>com.google.errorprone</groupId>
@@ -131,16 +203,11 @@
               <artifactId>nullaway</artifactId>
               <version>${version.nullaway}</version>
             </path>
-            <!-- avaje-jsonb-generator (task iq2.1): emits the reflection-free
-                 JSON adapters for the wide-event @Json types (WideEvent,
-                 WideEventError) plus the avaje-spi GeneratedComponent that
-                 ServiceLoader-registers them with Jsonb.builder().build(). Once
-                 any processor is listed javac stops classpath auto-discovery, so
-                 it is appended here explicitly alongside Error Prone + NullAway;
-                 order is irrelevant to javac (all run each round). Its output
-                 lands under target/generated-sources/annotations, which the
-                 parent's -XepExcludedPaths (.*/generated-sources/.*) and the
-                 PMD/Checkstyle generated-source excludeRoots already skip. -->
+            <!-- avaje-jsonb-generator (task iq2.1): emits the reflection-free JSON
+                 adapters for the wide-event @Json types plus the avaje-spi
+                 GeneratedComponent that ServiceLoader-registers them. Output lands
+                 under target/generated-sources/annotations, which -XepExcludedPaths
+                 and the PMD/Checkstyle generated-source excludes already skip. -->
             <path>
               <groupId>io.avaje</groupId>
               <artifactId>avaje-jsonb-generator</artifactId>
@@ -148,6 +215,137 @@
             </path>
           </annotationProcessorPaths>
         </configuration>
+      </plugin>
+
+      <!-- ============================================================= -->
+      <!-- Spotless: 120-col PALANTIR style over src/{main,test}/java (its
+           java defaults). The build-helper generated-sources roots and target/
+           are NOT matched by those globs, so generated code is never reformatted.
+           Bound to verify; fails the build on any unformatted file. De-reactored
+           517: activated directly here (no parent pluginManagement to inherit). -->
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>${version.plugin.spotless}</version>
+        <configuration>
+          <java>
+            <palantirJavaFormat>
+              <version>${version.palantir.javaformat}</version>
+            </palantirJavaFormat>
+            <!-- palantir sorts imports but does not drop unused ones. -->
+            <removeUnusedImports/>
+          </java>
+        </configuration>
+        <executions>
+          <execution>
+            <id>spotless-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- ============================================================= -->
+      <!-- PMD + CPD (task d4n.7). ENGINE OVERRIDE: the plugin bundles PMD 7.17; the
+           <dependencies> force pmd-core + pmd-java to ${version.pmd} (Java-25-capable).
+           includeTests covers src/test/java; excludeRoots drops generated roots (this
+           unit has none today, non-existent paths are ignored). targetJdk pins PMD's
+           parse language level. Ruleset is the curated project file under tooling/.
+           Bound to verify. De-reactored 517: config inlined here. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <version>${version.plugin.pmd}</version>
+        <dependencies>
+          <dependency>
+            <groupId>net.sourceforge.pmd</groupId>
+            <artifactId>pmd-core</artifactId>
+            <version>${version.pmd}</version>
+          </dependency>
+          <dependency>
+            <groupId>net.sourceforge.pmd</groupId>
+            <artifactId>pmd-java</artifactId>
+            <version>${version.pmd}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <targetJdk>25</targetJdk>
+          <includeTests>true</includeTests>
+          <printFailingErrors>true</printFailingErrors>
+          <failOnViolation>true</failOnViolation>
+          <minimumTokens>100</minimumTokens>
+          <!-- skipEmptyReport avoids rendering the fluido site skin on a clean run
+               (which trips repo-wide JS tooling); linkXRef=false drops xref links. -->
+          <skipEmptyReport>true</skipEmptyReport>
+          <linkXRef>false</linkXRef>
+          <rulesets>
+            <ruleset>${maven.multiModuleProjectDirectory}/tooling/pmd/ruleset.xml</ruleset>
+          </rulesets>
+          <excludeRoots>
+            <excludeRoot>${project.basedir}/generated-sources/protobuf</excludeRoot>
+            <excludeRoot>${project.basedir}/generated-sources/grpc</excludeRoot>
+            <excludeRoot>${project.build.directory}/generated-sources/jooq</excludeRoot>
+            <excludeRoot>${project.build.directory}/generated-sources</excludeRoot>
+          </excludeRoots>
+        </configuration>
+        <executions>
+          <execution>
+            <id>pmd-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>pmd-cpd-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>cpd-check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- ============================================================= -->
+      <!-- Checkstyle (task d4n.7). Engine override to ${version.checkstyle}
+           (Java-25-capable). Source dirs pinned to src/{main,test}/java only so
+           generated roots are never scanned. violationSeverity=error fails the
+           build on any finding. Bound to verify. De-reactored 517: inlined here. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>${version.plugin.checkstyle}</version>
+        <dependencies>
+          <dependency>
+            <groupId>com.puppycrawl.tools</groupId>
+            <artifactId>checkstyle</artifactId>
+            <version>${version.checkstyle}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <configLocation>${maven.multiModuleProjectDirectory}/tooling/checkstyle/checkstyle.xml</configLocation>
+          <includeTestSourceDirectory>true</includeTestSourceDirectory>
+          <consoleOutput>true</consoleOutput>
+          <failOnViolation>true</failOnViolation>
+          <violationSeverity>error</violationSeverity>
+          <sourceDirectories>
+            <sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
+          </sourceDirectories>
+          <testSourceDirectories>
+            <testSourceDirectory>${project.basedir}/src/test/java</testSourceDirectory>
+          </testSourceDirectories>
+        </configuration>
+        <executions>
+          <execution>
+            <id>checkstyle-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

@@ -128,41 +128,57 @@ To update a hash:
 > x86_64-linux = …; }.${system}`). `rpc-gen`'s output is generated code and is
 > platform-independent, so its single hash is portable.
 
-## Java build — how the jOOQ offline-repo seam was closed (2pk.3)
+## Java build — de-reactored, per-unit FODs (2pk.3, de-reactored in 517)
 
-`packages.business-logic-java` is now a **pure `maven.buildMavenPackage`** reactor
-(root pom → `connect-unary-adapter` + `business-logic-java`). The hard part was the
-`jooq-codegen` seam: at `generate-sources` the pom runs `scripts/jooq-codegen.sh`,
-which starts an **ephemeral postgres over loopback** (initdb/pg_ctl — no docker
-socket) and then a **nested single-module `mvn -Pjooq-codegen flyway:migrate
-jooq-codegen:generate`**. That nested mvn does not inherit the outer build's flags,
-so it would hit the network for the flyway + jooq-codegen plugins — fatal in the
-sealed offline phase.
+De-reactored (task 517): there is **no** root reactor/parent pom. Each Java unit is
+its own standalone `maven.buildMavenPackage`, with its nix module in its own directory:
 
-Solution (in `packages-java.nix`), no `manualMvnArtifacts` guesswork:
+- `packages/java/connect-unary-adapter/nix/default.nix` → `packages.connect-unary-adapter`
+  (the adapter jar + its pom).
+- `services/business-logic-java/nix/default.nix` → `packages.business-logic-java`
+  (the runnable server jar + `libs/`).
+
+`packages/java/build-bom` is a **pom-only** unit (shared dependency-version BOM); it
+has no derivation — each build just `mvn -N install`s its pom into the local repo.
+
+**Adapter bridge.** In the old reactor the adapter was rebuilt from source in the
+service's session. Now `packages.business-logic-java` consumes the adapter as an
+explicit artifact: it injects the **pre-built** `packages.connect-unary-adapter` jar
++ pom into its offline `.m2` with `install:install-file` (in `preBuild`/`afterDepsSetup`),
+sourcing from the adapter's own derivation output — never rebuilt from source. In the
+devenv dev loop the same slot is a warm `~/.m2` populated by the `java:adapter:install`
+task (`mvn install` build-bom + adapter). No reactor resolution in either world.
+
+The hard part remains the `jooq-codegen` seam in the service: at `generate-sources`
+the pom runs `scripts/jooq-codegen.sh`, which starts an **ephemeral postgres over
+loopback** (initdb/pg_ctl — no docker socket) and then a **nested single-module
+`mvn -Pjooq-codegen flyway:migrate jooq-codegen:generate`**. That nested mvn does not
+inherit the outer build's flags, so it would hit the network for the flyway +
+jooq-codegen plugins — fatal in the sealed offline phase. Solution, per unit, no
+`manualMvnArtifacts` guesswork:
 
 1. **`buildOffline = false`** (default) — the phase-1 FOD runs the *full* online
-   `mvn package`, which is byte-for-byte the phase-2 build. So the FOD's `.m2`
-   provably captures every artifact the offline build needs, jOOQ/Flyway profile
-   plugins included.
+   `mvn package`, byte-for-byte the phase-2 build, so the FOD's `.m2` provably
+   captures every artifact the offline build needs (jOOQ/Flyway profile plugins,
+   the adapter's transitive closure, …).
 2. **`MAVEN_ARGS` threaded per phase** so the nested mvn shares the outer repo:
-   phase-1 `preBuild` exports `-Dmaven.repo.local=$out/.m2` (online, downloads the
-   plugin closure into the FOD); phase-2 sets `-o -Dmaven.repo.local=$mvnDeps/.m2`
-   in the `afterDepsSetup` hook (offline resolve). The script already forwards
-   `$MAVEN_ARGS` into the nested mvn.
-3. **Reactor sibling resolvable** — the nested single-module mvn needs the
-   `connect-unary-adapter` SNAPSHOT *and* the parent pom in the local repo (masked
-   in devenv by a warm `~/.m2`). Both phases pre-install them (`mvn -N install`
-   parent + `mvn -pl … install` adapter) with the `verify`-phase quality gates
-   (spotless/checkstyle/pmd/enforcer) skipped.
-4. **buf-generated Java** copied from `packages.rpc-gen`'s `/java` before each build.
-5. **`mvnHash`** pinned (fakeHash → read the mismatch); changes on any dep/plugin
-   bump. **`doCheck = false`**: the Testcontainers unit + `*IT` tests need a
-   container daemon the sandbox lacks — they stay in the impure CI/e2e path.
+   phase-1 `preBuild` exports `-Dmaven.repo.local=$out/.m2` (online); phase-2 sets
+   `-o -Dmaven.repo.local=$mvnDeps/.m2` in `afterDepsSetup` (offline). The script
+   already forwards `$MAVEN_ARGS` into the nested mvn.
+3. **build-bom + adapter resolvable** — each phase pre-installs the build-bom pom
+   (`mvn -N install`) and, for the service, injects the pre-built adapter
+   (`install:install-file`). The `com/webuipoc` group + `maven-metadata-local.xml`
+   they write are **scrubbed** in the FOD `postInstall` (wall-clock stamps) and
+   re-injected in phase-2 — the same determinism discipline the reactor used.
+4. **buf-generated Java** copied from `packages.rpc-gen`'s `/java` before each service
+   build (the adapter has no generated sources).
+5. **`mvnHash`** pinned per unit (fakeHash → read the mismatch); changes on any
+   dep/plugin bump. **`doCheck = false`**: the adapter's pure tests and the service's
+   Testcontainers `*IT` stay in the impure devenv path (`devenv tasks run java:verify`).
 
-Verified on aarch64-darwin (Java is arch-portable): `nix build --impure .#business-logic-java`
-BUILD SUCCESS incl. hermetic jOOQ codegen; the jar boots through the full avaje DI
-graph + HikariCP (fails only on the absent DB socket).
+Both FODs are double-`--rebuild` reproducible. Verified on aarch64-darwin (Java is
+arch-portable): `nix build .#connect-unary-adapter` and `nix build .#business-logic-java`
+both BUILD SUCCESS incl. hermetic jOOQ codegen.
 
 ## Images (`images.nix`) — nix2container, x86_64-linux
 

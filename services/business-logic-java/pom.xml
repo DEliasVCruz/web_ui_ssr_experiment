@@ -4,38 +4,119 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <parent>
-    <groupId>com.webuipoc</groupId>
-    <artifactId>web-ui-ssr-experiment-parent</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
-    <relativePath>../../pom.xml</relativePath>
-  </parent>
-
+  <!-- STANDALONE unit (task 517: de-reactored). NO <parent>, NO reactor. Shared
+       dependency versions come from the build-bom BOM imported below (scope=import);
+       the connect-unary-adapter it depends on is a SEPARATE standalone unit
+       (packages/java/connect-unary-adapter), consumed as a plain artifact — resolved
+       from ~/.m2 (dev: `mvn install` the adapter first) or injected as a pre-built jar
+       into the offline .m2 (Nix). Shared BUILD config (spotless/checkstyle/pmd/
+       errorprone) can NOT ride a BOM import, so it is spelled out per-unit here
+       (duplicated with connect-unary-adapter, kept minimal). Build+test on its own:
+       `mvn -q -f pom.xml verify` from this directory. -->
+  <groupId>com.webuipoc</groupId>
   <artifactId>business-logic-java</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <name>business-logic-java</name>
   <description>Java (Helidon SE) port of the business-logic Connect service</description>
 
   <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>25</maven.compiler.release>
     <mainClass>com.webuipoc.businesslogic.Main</mainClass>
+
+    <!-- Compile-time DI, config, domain mapping and business-rule validation.
+         Single-module (service-only), standalone (not managed by any imported BOM):
+         each version property is used by BOTH the <dependency> and the matching
+         annotation-processor <path> below, so the two can never drift. -->
+    <version.avaje.inject>11.4</version.avaje.inject>
+    <version.avaje.config>5.2</version.avaje.config>
+    <version.avaje.validator>2.9</version.avaje.validator>
+    <version.mapstruct>1.6.3</version.mapstruct>
+    <!-- YAML parser avaje-config selects when present. Matches the version the
+         helidon-dependencies BOM manages (and that protovalidate's dev.cel:cel drags
+         onto the runtime classpath transitively); pinned here so the direct entry
+         keeps the parser choice deterministic. -->
+    <version.snakeyaml>2.5</version.snakeyaml>
+
+    <!-- PostgreSQL persistence stack (validated pins, 2026-07). Service-only,
+         BOM-unmanaged. flyway-database-postgresql is a SEPARATE artifact (required
+         since Flyway 10) that teaches flyway-core the jdbc:postgresql dialect. -->
+    <version.flyway>12.11.0</version.flyway>
+    <version.hikaricp>7.1.0</version.hikaricp>
+    <version.pgjdbc>42.7.13</version.pgjdbc>
+    <!-- jOOQ OSS: typed SQL DSL over the generated todos metamodel (task wdt.4).
+         KNOWN ACCEPTED RISK: JDK 25 is certified only in the (as of 2026-07 unreleased)
+         jOOQ 3.22 line; 3.21.6 is pinned as the current OSS GA, verified working on the
+         devenv JDK 25 toolchain. UPGRADE TRIGGER: move to 3.22 as soon as it GAs. The
+         SAME ${version.jooq}/${version.flyway}/${version.pgjdbc} drive the hermetic
+         codegen plugins (jooq-codegen profile), so generated code and runtime can never
+         drift. -->
+    <version.jooq>3.21.6</version.jooq>
+    <!-- Testcontainers: TEST scope only (repository + *IT tests boot a real Postgres
+         via podman). No runtime consumers, so it does not participate in the runtime
+         scope-mediation trap. -->
+    <version.testcontainers>1.21.4</version.testcontainers>
+
+    <!-- Build plugin versions. -->
+    <version.plugin.compiler>3.14.1</version.plugin.compiler>
+    <version.plugin.surefire>3.5.6</version.plugin.surefire>
+    <!-- Failsafe runs the *IT suite in integration-test/verify; pinned to the surefire
+         line (shared release train). -->
+    <version.plugin.failsafe>3.5.6</version.plugin.failsafe>
+    <version.plugin.buildhelper>3.6.1</version.plugin.buildhelper>
+    <version.plugin.jar>3.4.2</version.plugin.jar>
+    <version.plugin.dependency>3.8.1</version.plugin.dependency>
+    <version.plugin.exec>3.6.3</version.plugin.exec>
+    <!-- Code style: Spotless drives palantir-java-format (120-col PALANTIR style).
+         Spotless' ModuleHelper opens jdk.compiler packages reflectively (since
+         spotless-lib 2.26.2), so no add-exports JVM flags are needed on JDK 25. -->
+    <version.plugin.spotless>3.8.0</version.plugin.spotless>
+    <version.palantir.javaformat>2.96.0</version.palantir.javaformat>
+    <!-- Static analysis (task d4n.7): plugin + explicit engine override (the plugins
+         bundle Java-25-incapable engines by default). PMD supports Java 25 since 7.16;
+         Checkstyle since 13.6. -->
+    <version.plugin.pmd>3.28.0</version.plugin.pmd>
+    <version.pmd>7.26.0</version.pmd>
+    <version.plugin.checkstyle>3.6.0</version.plugin.checkstyle>
+    <version.checkstyle>13.8.0</version.checkstyle>
+
+    <!-- Error Prone + NullAway (task d4n.8). Error Prone 2.50.0 requires JDK 21+ but
+         reaches into jdk.compiler internals, so the add-exports/add-opens in
+         .mvn/jvm.config (repo root) are REQUIRED. NullAway 0.13.7 needs Error Prone
+         >= 2.36; JSpecify mode needs JDK 22+ (satisfied by JDK 25). -->
+    <version.errorprone>2.50.0</version.errorprone>
+    <version.nullaway>0.13.7</version.nullaway>
   </properties>
 
-  <!-- Shared versions, BOM imports (load-bearing order) and plugin versions are
-       managed by the root parent pom (../../pom.xml). This module only declares
-       what it directly uses; the Connect-unary adapter (com.webuipoc:connect-unary-adapter)
-       carries the Connect/protovalidate machinery and its transitive deps
-       (protobuf-java-util, protovalidate, ...). -->
+  <dependencyManagement>
+    <dependencies>
+      <!-- Shared version management (task 517). SOLE dependencyManagement import and
+           FIRST, so build-bom's load-bearing BOM ordering (grpc/junit before helidon)
+           is this unit's effective ordering. It also manages the connect-unary-adapter
+           coordinate, so the dependency below is version-less. -->
+      <dependency>
+        <groupId>com.webuipoc</groupId>
+        <artifactId>build-bom</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 
   <dependencies>
-    <!-- The service-agnostic Connect-unary HTTP adapter (reactor module). -->
+    <!-- The service-agnostic Connect-unary HTTP adapter, a SEPARATE standalone unit
+         (task 517). Version from build-bom; resolved as a plain artifact (dev: `mvn
+         install` it first; Nix: injected as a pre-built jar into the offline .m2). -->
     <dependency>
       <groupId>com.webuipoc</groupId>
       <artifactId>connect-unary-adapter</artifactId>
     </dependency>
 
     <!-- jSpecify @NullMarked / @Nullable (task d4n.8); read by NullAway in
-         JSpecify mode. Version from the parent's dependencyManagement. -->
+         JSpecify mode. Version from build-bom. -->
     <dependency>
       <groupId>org.jspecify</groupId>
       <artifactId>jspecify</artifactId>
@@ -46,30 +127,20 @@
       <artifactId>helidon-webserver</artifactId>
     </dependency>
 
-    <!-- Framework & out-of-request logging as JSON (task iq2.2). Three parts,
-         all versions from the helidon-dependencies / slf4j BOMs (parent pom):
+    <!-- Framework & out-of-request logging as JSON (task iq2.2). Three parts, all
+         versions from the helidon-dependencies / slf4j BOMs (via build-bom):
 
          * helidon-logging-common (compile): Main directly calls
-           LogConfig.configureRuntime() to load logging.properties BEFORE the
-           Flyway migrations run in the DI-graph build. Already on the classpath
-           transitively via helidon-webserver; declared explicitly because we
-           reference it in source ("declare what you directly use").
-         * helidon-logging-jul (runtime): the JUL LoggingProvider SPI that
-           actually reads the classpath logging.properties, plus the
-           HelidonConsoleHandler + HelidonJsonFormatter named there. Referenced
-           only by name (reflection) from logging.properties and discovered via
-           ServiceLoader, so runtime scope is correct; copy-dependencies
-           (includeScope=runtime) keeps it in target/libs. NOT the rejected
-           jul-to-slf4j bridge — this is Helidon's own JUL machinery.
-         * slf4j-jdk14 (runtime): the SLF4J -> JUL binding. HikariCP (and any
-           pure-SLF4J dep) logs via SLF4J; with no binding present those records
-           hit the NOP logger and are SILENTLY LOST (verified: Hikari pool +
-           connection-failure logs never appeared, and slf4j-api printed its
-           "No SLF4J providers were found" warning at boot). Routing SLF4J -> JUL
-           funnels them into the same JSON stream and silences that warning. This
-           is the OPPOSITE direction of the rejected jul-to-slf4j+logback bridge:
-           JUL stays the single sink. Runtime scope (a logging binding is never a
-           compile dep); BOM-managed to match slf4j-api 2.0.17. -->
+           LogConfig.configureRuntime() to load logging.properties BEFORE the Flyway
+           migrations run in the DI-graph build.
+         * helidon-logging-jul (runtime): the JUL LoggingProvider SPI that reads the
+           classpath logging.properties, plus the HelidonConsoleHandler +
+           HelidonJsonFormatter named there. Discovered via ServiceLoader, so runtime
+           scope; copy-dependencies (includeScope=runtime) keeps it in target/libs.
+         * slf4j-jdk14 (runtime): the SLF4J -> JUL binding. HikariCP logs via SLF4J;
+           with no binding present those records hit the NOP logger and are SILENTLY
+           LOST. Routing SLF4J -> JUL funnels them into the same JSON stream. Runtime
+           scope; BOM-managed to match slf4j-api. -->
     <dependency>
       <groupId>io.helidon.logging</groupId>
       <artifactId>helidon-logging-common</artifactId>
@@ -99,7 +170,7 @@
       <groupId>io.grpc</groupId>
       <artifactId>grpc-protobuf</artifactId>
       <exclusions>
-        <!-- protobuf-java is pinned via the parent's dependencyManagement -->
+        <!-- protobuf-java is pinned via build-bom -->
         <exclusion>
           <groupId>com.google.protobuf</groupId>
           <artifactId>protobuf-java</artifactId>
@@ -107,44 +178,44 @@
       </exclusions>
     </dependency>
 
-    <!-- PostgreSQL persistence for the TodoService port (see
-         src/main/java/com/webuipoc/businesslogic/todo). All three are runtime deps
+    <!-- PostgreSQL persistence for the TodoService port. All three are runtime deps
          (default/compile scope, NEVER test — the scope-mediation trap): the pgjdbc
-         driver, the HikariCP pool, and Flyway (core + the separate postgresql
-         dialect module required since Flyway 10). Versions from the parent's
-         dependencyManagement. -->
+         driver, the HikariCP pool, and Flyway (core + the separate postgresql dialect
+         module required since Flyway 10). Service-only versions from ${version.*}. -->
     <dependency>
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
+      <version>${version.pgjdbc}</version>
     </dependency>
     <dependency>
       <groupId>com.zaxxer</groupId>
       <artifactId>HikariCP</artifactId>
+      <version>${version.hikaricp}</version>
     </dependency>
     <dependency>
       <groupId>org.flywaydb</groupId>
       <artifactId>flyway-core</artifactId>
+      <version>${version.flyway}</version>
     </dependency>
     <dependency>
       <groupId>org.flywaydb</groupId>
       <artifactId>flyway-database-postgresql</artifactId>
+      <version>${version.flyway}</version>
     </dependency>
     <!-- jOOQ runtime: the typed DSL TodoRepository executes, and the library the
-         generated metamodel (target/generated-sources/jooq, emitted by the hermetic
-         codegen — scripts/jooq-codegen.sh + the `jooq-codegen` profile below)
-         compiles against. Runtime dep (default scope, NEVER test — the
-         scope-mediation trap). Version from the parent's dependencyManagement; the
-         codegen runs jooq-codegen-maven at the same version, so generated code and
-         runtime cannot drift. -->
+         generated metamodel (target/generated-sources/jooq) compiles against. Runtime
+         dep (default scope, NEVER test — the scope-mediation trap). The codegen runs
+         jooq-codegen-maven at the same ${version.jooq}, so generated code and runtime
+         cannot drift. -->
     <dependency>
       <groupId>org.jooq</groupId>
       <artifactId>jooq</artifactId>
+      <version>${version.jooq}</version>
     </dependency>
 
     <!-- Compile-time dependency injection (no runtime reflection/proxies): the
-         avaje-inject-generator (wired in annotationProcessorPaths below) emits
-         the DI wiring at build time; this is the runtime API + generated
-         module. -->
+         avaje-inject-generator (annotationProcessorPaths below) emits the DI wiring
+         at build time; this is the runtime API + generated module. -->
     <dependency>
       <groupId>io.avaje</groupId>
       <artifactId>avaje-inject</artifactId>
@@ -152,36 +223,32 @@
     </dependency>
 
     <!-- External service configuration owner: application.yaml defaults, profile
-         files (application-<profile>.yaml) and env/system-property overrides.
-         Version managed by the parent's dependencyManagement. Wired into the DI
-         graph via a typed ServiceConfig holder (see config/ServiceConfig +
-         AppFactory); the server bootstrap bridges its values into the Helidon
+         files and env/system-property overrides. Wired into the DI graph via a typed
+         ServiceConfig holder; the server bootstrap bridges its values into the Helidon
          WebServer builder. -->
     <dependency>
       <groupId>io.avaje</groupId>
       <artifactId>avaje-config</artifactId>
+      <version>${version.avaje.config}</version>
     </dependency>
 
     <!-- Deterministic YAML parsing for avaje-config: snakeyaml is an OPTIONAL
-         avaje-config dep, but avaje-config prefers YamlLoaderSnake whenever
-         snakeyaml is on the classpath — and it already is, transitively at
-         runtime scope (connect-unary-adapter -> protovalidate -> dev.cel:cel).
-         Without this explicit declaration the production parser choice would
-         silently flip to the built-in simple parser if that transitive ever
-         disappeared. Declared at default (compile) scope, NEVER test: a direct
-         test-scope declaration would win dependency mediation over the
-         transitive runtime scope and drop the jar from target/libs (the repo's
-         documented scope-mediation trap). Version from the parent's
-         dependencyManagement. -->
+         avaje-config dep, but avaje-config prefers YamlLoaderSnake whenever snakeyaml
+         is on the classpath — and it already is, transitively at runtime scope
+         (connect-unary-adapter -> protovalidate -> dev.cel:cel). Declared at default
+         (compile) scope, NEVER test: a direct test-scope declaration would win
+         dependency mediation over the transitive runtime scope and drop the jar from
+         target/libs (the documented scope-mediation trap). -->
     <dependency>
       <groupId>org.yaml</groupId>
       <artifactId>snakeyaml</artifactId>
+      <version>${version.snakeyaml}</version>
     </dependency>
 
     <!-- Business-rule validation on the domain command records (avaje-validator
          runtime + the standard constraint annotations, e.g. @NotBlank). Wire
-         validation (protovalidate) stays in the Connect adapter; these rules are
-         the domain layer's own (e.g. non-blank-after-trim title). -->
+         validation (protovalidate) stays in the Connect adapter; these rules are the
+         domain layer's own (e.g. non-blank-after-trim title). -->
     <dependency>
       <groupId>io.avaje</groupId>
       <artifactId>avaje-validator</artifactId>
@@ -222,41 +289,37 @@
     </dependency>
     <!-- Testcontainers: the DB-touching repository tests boot a real Postgres
          container (via the podman env wired in wdt.2; ryuk disabled by env). Test
-         scope only. The postgresql module provides PostgreSQLContainer; it uses
-         the app's own pgjdbc driver (already on the runtime classpath). -->
+         scope only. The postgresql module provides PostgreSQLContainer; it uses the
+         app's own pgjdbc driver (already on the runtime classpath). -->
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>postgresql</artifactId>
+      <version>${version.testcontainers}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>junit-jupiter</artifactId>
+      <version>${version.testcontainers}</version>
       <scope>test</scope>
     </dependency>
     <!-- JsonFormat in the adapter integration tests (ConnectUnaryAdapterTest):
          declared explicitly rather than leaning on the transitive copy the
-         connect-unary-adapter dependency happens to bring in. Deliberately
-         default (compile) scope, NOT test scope: a direct test-scope
-         declaration wins dependency mediation over the adapter's transitive
-         compile-scope dep and silently drops the jar from target/libs — which
-         breaks the adapter's application/json codec at runtime (verified: with
-         test scope, copy-dependencies omits it). Version from the parent's
-         dependencyManagement. -->
+         connect-unary-adapter dependency happens to bring in. Deliberately default
+         (compile) scope, NOT test scope: a direct test-scope declaration wins
+         dependency mediation over the adapter's transitive compile-scope dep and
+         silently drops the jar from target/libs. Version from build-bom. -->
     <dependency>
       <groupId>com.google.protobuf</groupId>
       <artifactId>protobuf-java-util</artifactId>
     </dependency>
-    <!-- Gson: used directly by FrameworkLoggingFormatTest (parsing the JSON log
-         lines the HelidonJsonFormatter emits) — declared explicitly instead of
-         leaning on the transitive copy protobuf-java-util brings in. Deliberately
-         default (compile) scope, NOT test scope, even though only a test uses it
-         directly: gson is a RUNTIME-scope transitive of protobuf-java-util (its
-         JsonFormat — the Connect adapter's application/json codec — parses via
-         Gson), and a direct test-scope declaration would win dependency mediation
-         and drop the jar from target/libs, breaking the runtime jar — the same
-         documented scope-mediation trap as protobuf-java-util/snakeyaml above.
-         Version managed by the helidon-dependencies BOM (version.lib.gson). -->
+    <!-- Gson: used directly by FrameworkLoggingFormatTest (parsing the JSON log lines
+         the HelidonJsonFormatter emits) — declared explicitly instead of leaning on
+         the transitive copy protobuf-java-util brings in. Deliberately default
+         (compile) scope, NOT test scope: gson is a RUNTIME-scope transitive of
+         protobuf-java-util, and a direct test-scope declaration would win dependency
+         mediation and drop the jar from target/libs (the scope-mediation trap).
+         Version managed by the helidon-dependencies BOM (via build-bom). -->
     <dependency>
       <groupId>com.google.code.gson</groupId>
       <artifactId>gson</artifactId>
@@ -270,13 +333,29 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
+        <version>${version.plugin.compiler}</version>
         <configuration>
+          <!-- Error Prone (task d4n.8). De-reactored 517: the compilerArgs are inlined
+               here (no parent to inherit them from) and MUST stay in sync with
+               connect-unary-adapter's copy. -XDcompilePolicy=simple is mandatory for
+               Error Prone; javac runs in-process (fork=false, default), so the required
+               jdk.compiler add-exports/add-opens live in .mvn/jvm.config (repo root).
+               -XDaddTypeAnnotationsToSymbol=true is required on JDK 21+ for NullAway
+               JSpecify mode. -XepExcludedPaths drops every generated-sources tree (buf
+               protobuf/grpc under generated-sources/, jOOQ + avaje/mapstruct output under
+               target/generated-sources) from Error Prone analysis. -->
+          <compilerArgs>
+            <arg>-XDcompilePolicy=simple</arg>
+            <arg>--should-stop=ifError=FLOW</arg>
+            <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+            <arg>-Xplugin:ErrorProne -XepExcludedPaths:.*/generated-sources/.* -Xep:NullAway:ERROR -XepOpt:NullAway:OnlyNullMarked -XepOpt:NullAway:JSpecifyMode=true</arg>
+          </compilerArgs>
           <!-- Once ANY annotation processor is declared here, javac stops
                auto-discovering processors from the compile classpath, so every
-               processor the build needs must be listed explicitly: avaje-inject
-               (DI wiring), avaje-validator (validation adapters + generated
-               component), and MapStruct (mapper impls). Order does not matter to
-               javac; all run each round. -->
+               processor the build needs must be listed explicitly: avaje-inject (DI
+               wiring), avaje-validator (validation adapters + generated component),
+               MapStruct (mapper impls), and Error Prone's core (which hosts the NullAway
+               bug-checker plugin) + NullAway. Order does not matter to javac. -->
           <annotationProcessorPaths>
             <path>
               <groupId>io.avaje</groupId>
@@ -293,11 +372,6 @@
               <artifactId>mapstruct-processor</artifactId>
               <version>${version.mapstruct}</version>
             </path>
-            <!-- Error Prone + NullAway (task d4n.8). Added alongside the existing
-                 processors: once any processor is listed, javac stops classpath
-                 auto-discovery, so Error Prone's core (which hosts the NullAway
-                 bug-checker plugin) must be listed here explicitly. Order is
-                 irrelevant to javac; all run each round. Versions from the parent. -->
             <path>
               <groupId>com.google.errorprone</groupId>
               <artifactId>error_prone_core</artifactId>
@@ -313,15 +387,15 @@
       </plugin>
 
       <!-- Compile the buf-generated Java sources (gitignored; run `bun run generate`
-           from the repo root first — see README) plus the jOOQ metamodel emitted
-           by the hermetic codegen below. The jOOQ sources land under
-           target/generated-sources/jooq; unlike the old testcontainers-jooq plugin
-           (which registered its own compile source root in-session), the hermetic
-           codegen produces them from a NESTED maven invocation, so this outer build
-           must add that directory as a source root itself. -->
+           from the repo root first — see README) plus the jOOQ metamodel emitted by
+           the hermetic codegen below. The jOOQ sources land under
+           target/generated-sources/jooq; because the hermetic codegen produces them
+           from a NESTED maven invocation, this outer build must add that directory as
+           a source root itself. -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>build-helper-maven-plugin</artifactId>
+        <version>${version.plugin.buildhelper}</version>
         <executions>
           <execution>
             <id>add-buf-generated-sources</id>
@@ -348,33 +422,27 @@
            migrations, runs jOOQ's generator against the live catalog, then tears the
            database down. The Flyway + jOOQ steps run through a nested maven invocation
            of the `jooq-codegen` profile (see <profiles> below), so their versions stay
-           pinned by the reactor and generated code can never drift from the runtime
-           jOOQ/Flyway pins. Consequences, unchanged from the container approach except
-           for the runtime dependency:
-             * `mvn verify` (and even `mvn compile`) runs the codegen at
-               generate-sources, but now needs ONLY the postgres binaries on PATH — no
-               Docker socket. This is what makes a pure Nix build of this module
-               possible (2pk.3); the same script runs in a Nix sandbox.
-             * Generated sources land under target/generated-sources/jooq — inside
-               target/, so gitignored by the existing target/ entry and invisible to
-               Spotless (globs cover src/{main,test}/java only). Because the codegen
-               runs in a nested maven session, its addCompileSourceRoot does NOT reach
-               this build, so the build-helper add-source above registers the directory
-               for compilation explicitly.
-             * TARGET PACKAGE com.webuipoc.jooq is chosen DELIBERATELY outside both
-               ArchUnit analysis roots (com.webuipoc.businesslogic here,
-               com.webuipoc.connect in the adapter), so no architecture rule can fire
-               ON generated classes — the same by-construction exclusion the
-               buf-generated todo.v1 sources rely on. Rules still police DEPENDENCIES
-               ON it (see ArchitectureTest's jOOQ confinement rule).
-             * flyway_schema_history is excluded from generation: it is Flyway's
-               bookkeeping table, not part of the domain schema. -->
-      <!-- exec-maven-plugin: the `generate-jooq-sources` execution drives the
-           hermetic codegen at generate-sources; the plugin-level <mainClass> serves
-           the CLI `mvn exec:java` used to run the server (see ## Run in the README). -->
+           pinned by ${version.flyway}/${version.jooq}/${version.pgjdbc} and generated
+           code can never drift from the runtime jOOQ/Flyway pins. Consequences:
+             * `mvn verify` (and even `mvn compile`) runs the codegen at generate-sources,
+               but needs ONLY the postgres binaries on PATH — no Docker socket. This is
+               what makes a pure Nix build of this module possible (2pk.3).
+             * Generated sources land under target/generated-sources/jooq — gitignored,
+               invisible to Spotless (globs cover src/{main,test}/java only). Because the
+               codegen runs in a nested maven session, its addCompileSourceRoot does NOT
+               reach this build, so the build-helper add-source above registers the
+               directory explicitly.
+             * TARGET PACKAGE com.webuipoc.jooq is chosen DELIBERATELY outside the
+               ArchUnit analysis root (com.webuipoc.businesslogic), so no rule fires ON
+               generated classes. Rules still police DEPENDENCIES ON it.
+             * flyway_schema_history is excluded from generation (Flyway bookkeeping). -->
+      <!-- exec-maven-plugin: the `generate-jooq-sources` execution drives the hermetic
+           codegen at generate-sources; the plugin-level <mainClass> serves the CLI
+           `mvn exec:java` used to run the server (see ## Run in the README). -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
+        <version>${version.plugin.exec}</version>
         <configuration>
           <mainClass>${mainClass}</mainClass>
         </configuration>
@@ -395,17 +463,18 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
+        <version>${version.plugin.surefire}</version>
       </plugin>
 
       <!-- Failsafe runs the integration suite (*IT): it boots the REAL service
-           (Main.start(): full avaje-inject graph + Flyway + Helidon WebServer on
-           an ephemeral port) against a Testcontainers postgres:17-alpine and
-           exercises it over raw HTTP. Bound to the integration-test/verify phases
-           so `mvn verify` runs it after the fast surefire unit tests; the version
-           is pinned in the parent's pluginManagement. -->
+           (Main.start(): full avaje-inject graph + Flyway + Helidon WebServer on an
+           ephemeral port) against a Testcontainers postgres:17-alpine and exercises it
+           over raw HTTP. Bound to the integration-test/verify phases so `mvn verify`
+           runs it after the fast surefire unit tests. -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
+        <version>${version.plugin.failsafe}</version>
         <executions>
           <execution>
             <id>integration-tests</id>
@@ -417,13 +486,13 @@
         </executions>
       </plugin>
 
-      <!-- Runnable jar: Main-Class + Class-Path manifest pointing at libs/,
-           populated by maven-dependency-plugin below. Start headlessly with
-           `java -jar target/business-logic-java.jar` (Class-Path entries are
-           resolved relative to the jar's own location). -->
+      <!-- Runnable jar: Main-Class + Class-Path manifest pointing at libs/, populated
+           by maven-dependency-plugin below. Start headlessly with
+           `java -jar target/business-logic-java.jar`. -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
+        <version>${version.plugin.jar}</version>
         <configuration>
           <archive>
             <manifest>
@@ -435,13 +504,13 @@
         </configuration>
       </plugin>
 
-      <!-- Copy the runtime dependency jars next to the app jar (target/libs/)
-           so the manifest Class-Path above resolves. includeScope=runtime pulls
-           reactor-internal deps too (connect-unary-adapter.jar), so the runnable
-           jar is self-contained. -->
+      <!-- Copy the runtime dependency jars next to the app jar (target/libs/) so the
+           manifest Class-Path above resolves. includeScope=runtime pulls the
+           connect-unary-adapter.jar too, so the runnable jar is self-contained. -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-dependency-plugin</artifactId>
+        <version>${version.plugin.dependency}</version>
         <executions>
           <execution>
             <id>copy-runtime-dependencies</id>
@@ -457,10 +526,9 @@
         </executions>
       </plugin>
 
-      <!-- avaje-inject build support: the `provides` goal writes the module
-           metadata the annotation processor reads for external-dependency
-           detection (the <?m2e execute?> PI makes it run in Eclipse/VS Code
-           incremental builds too) -->
+      <!-- avaje-inject build support: the `provides` goal writes the module metadata
+           the annotation processor reads for external-dependency detection (the
+           <?m2e execute?> PI makes it run in Eclipse/VS Code incremental builds too) -->
       <plugin>
         <groupId>io.avaje</groupId>
         <artifactId>avaje-inject-maven-plugin</artifactId>
@@ -475,18 +543,142 @@
           </execution>
         </executions>
       </plugin>
+
+      <!-- ============================================================= -->
+      <!-- Spotless: 120-col PALANTIR style over src/{main,test}/java (its java
+           defaults). Generated-sources roots and target/ are NOT matched, so buf/jOOQ
+           output is never reformatted. Bound to verify. De-reactored 517: activated
+           directly here; config MUST stay in sync with connect-unary-adapter's copy. -->
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>${version.plugin.spotless}</version>
+        <configuration>
+          <java>
+            <palantirJavaFormat>
+              <version>${version.palantir.javaformat}</version>
+            </palantirJavaFormat>
+            <removeUnusedImports/>
+          </java>
+        </configuration>
+        <executions>
+          <execution>
+            <id>spotless-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- ============================================================= -->
+      <!-- PMD + CPD (task d4n.7). Engine override to ${version.pmd} (Java-25-capable).
+           includeTests covers src/test/java; excludeRoots drops every generated root
+           (buf + jOOQ). targetJdk pins PMD's parse language level. Ruleset is the
+           curated project file under tooling/. Bound to verify. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <version>${version.plugin.pmd}</version>
+        <dependencies>
+          <dependency>
+            <groupId>net.sourceforge.pmd</groupId>
+            <artifactId>pmd-core</artifactId>
+            <version>${version.pmd}</version>
+          </dependency>
+          <dependency>
+            <groupId>net.sourceforge.pmd</groupId>
+            <artifactId>pmd-java</artifactId>
+            <version>${version.pmd}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <targetJdk>25</targetJdk>
+          <includeTests>true</includeTests>
+          <printFailingErrors>true</printFailingErrors>
+          <failOnViolation>true</failOnViolation>
+          <minimumTokens>100</minimumTokens>
+          <skipEmptyReport>true</skipEmptyReport>
+          <linkXRef>false</linkXRef>
+          <rulesets>
+            <ruleset>${maven.multiModuleProjectDirectory}/tooling/pmd/ruleset.xml</ruleset>
+          </rulesets>
+          <excludeRoots>
+            <excludeRoot>${project.basedir}/generated-sources/protobuf</excludeRoot>
+            <excludeRoot>${project.basedir}/generated-sources/grpc</excludeRoot>
+            <excludeRoot>${project.build.directory}/generated-sources/jooq</excludeRoot>
+            <excludeRoot>${project.build.directory}/generated-sources</excludeRoot>
+          </excludeRoots>
+        </configuration>
+        <executions>
+          <execution>
+            <id>pmd-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>pmd-cpd-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>cpd-check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- ============================================================= -->
+      <!-- Checkstyle (task d4n.7). Engine override to ${version.checkstyle}
+           (Java-25-capable). Source dirs pinned to src/{main,test}/java only so
+           generated roots are never scanned. violationSeverity=error fails the build
+           on any finding. Bound to verify. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>${version.plugin.checkstyle}</version>
+        <dependencies>
+          <dependency>
+            <groupId>com.puppycrawl.tools</groupId>
+            <artifactId>checkstyle</artifactId>
+            <version>${version.checkstyle}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <configLocation>${maven.multiModuleProjectDirectory}/tooling/checkstyle/checkstyle.xml</configLocation>
+          <includeTestSourceDirectory>true</includeTestSourceDirectory>
+          <consoleOutput>true</consoleOutput>
+          <failOnViolation>true</failOnViolation>
+          <violationSeverity>error</violationSeverity>
+          <sourceDirectories>
+            <sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
+          </sourceDirectories>
+          <testSourceDirectories>
+            <testSourceDirectory>${project.basedir}/src/test/java</testSourceDirectory>
+          </testSourceDirectories>
+        </configuration>
+        <executions>
+          <execution>
+            <id>checkstyle-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 
-  <!-- jooq-codegen: NOT part of the default lifecycle. Activated only by the
-       hermetic codegen script (scripts/jooq-codegen.sh, driven by exec-maven-plugin
-       at generate-sources) via a nested `mvn -Pjooq-codegen
+  <!-- jooq-codegen: NOT part of the default lifecycle. Activated only by the hermetic
+       codegen script (scripts/jooq-codegen.sh, driven by exec-maven-plugin at
+       generate-sources) via a nested `mvn -Pjooq-codegen
        org.flywaydb:flyway-maven-plugin:migrate org.jooq:jooq-codegen-maven:generate`
-       against the ephemeral Postgres the script starts. Keeping the config in a
-       profile (rather than bound to a phase) means the outer `mvn verify` never
-       double-runs Flyway/jOOQ, and the versions stay pinned to the reactor's
-       ${version.flyway}/${version.jooq}/${version.pgjdbc} — so generated code can
-       never drift from the runtime pins. The jdbc.* coordinates are supplied by the
+       against the ephemeral Postgres the script starts. Keeping the config in a profile
+       means the outer `mvn verify` never double-runs Flyway/jOOQ, and the versions stay
+       pinned to ${version.flyway}/${version.jooq}/${version.pgjdbc} — so generated code
+       can never drift from the runtime pins. The jdbc.* coordinates are supplied by the
        script as -D properties (loopback URL + trust auth). -->
   <profiles>
     <profile>
@@ -494,8 +686,8 @@
       <build>
         <plugins>
           <!-- Apply the module's real Flyway migrations to the ephemeral DB.
-               flyway-database-postgresql rides along on the plugin classpath: it is
-               the jdbc:postgresql dialect module, required since Flyway 10. -->
+               flyway-database-postgresql rides along on the plugin classpath: it is the
+               jdbc:postgresql dialect module, required since Flyway 10. -->
           <plugin>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-maven-plugin</artifactId>
@@ -516,12 +708,10 @@
               </dependency>
             </dependencies>
           </plugin>
-          <!-- jOOQ generator against the live catalog. The generator config is
-               IDENTICAL to the retired testcontainers-jooq plugin's (PostgresDatabase,
-               public schema, exclude flyway_schema_history, target package
-               com.webuipoc.jooq, target dir target/generated-sources/jooq) so the
-               emitted sources are unchanged. The pgjdbc driver is added to the plugin
-               classpath (jooq-codegen-maven does not bundle a JDBC driver). -->
+          <!-- jOOQ generator against the live catalog. PostgresDatabase, public schema,
+               exclude flyway_schema_history, target package com.webuipoc.jooq, target
+               dir target/generated-sources/jooq. The pgjdbc driver is added to the
+               plugin classpath (jooq-codegen-maven does not bundle a JDBC driver). -->
           <plugin>
             <groupId>org.jooq</groupId>
             <artifactId>jooq-codegen-maven</artifactId>

@@ -18,7 +18,7 @@
         constructs) + category/java/bestpractices (idiom/API-misuse), plus a few
         project-specific XPath rules encoding this repo's real conventions.
 
-    Engine: PMD 7.26.0 (pinned in the root pom's pluginManagement; parses Java 25).
+    Engine: PMD 7.26.0 (pinned per-unit in each pom's maven-pmd-plugin; parses Java 25).
   </description>
 
   <!-- ============================================================= -->

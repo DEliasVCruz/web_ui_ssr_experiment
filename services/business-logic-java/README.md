@@ -6,7 +6,7 @@ parity.
 
 `Main` serves `todo.v1.TodoService` (PostgreSQL-backed,
 `com.webuipoc.businesslogic.todo`) over the service-agnostic Connect-unary HTTP
-adapter — a shared reactor module (`packages/java/connect-unary-adapter`, package
+adapter — a shared standalone unit (`packages/java/connect-unary-adapter`, package
 `com.webuipoc.connect`, see below) — plus `GET /health`. Persistence is a
 HikariCP-pooled pgjdbc connection; `TodoDb` runs the Flyway migrations
 (`src/main/resources/db/migration`, V1 baseline `todos` table) on startup before
@@ -86,12 +86,22 @@ are simply seen twice, harmlessly).
 
 ## Build & test
 
-This service is a module of the root Maven reactor (`../../pom.xml`, which also
-builds `packages/java/connect-unary-adapter`). Build and test the whole reactor
-from the repo root — this is the CI gate:
+De-reactored (task 517): there is **no** root Maven reactor/parent pom. This
+service is a **standalone** unit. Its `pom.xml` (no `<parent>`) imports the shared
+`build-bom` (`packages/java/build-bom`, version pins) via `dependencyManagement`
+scope=import, and depends on `connect-unary-adapter`
+(`packages/java/connect-unary-adapter`) as a **plain artifact**. Because there is no
+reactor to build the sibling for you, the adapter must be in your local `~/.m2`
+first (the dev bridge). The `java:verify` devenv task encodes the full ordered CI
+gate:
 
 ```sh
-mvn -q -f pom.xml verify
+devenv tasks run java:verify
+# equivalently, by hand:
+mvn -q -N install -f packages/java/build-bom/pom.xml            # shared BOM → ~/.m2
+mvn      clean verify -f packages/java/connect-unary-adapter/pom.xml   # adapter (28 tests)
+mvn -q -DskipTests install -f packages/java/connect-unary-adapter/pom.xml  # adapter jar → ~/.m2
+mvn      clean verify -f services/business-logic-java/pom.xml   # this service
 ```
 
 Tests run in two tiers, both wired into `mvn verify`:
@@ -110,13 +120,14 @@ Tests run in two tiers, both wired into `mvn verify`:
 
 ## Run
 
-Headless (the runnable jar — the reactor `mvn package` emits
+Headless (the runnable jar — `mvn package` emits
 `services/business-logic-java/target/business-logic-java.jar` with a `Class-Path`
 manifest pointing at `target/libs/` — which includes the `connect-unary-adapter`
-jar — so the jar must stay next to its `libs/` directory):
+jar — so the jar must stay next to its `libs/` directory). Install the shared BOM +
+the adapter into `~/.m2` first (the dev bridge), then package this service:
 
 ```sh
-mvn -q -f pom.xml -DskipTests package
+devenv tasks run java:build       # build-bom + adapter → ~/.m2, then package the jar
 # Needs a reachable Postgres (see docker-compose.yml `postgres` service);
 # Flyway migrates it on startup.
 PORT=3001 DATABASE_URL=jdbc:postgresql://localhost:5432/todos \
@@ -124,13 +135,12 @@ PORT=3001 DATABASE_URL=jdbc:postgresql://localhost:5432/todos \
     java -jar services/business-logic-java/target/business-logic-java.jar
 ```
 
-Or via Maven during development. `exec:java` must run against a single module,
-so install the adapter to the local repo once (a reactor `exec:java` would also
-try to run on the aggregator, which has no main class), then run the service
-standalone:
+Or via Maven during development. `exec:java` runs this single unit, so install the
+shared BOM + the adapter to the local repo once (the dev bridge), then run the
+service standalone:
 
 ```sh
-mvn -q install -DskipTests          # builds + installs connect-unary-adapter
+devenv tasks run java:adapter:install   # build-bom pom + connect-unary-adapter jar → ~/.m2
 # default port 3001, override with PORT
 mvn -q -f services/business-logic-java compile exec:java
 PORT=4001 mvn -q -f services/business-logic-java compile exec:java
@@ -186,11 +196,13 @@ plus a conflict-fetch, both in one transaction (see its javadoc).
 1. **build** (`maven:3.9.16-eclipse-temurin-25`): fetches `protoc` 4.34.0 and
    `protoc-gen-grpc-java` 1.80.0 from Maven Central (the same versions devenv
    pins via nixpkgs, arch-selected via `TARGETARCH`), regenerates the Java
-   sources from `proto/`, then builds the reactor (`mvn -f pom.xml package`,
-   copying in the root aggregator pom + `packages/java`), which builds
-   `connect-unary-adapter` before this service. The build is self-contained:
-   host-generated `generated-sources/` and `target/` are excluded by the root
-   `.dockerignore`, so the image never depends on gitignored host state.
+   sources from `proto/`, then builds the Java units standalone (de-reactored 517):
+   `mvn -N install` the shared `build-bom` pom, `mvn install` the
+   `connect-unary-adapter` jar (both into the image `~/.m2`), then `mvn package`
+   this service against them (`packages/java` is copied in for the first two). The
+   build is self-contained: host-generated `generated-sources/` and `target/` are
+   excluded by the root `.dockerignore`, so the image never depends on gitignored
+   host state.
 2. **runtime** (`eclipse-temurin:25-jre`): jar + `libs/`, `ENV PORT=3001`,
    `ENV CONFIG_PROFILES=docker`; set `DATABASE_URL` / `DATABASE_USERNAME` /
    `DATABASE_PASSWORD` to point at the Postgres service (compose does this).
@@ -201,8 +213,9 @@ docker build -f services/business-logic-java/Dockerfile .
 
 ## Connect-unary adapter (`packages/java/connect-unary-adapter`, `com.webuipoc.connect`)
 
-The adapter is a standalone, service-neutral reactor module
-(`com.webuipoc:connect-unary-adapter`); this service depends on its artifact.
+The adapter is a standalone, service-neutral unit
+(`com.webuipoc:connect-unary-adapter`, `packages/java/connect-unary-adapter`, built
+on its own — no reactor); this service depends on its artifact.
 Helidon has no native Connect support, so the adapter exposes any gRPC
 `ServerServiceDefinition` / `BindableService` over the
 [Connect protocol](https://connectrpc.com/docs/protocol/) for **unary** RPCs —

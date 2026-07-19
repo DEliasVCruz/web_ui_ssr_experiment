@@ -85,6 +85,12 @@
         rpc-gen = config.packages.rpc-gen;
         web-ui-ssr = config.packages.web-ui-ssr;
 
+        # De-reactored Java units (517): each builds standalone. The adapter jar is
+        # a plain FOD build; business-logic-java injects it (pre-built) into its
+        # offline .m2 and runs the hermetic jOOQ codegen. Both are arch-portable.
+        connect-unary-adapter = config.packages.connect-unary-adapter;
+        business-logic-java = config.packages.business-logic-java;
+
         # ── Repo-wide lint checks (mirror the devenv ci:* tasks) ───────────
         # ci-proto-breaking is intentionally NOT a check: `buf breaking --against
         # .git#branch=main` needs the git history, which a sealed check derivation

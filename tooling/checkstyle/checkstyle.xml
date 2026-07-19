@@ -4,8 +4,8 @@
     "https://checkstyle.org/dtds/configuration_1_3.dtd">
 
 <!--
-  MINIMAL Checkstyle config for the Java modules. Engine: Checkstyle 13.8.0
-  (pinned in the root pom's pluginManagement; parses Java 25).
+  MINIMAL Checkstyle config for the Java units. Engine: Checkstyle 13.8.0
+  (pinned per-unit in each pom's maven-checkstyle-plugin; parses Java 25).
 
   DELIBERATELY NARROW SCOPE — zero overlap with the other checkers:
     * Spotless + palantir-java-format own ALL FORMATTING (whitespace, indentation,

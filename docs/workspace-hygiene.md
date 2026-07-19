@@ -75,7 +75,7 @@ sherif runs with three rules turned off:
   version consistency, which is **syncpack's** job. Disabling them keeps syncpack
   the single source of truth (no two tools disagreeing on the canonical version).
 - `packages-without-package-json` — the `packages/*` glob legitimately includes
-  `packages/java`, a Maven-only reactor module (`pom.xml`, no `package.json`).
+  `packages/java`, Maven-only units (`pom.xml`, no `package.json`; de-reactored 517).
   Without this off, sherif emits a perpetual false-positive warning. sherif can't
   ignore a directory that has no `package.json` to match by name, so the rule
   itself is disabled.

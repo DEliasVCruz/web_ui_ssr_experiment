@@ -217,6 +217,38 @@ in
       exec = "buf lint";
       description = "Lint protobuf files with buf";
     };
+    # De-reactored Java units (517): no root reactor pom. Each unit builds standalone;
+    # the dependency graph (build-bom → connect-unary-adapter → business-logic-java) is
+    # bridged through ~/.m2 — install build-bom's BOM pom + the adapter jar there once,
+    # then the service resolves them as plain artifacts. These tasks encode that order.
+    "java:adapter:install" = {
+      # The dev bridge: put the shared BOM + the adapter jar in ~/.m2 so a standalone
+      # `mvn` on business-logic-java (build, verify, exec:java) resolves them.
+      exec = ''
+        set -euo pipefail
+        mvn -q -B -N install -f packages/java/build-bom/pom.xml
+        mvn -q -B -f packages/java/connect-unary-adapter/pom.xml -DskipTests install
+      '';
+      description = "Install build-bom + connect-unary-adapter into ~/.m2 (dev bridge for the standalone service build)";
+    };
+    "java:build" = {
+      after = [ "java:adapter:install" ];
+      exec = "mvn -q -B -f services/business-logic-java/pom.xml -DskipTests package";
+      description = "Build the Java units in order: build-bom + adapter (to ~/.m2) then the business-logic-java runnable jar";
+    };
+    "java:verify" = {
+      # Full per-module CI gate, de-reactored. Adapter clean verify (28 tests) then
+      # install it, then service clean verify (109 surefire + 22 failsafe *IT — the
+      # ITs need the podman machine; DOCKER_HOST is wired in enterShell).
+      exec = ''
+        set -euo pipefail
+        mvn -q -B -N install -f packages/java/build-bom/pom.xml
+        mvn -B -f packages/java/connect-unary-adapter/pom.xml clean verify
+        mvn -q -B -f packages/java/connect-unary-adapter/pom.xml -DskipTests install
+        mvn -B -f services/business-logic-java/pom.xml clean verify
+      '';
+      description = "Verify both Java units standalone in dependency order (adapter then service; replaces the old reactor `mvn verify`)";
+    };
     "docker:fmt" = {
       exec = ''
         if [ -n "$1" ]; then
@@ -531,9 +563,14 @@ in
         fi
 
         # ── Build + start the business-logic-java backend ─────────────────
-        echo "==> Generating protobuf sources (buf) and building the Java reactor (connect-unary-adapter + business-logic-java)"
+        # De-reactored (517): no root reactor pom. Build the Java units standalone in
+        # dependency order — install build-bom (shared version BOM) + the adapter jar
+        # into ~/.m2 (the dev bridge), then package the service against them.
+        echo "==> Generating protobuf sources (buf) and building the Java units (build-bom + connect-unary-adapter + business-logic-java)"
         ( export PATH="$PWD/packages/rpc/node_modules/.bin:$PATH"; buf generate && bun run packages/rpc/scripts/wrap-jsonschema.ts )
-        mvn -q -f pom.xml package
+        mvn -q -B -N install -f packages/java/build-bom/pom.xml
+        mvn -q -B -f packages/java/connect-unary-adapter/pom.xml -DskipTests install
+        mvn -q -B -f services/business-logic-java/pom.xml -DskipTests package
 
         echo "==> Starting business-logic-java backend on :$BACKEND_PORT (ephemeral Postgres, Flyway migrates on boot)"
         PORT=$BACKEND_PORT \

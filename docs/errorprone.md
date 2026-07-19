@@ -1,6 +1,6 @@
 # Error Prone + NullAway + jSpecify (task d4n.8)
 
-Static null-safety and bug-pattern analysis for the Java reactor, running at
+Static null-safety and bug-pattern analysis for the Java units, running at
 compile time as a javac plugin on the devenv **JDK 25** toolchain.
 
 ## Verdict: GO
@@ -16,19 +16,22 @@ processor. Adopted across both Maven modules.
 | `nullaway`         | 0.13.7  | Requires Error Prone >= 2.36 and JDK 17+. JSpecify mode needs JDK 22+ (JDK 25 ok). |
 | `jspecify`         | 1.0.0   | Supplies `@NullMarked` / `@Nullable`.                        |
 
-Version properties live once in the root `pom.xml` (`version.errorprone`,
-`version.nullaway`, `version.jspecify`).
+Version properties: `version.errorprone` / `version.nullaway` live per-unit
+(de-reactored 517 — no root pom to hold them once); `version.jspecify` lives in the
+shared `build-bom` (`packages/java/build-bom`) since both units reference jSpecify.
 
 ## Wiring
 
 1. **`.mvn/jvm.config`** — the ten `add-exports` / `add-opens` flags for
    `jdk.compiler` that Error Prone needs on JDK 16+. javac runs **in-process**
    (`fork=false`, the default), so these apply to the Maven JVM that hosts it.
-   Interactive devenv shells and CI must run Maven from the worktree root so the
-   file is picked up.
+   The `mvn` launcher discovers `.mvn` by searching **upward** from the pom's
+   directory, so it is found whether you `mvn -f <unit>/pom.xml` from the worktree
+   root or `cd` into a unit — as long as the invocation stays inside the worktree.
 
-2. **Root `pom.xml` compiler `pluginManagement`** — shared `compilerArgs`
-   inherited by both modules:
+2. **Per-unit compiler `compilerArgs`** — de-reactored (517): with no root pom to
+   inherit from, the identical `compilerArgs` block is spelled out in each unit's
+   `maven-compiler-plugin` config (kept in sync between the two):
    - `-XDcompilePolicy=simple` (mandatory for Error Prone)
    - `--should-stop=ifError=FLOW` (Error Prone 2.50 refuses the default `INIT`
      policy on JDK 25)
@@ -36,12 +39,12 @@ Version properties live once in the root `pom.xml` (`version.errorprone`,
      `@Nullable` in JSpecify mode)
    - `-Xplugin:ErrorProne -XepExcludedPaths:.*/generated-sources/.* -Xep:NullAway:ERROR -XepOpt:NullAway:OnlyNullMarked -XepOpt:NullAway:JSpecifyMode=true`
 
-3. **Per-module `annotationProcessorPaths`** — `error_prone_core` + `nullaway`
-   are listed **explicitly in each module** (not in `pluginManagement`): the
-   service module also lists avaje-inject / avaje-validator / MapStruct, and a
-   `pluginManagement` processor list would be *replaced*, not merged, by the
-   module's list. Spelling the full set out per module keeps processor discovery
-   drop-proof (a silently-missing DI processor would only explode at runtime).
+3. **Per-unit `annotationProcessorPaths`** — `error_prone_core` + `nullaway`
+   are listed **explicitly in each unit**: the service unit also lists avaje-inject
+   / avaje-validator / MapStruct (and the adapter lists avaje-jsonb-generator), and
+   once any processor is declared javac stops classpath auto-discovery. Spelling the
+   full set out per unit keeps processor discovery drop-proof (a silently-missing DI
+   processor would only explode at runtime).
 
 ## Configuration decisions
 

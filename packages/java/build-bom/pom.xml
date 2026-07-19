@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.webuipoc</groupId>
+  <artifactId>build-bom</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>build-bom</name>
+  <description>
+    Shared dependency-version BOM for the repo's Java units. De-reactored (task 517):
+    there is NO root reactor/parent pom. Each Java unit (packages/java/connect-unary-adapter,
+    services/business-logic-java) is a self-contained standalone build; the ONLY thing they
+    share is this BOM, imported into each unit's dependencyManagement with scope=import
+    (matching the TS "tooling" unit — a shared concern shipped as its own package, pulled
+    as a dependency). It carries ONLY dependencyManagement: Maven's import scope imports
+    dependencyManagement and NOTHING ELSE (no properties, no build/plugin config), so shared
+    BUILD config (spotless / checkstyle / pmd / errorprone) can NOT ride this file and is
+    instead duplicated as minimal per-unit config in each module pom.
+
+    WHAT LIVES HERE = only what is genuinely shared by BOTH modules: the three managed BOM
+    imports (whose ORDER is load-bearing, see below) plus the handful of pins both units
+    reference (protobuf, protovalidate, jspecify, archunit) and the internal
+    connect-unary-adapter coordinate so business-logic-java can depend on it version-less.
+    Single-module deps (jOOQ/Flyway/pgjdbc/HikariCP/testcontainers → service only; avaje-jsonb
+    → adapter only; avaje-inject/-config/-validator/mapstruct/snakeyaml → service only) are
+    NOT here — they live as version-pinned deps in the one module that uses them.
+
+    BOM IMPORT ORDER IS LOAD-BEARING (first import wins, per artifact):
+    grpc-bom and junit-bom MUST be imported BEFORE helidon-dependencies. Otherwise the
+    Helidon BOM manages io.grpc:* transitives down to its own (older) line — below the
+    protoc-gen-grpc-java codegen version and mixing grpc component versions, which grpc
+    upstream does not support — and pulls junit down to Helidon's pinned line. Because BOTH
+    modules import THIS bom first (as their sole dependencyManagement import), the ordering is
+    guaranteed identical across the two units and can never drift.
+  </description>
+
+  <properties>
+    <!-- Runtime versions shared across modules. Constraints (see
+         services/business-logic-java/README.md):
+         - protobuf-java must be >= the protoc gencode version (4.34.0 from
+           nixpkgs protoc 34.0, enforced by RuntimeVersion.validateProtobufGencodeVersion)
+         - grpc-java must be >= the protoc-gen-grpc-java plugin version (1.80.0 from nixpkgs) -->
+    <version.helidon>4.4.1</version.helidon>
+    <version.protobuf>4.35.1</version.protobuf>
+    <version.grpc>1.82.2</version.grpc>
+    <version.protovalidate>1.2.2</version.protovalidate>
+    <version.junit>5.14.4</version.junit>
+    <!-- ArchUnit: machine-enforced architecture rules (JUnit 5 flavour). Test
+         scope only — no runtime consumers, so it does not participate in the
+         runtime scope-mediation trap that governs the compile-scope pins. -->
+    <version.archunit>1.4.1</version.archunit>
+    <!-- jSpecify (task d4n.8): the @NullMarked / @Nullable annotations NullAway
+         reads in JSpecify mode. CLASS-retention; a compile-scope dep in every
+         module whose packages are @NullMarked. -->
+    <version.jspecify>1.0.0</version.jspecify>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- BOM ordering matters (first import wins per artifact): grpc-bom and
+           junit-bom BEFORE helidon-dependencies. See the description above. -->
+      <dependency>
+        <groupId>io.grpc</groupId>
+        <artifactId>grpc-bom</artifactId>
+        <version>${version.grpc}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.junit</groupId>
+        <artifactId>junit-bom</artifactId>
+        <version>${version.junit}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.helidon</groupId>
+        <artifactId>helidon-dependencies</artifactId>
+        <version>${version.helidon}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+
+      <!-- Standalone (BOM-unmanaged) pins shared by BOTH modules. protobuf-java is
+           pinned above the versions grpc-bom / helidon would otherwise supply;
+           managing it here forces the same line for direct and transitive uses in
+           both modules. Declared AFTER the BOM imports so the load-bearing
+           junit/grpc-before-helidon ordering is untouched. -->
+      <dependency>
+        <groupId>com.google.protobuf</groupId>
+        <artifactId>protobuf-java</artifactId>
+        <version>${version.protobuf}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.protobuf</groupId>
+        <artifactId>protobuf-java-util</artifactId>
+        <version>${version.protobuf}</version>
+      </dependency>
+      <dependency>
+        <groupId>build.buf</groupId>
+        <artifactId>protovalidate</artifactId>
+        <version>${version.protovalidate}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jspecify</groupId>
+        <artifactId>jspecify</artifactId>
+        <version>${version.jspecify}</version>
+      </dependency>
+      <!-- ArchUnit (test scope in the consuming modules). Standalone pin; the
+           archunit-junit5 artifact manages its own transitive graph, so a single
+           version here keeps both modules aligned. -->
+      <dependency>
+        <groupId>com.tngtech.archunit</groupId>
+        <artifactId>archunit-junit5</artifactId>
+        <version>${version.archunit}</version>
+      </dependency>
+
+      <!-- Internal: lets business-logic-java depend on the adapter without
+           repeating the version. The adapter is built as its OWN standalone unit
+           (packages/java/connect-unary-adapter); in the Nix build it is injected
+           into the offline .m2 as a pre-built jar, in the devenv dev loop it is
+           `mvn install`ed to ~/.m2 first (see that module's README + devenv task). -->
+      <dependency>
+        <groupId>com.webuipoc</groupId>
+        <artifactId>connect-unary-adapter</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+</project>
