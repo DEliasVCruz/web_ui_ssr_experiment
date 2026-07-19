@@ -14,14 +14,14 @@ structure + gap closure"* (project `main`).
 | File | Provides | State |
 |------|----------|-------|
 | `../flake.nix` | flake-parts entry; pins nixpkgs to plain **nixos-unstable** (`61b7c44c`, 2pk.4 — replaced `devenv-nixpkgs`, dropping its `applyPatches` IFD) | ✅ |
-| `devshell.nix` | `devShells.default` — the sole dev shell (bun, jdk25+maven, buf, podman, postgres_17, ast-grep, dockerfmt, hadolint, protoc plugins, nixfmt, shellcheck…), DOCKER_HOST wiring, `.env` load, per-unit bun install, **lefthook install** | ✅ works |
+| `devshell.nix` | `devShells.default` — the sole dev shell (bun, jdk25+maven, buf, podman, postgres_17, ast-grep, protoc plugins, nixfmt, shellcheck…; dockerfmt/hadolint dropped in 1vl), DOCKER_HOST wiring, `.env` load, per-unit bun install, **lefthook install** | ✅ works |
 | `lefthook.nix` | git-hooks: renders `../lefthook.yml` from Nix (source of truth for the 8-hook pre-commit set), `packages.lefthook-config` regen target, `checks.lefthook-config-sync` drift guard | ✅ (2pk.2) |
 | `../packages/rpc/nix` | `packages.rpc-gen` — `buf generate` + wrap-jsonschema (TS/JSON-Schema + Java outputs) | ✅ builds (FOD); deterministic (double `--rebuild`) |
 | `../services/web-ui-ssr/nix` | `packages.web-ui-ssr-node-modules` (FOD) → `packages.web-ui-ssr` (panda + rsbuild → `dist/`) | ✅ builds |
 | `../tooling/nix` | `packages.tooling-node-modules` (lint toolchain FOD) | ✅ builds |
 | `../packages/java/connect-unary-adapter/nix` | `packages.connect-unary-adapter` (adapter jar + pom) | ✅ **builds** (pure `buildMavenPackage`; de-reactored 517) |
 | `../services/business-logic-java/nix` | `packages.business-logic-java` (runnable jar + `libs/`; injects the pre-built adapter) | ✅ **builds** (pure `buildMavenPackage`, hermetic jOOQ codegen; de-reactored 517) |
-| `images.nix` | `packages.image-{web-ui-ssr,business-logic-java,pw-browser}` — nix2container OCI images (**x86_64-linux only**) | ✅ eval/build **on Linux**; plumbing smoked on darwin (see below) |
+| `images.nix` | `packages.image-{web-ui-ssr,business-logic-java,pw-browser}` — nix2container OCI images (**aarch64-linux realized**, x86_64-linux evaluable) | ✅ realized via `.#build-images` through the builder VM; loaded + run (1vl) |
 | `arion.nix` | `packages.arion-compose` — Arion "Option A" nix-built compose YAML | ✅ builds on darwin; `podman compose config` clean |
 | `checks.nix` | the FOD/build packages surfaced as checks (`tooling-node-modules`, `rpc-node-modules`, `web-ui-ssr-node-modules`, `rpc-gen`, `web-ui-ssr`, `connect-unary-adapter`, `business-logic-java`, `java-shared-build-config-sync`) + the lint checks `ci-biome`/`ci-eslint`/`ci-hygiene`; plus `lefthook-config-sync` (from `lefthook.nix`) — 12 checks total | ✅ `nix flake check` green |
 | `apps.nix` | the full `nix run .#<app>` set — impure `nix run` wrappers (`up` = arion-backed) | wired |
@@ -35,12 +35,15 @@ structure + gap closure"* (project `main`).
 | `.#buf-format` / `.#buf-format-check` / `.#buf-lint` | proto format / format-check / lint |
 | `.#biome-check` / `.#biome-fix` / `.#biome-format` / `.#biome-lint` | Biome check / fix / format / lint |
 | `.#eslint-check` / `.#eslint-fix` / `.#eslint-check-all` | ESLint check / fix / check-all |
-| `.#docker-fmt` / `.#docker-fmt-check` / `.#docker-lint` | Dockerfile format / format-check / lint (hadolint) |
-| `.#compose-lint` / `.#compose-lint-fix` | compose (dclint) lint / lint-fix |
 | `.#java-adapter-install` / `.#java-build` / `.#java-verify` | Java build-bom+adapter install / package jar / full ordered verify |
-| `.#playwright-up` / `.#playwright-down` | E2E Chromium container up / down |
+| `.#playwright-up` / `.#playwright-down` | E2E Chromium container up / down (the pw-browser **nix2container** image, realized via the builder if absent) |
 | `.#ci-biome` / `.#ci-eslint` / `.#ci-lint` / `.#ci-hygiene` / `.#ci-e2e` / `.#ci-proto-breaking` | aggregate CI gates |
-| `.#up` | local stack (arion-backed podman compose) |
+| `.#linux-builder` | start\|status\|stop the repo-scoped **aarch64-linux builder VM** (1vl — no host mutation) |
+| `.#build-images` | realize the 3 aarch64-linux OCI images through the builder → **`podman load`** |
+| `.#up` / `.#down` | local stack up / down (arion-backed podman compose; images from `.#build-images`) |
+
+> The Dockerfile/compose lint apps (`docker-fmt`/`docker-lint`/`compose-lint`)
+> were **removed** in 1vl along with all Dockerfiles + `docker-compose.yml`.
 
 ### Git hooks — lefthook (2pk.2)
 
@@ -55,8 +58,9 @@ the two shells produced byte-identical `.git/hooks` during the migration.)
 
 (`--force` because git-hooks.nix/prek left `core.hooksPath` pinned to the shared
 worktree hooks dir; lefthook installs into exactly that dir non-destructively.)
-The lefthook binary and every hook tool (buf, biome/eslint/dclint via `bunx`,
-dockerfmt, hadolint, ast-grep) come from the devshell PATH — lefthook, unlike
+The lefthook binary and every hook tool (buf, biome/eslint, ast-grep; the
+dockerfmt/hadolint/dclint hooks were dropped in 1vl) come from the devshell PATH —
+lefthook, unlike
 git-hooks.nix, does **not** auto-provision tools from nixpkgs (design note 2pk.1,
 Gap 6: the move is lateral — parallel Go runner gained, auto-tools lost).
 
@@ -135,13 +139,28 @@ To update a hash:
 3. Copy the `got: sha256-…` value from the mismatch error into the hash.
 4. Prove determinism: `nix build .#<attr> --rebuild` twice.
 
-> **Per-system hashes are out of scope here.** These hashes were captured on
-> **aarch64-darwin**. `bun install` pulls platform-specific native deps
-> (esbuild / `@rsbuild/core` / playwright-core binaries), so **x86_64-linux**
-> (the deploy arch) resolves a *different* closure and would need its own hash.
-> Wiring a per-system `outputHash` lookup is owned by the **Linux realization
-> task (1vl)** — do NOT add it now. `rpc-gen`'s output is generated code and is
-> platform-independent, so its single hash is portable.
+> **Per-system node_modules hash (1vl).** `bun install` pulls platform-specific
+> native deps (esbuild / `@rsbuild/core` / lightningcss / playwright-core
+> binaries), so each system resolves a *different* closure → a different FOD
+> hash. `web-ui-ssr-node-modules` now keys `outputHash` by `system`
+> (`services/web-ui-ssr/nix/default.nix`):
+>
+> | system | web-ui-ssr-node-modules `outputHash` | how captured |
+> |--------|--------------------------------------|--------------|
+> | `aarch64-darwin` | `sha256-SJXPOJ1WgHKvtaEECeXztTIiI4OhQFz2MBUhPk8+FCE=` | 2pk (darwin), unchanged |
+> | `aarch64-linux`  | `sha256-4yxVKbRgHiuyS8gtHDv1JvSksst4xcpAUbbTrDPO/yI=` | 1vl — through the linux-builder VM; double `--rebuild --check` reproduced it |
+> | `x86_64-linux`   | placeholder (`AAAA…`) | parked (Fly ruling); eval-only, recapture on an x86_64 builder |
+>
+> **`rpc-gen` and both Maven `mvnHash`es ARE system-portable** (verified 1vl by
+> realizing all three on the aarch64-linux builder — no mismatch): rpc-gen emits
+> platform-independent generated code, and the Maven `.m2` is portable jars.
+> `rpc-node-modules` is also portable (pure-JS buf plugins). One cross-platform
+> BUILD bug was fixed for realization on Linux: node/bash helpers with
+> `#!/usr/bin/env …` shebangs fail in the **Linux** nix sandbox (no
+> `/usr/bin/env`; darwin has `sandbox = false`), so `rpc-gen` wraps its buf
+> plugins with absolute-path launchers and the web-ui-ssr / business-logic
+> builds `patchShebangs` their tool scripts. Output is byte-identical, so no FOD
+> hash changed.
 
 ## Java build — de-reactored, per-unit FODs (2pk.3, de-reactored in 517)
 
@@ -195,56 +214,76 @@ Both FODs are double-`--rebuild` reproducible. Verified on aarch64-darwin (Java 
 arch-portable): `nix build .#connect-unary-adapter` and `nix build .#business-logic-java`
 both BUILD SUCCESS incl. hermetic jOOQ codegen.
 
-## Images (`images.nix`) — nix2container, x86_64-linux
+## Images (`images.nix`) — nix2container, aarch64-linux (realized, 1vl)
 
 Three OCI images via **nix2container** (design gap 4 primary): `image-web-ui-ssr`
 (bun + `dist`, **vendor `node_modules` layered BELOW app code**; the server + client
 + manifest + `sw.js` ship as ONE derivation → ONE atomic layer, so no client/server/
 sw skew — see the 2pk.5 asset-skew/skew-window note), `image-business-logic-java`
 (JRE + runnable jar + `libs/`), and `image-pw-browser` (the SAME digest-pinned
-`zenika/alpine-chrome` base as the Dockerfile, overlaid with a musl-static socat +
-`run.sh` CDP-bridge supervisor).
+`zenika/alpine-chrome:124` base the deleted Dockerfile used, overlaid with a
+musl-static socat + `run.sh` CDP-bridge supervisor).
 
-**These target `x86_64-linux` only (Fly.io, amd64).** As of **2pk.4** they DO
-**evaluate from the aarch64-darwin host** — repinning off `cachix/devenv-nixpkgs`
-to plain nixos-unstable removed its per-system `applyPatches` IFD, so
-`legacyPackages.x86_64-linux` no longer needs a Linux builder just to evaluate.
-Proven: `nix flake check --no-build --all-systems` passes from darwin and
-`nix eval .#packages.x86_64-linux.image-business-logic-java.drvPath` (likewise
-`image-web-ui-ssr`, `image-pw-browser`) resolves. They still cannot be
-**realized** (built) on darwin — that needs an x86_64-linux builder for the Linux
-closure. Realization + `nix2container` `copyToRegistry`/`copyToPodman` happen on
-the Linux CI agents.
+**Realized target: `aarch64-linux`** (podman-machine native — Daniel's 1vl
+ruling; the old x86_64/Fly ruling is parked). `x86_64-linux` stays **evaluable**
+(its outputs resolve under `nix flake check --no-build --all-systems`) but is not
+realized here. Per-system where it matters: the `web-ui-ssr-node-modules` FOD
+hash (table above) and the pw-browser base (multi-arch `zenika/alpine-chrome:124`
+— `imageDigest` + NAR `sha256` + `arch` selected per system; the …88859dd…
+digest is the **arm64** manifest).
 
-The image **plumbing is smoke-validated on darwin**: temporarily unguarding the
-packages to the host system and running `nix build .#packages.aarch64-darwin.image-*`
-builds all three end-to-end — buildLayer/buildImage/copyToRoot, the vendor-below-app
-split (bun → node_modules → app, with bun deduped out of the upper layers), and the
-`pullImage` amd64 base + socat overlay all assemble correctly. (Those aarch64-darwin
-images are a plumbing smoke only — not deployable; containers are Linux.)
+### Realizing + loading them (no host mutation, 1vl)
+
+Realizing Linux images on this aarch64-darwin host needs an aarch64-linux
+builder. `nix run .#linux-builder start` boots a **repo-scoped**
+`nixpkgs#darwin.linux-builder` QEMU VM (Hypervisor.framework) that authorizes a
+self-generated key from `~/.cache/web-ui-ssr-linux-builder/` and forwards guest
+ssh → host `:31022`. **No host mutation**: no `/etc/nix` edits, no
+`nix.linux-builder.enable`, no sudo. Because macOS nix is multi-user (so
+`--builders` would make the *root* daemon ssh — key-ownership friction), the VM
+is driven entirely **client-side as the invoking user**: `nix run .#build-images`
+exports each derivation closure over ssh, `nix-store --realise`s it on the VM,
+exports the result back, then `skopeo copy nix:… docker-archive:` + `podman load`
+into the machine.
+
+Lifecycle / cost: `nix run .#linux-builder {start|status|stop}`. First `start`
+pulls the NixOS VM image and creates a ~20 GB sparse `nixos.qcow2` under
+`~/.cache/web-ui-ssr-linux-builder/` (persists across runs; delete that dir to
+reclaim). The VM is 1 CPU / 3 GiB by default — enough to build all three images
+(the maven/jOOQ + rsbuild steps take a few minutes each on first realize; cached
+after). `stop` kills the qemu process.
+
+Proven (1vl): all three realize through the builder, `podman load` into the
+machine (`podman images` shows `web-ui-ssr-experiment/web-ui-ssr:latest`,
+`…/business-logic-java:latest`, `web-ui-pw-browser:local`), and RUN — the arion
+stack serves SSR + RPC end-to-end (below), and the pw-browser image answers CDP
+with the socat supervisor intact (kill socat → container exits ≤ 1 s).
 
 ## Arion (`arion.nix`) — Option A compose
 
 `packages.arion-compose` is the **nix-built** docker-compose file the runtime
-consumes (Option A). It mirrors `docker-compose.yml` (postgres + business-logic +
-web-ui-ssr) and adds the `pw-browser` CDP service (the `nix run .#playwright-up`
-flags + `host.docker.internal` + a sized `/dev/shm`). Because it references image
+consumes (Option A) — it fully **replaces** the deleted `docker-compose.yml`. It
+declares postgres (upstream `postgres:17-alpine`) + business-logic + web-ui-ssr +
+the `pw-browser` CDP service (the `nix run .#playwright-up` flags +
+`host.docker.internal` + a sized `/dev/shm`). Because it references image
 **name:tag strings**, the YAML builds on darwin and `podman compose -f … config`
 parses clean. A top-level `name: web-ui-ssr-experiment` is injected (post-processed
 with `jq`) so the project + `postgres-data` volume identity is pinned in the file
 regardless of the invoking cwd (arion only emits the inert `x-arion.project.name`).
-`apps.up` brings it up via `podman compose`. Full `up` needs the service images
-realized (x86_64-linux) + loaded (`copyToPodman`) on a Linux-capable builder;
-postgres pulls + runs standalone regardless.
+
+`nix run .#up` brings it up via `podman compose` (`.#down` tears it down). Load the
+nix service images first with `nix run .#build-images`; postgres pulls + runs
+standalone regardless. **Verified end-to-end (1vl):** `up` → postgres healthy →
+business-logic answers `ListTodos` (and `CreateTodo` seeds) → web-ui-ssr SSRs the
+`/todos` list server-side (the backend logs the SSR `ListTodos` fetch) → `down`
+removes every container + the network cleanly.
 
 ## Deviations from the design note
 
-- **Images evaluate on darwin, realize on Linux** — as the design asked. The 2pk.4
-  repin to plain nixpkgs removed the `devenv-nixpkgs` `applyPatches` IFD that had
-  blocked cross-system *evaluation*; `nix flake check --all-systems` now evaluates
-  the x86_64-linux image derivations from the darwin host. Realization stays
-  Linux-only (Linux closure). The image derivations were also smoked via the
-  aarch64-darwin plumbing build.
+- **Images realize on aarch64-linux via a repo-scoped builder VM (1vl)** — evaluated
+  on darwin, realized through `nix run .#linux-builder` + `.#build-images` and loaded
+  into podman with `podman load` (client-side ssh; NO host mutation). The old
+  x86_64/Fly target is parked but kept evaluable.
 - **`ci-proto-breaking` is not a check** — `buf breaking --against .git#branch=main`
   needs git history a sealed check derivation lacks. It is a `nix run .#ci-proto-breaking`
   app (not a flake check), same impurity class as `ci-e2e`.

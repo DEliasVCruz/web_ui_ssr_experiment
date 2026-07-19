@@ -24,18 +24,14 @@
         env.GOTOOLCHAIN = "local";
       };
 
-      # dockerfmt is now packaged by nixpkgs (0.5.4) — the former from-source
-      # buildGoModule derivation is retired (2pk.4). Formats Dockerfiles (the
-      # docker-fmt app + the dockerfmt git hook).
-      dockerfmt = pkgs.dockerfmt;
-
       # Bind Maven to jdk25 (plain nixpkgs maven would run on its own default JDK).
       maven = pkgs.maven.override { jdk_headless = pkgs.jdk25; };
     in
     {
       # Shared with nix/apps.nix + packages/rpc/nix (rpc-gen).
+      # dockerfmt dropped (1vl): no Dockerfiles remain to format.
       _module.args.repoTools = {
-        inherit dockerfmt protoc-gen-jsonschema maven;
+        inherit protoc-gen-jsonschema maven;
       };
 
       # ── The one devshell: `nix develop` (2pk.4 — devenv fully retired) ─────
@@ -49,7 +45,6 @@
           pkgs.nodejs_22
           pkgs.buf
           pkgs.git
-          pkgs.hadolint
           # Plain docker CLI (no daemon); talks to the podman machine via DOCKER_HOST.
           pkgs.docker-client
           # Local container runtime (podman machine on Apple virtualization) + a
@@ -74,7 +69,6 @@
           pkgs.shellcheck
           pkgs.jdk25
           maven
-          dockerfmt
           protoc-gen-jsonschema
           # lefthook: the git-hooks runner (reads ./lefthook.yml).
           pkgs.lefthook

@@ -5,6 +5,8 @@
       lib,
       config,
       repoTools,
+      inputs',
+      imageInfo,
       ...
     }:
     let
@@ -17,9 +19,8 @@
       # node_modules/.bin — laid down by `nix develop`'s shellHook), exactly as
       # the retired devenv tasks did. They are meant to be run FROM THE REPO ROOT
       # (the ambient `nix develop` shell). Nix-provided tools (buf, protoc
-      # plugins, jdk/maven, podman, dockerfmt, hadolint, git…) come from each
-      # app's runtimeInputs so the apps also work from a bare `nix run` with no
-      # devshell active.
+      # plugins, jdk/maven, podman, git…) come from each app's runtimeInputs so
+      # the apps also work from a bare `nix run` with no devshell active.
       #
       # devenv-task → app name map (see nix/README.md for the full table):
       #   buf:generate→generate  ts:check→ts-check  ci:biome→ci-biome
@@ -64,9 +65,21 @@
       # verbatim from the devenv playwright:up task. Used by the playwright-up app
       # AND inlined at the head of ci-e2e (mirrors devenv's `after = [playwright:up]`).
       playwrightUpBody = ''
-        IMAGE=web-ui-pw-browser:local
-        echo "Building $IMAGE (new-headless Chromium + socat for SW e2e)..."
-        podman build -t "$IMAGE" tooling/docker/playwright-browser
+        IMAGE=${imageInfo.names.pw-browser}:local
+        # The pw-browser container image is now the NIX2CONTAINER image (1vl) —
+        # the Dockerfile was deleted. Ensure it is loaded into podman; if absent,
+        # realize it through the aarch64-linux builder VM and load it (idempotent).
+        if ! podman image exists "$IMAGE"; then
+          echo "pw-browser nix image not in podman — realizing via the linux-builder…"
+          ${builderLib}
+          if ! vm_up; then
+            ${builderStart}
+          fi
+          ${realizeLoadFn}
+          realize_and_load image-pw-browser "${imageInfo.names.pw-browser}" "local"
+        else
+          echo "pw-browser nix image already loaded ($IMAGE)."
+        fi
 
         TARGET_IMAGE_ID=$(docker inspect "$IMAGE" --format '{{.Id}}' 2>/dev/null || true)
 
@@ -136,7 +149,108 @@
         pkgs.podman-compose
         pkgs.docker-client
         pkgs.curl
+        # openssh + coreutils: the pw-browser image is realized through the
+        # aarch64-linux builder VM over ssh when absent (1vl — Dockerfile deleted).
+        pkgs.openssh
+        pkgs.coreutils
       ];
+
+      # ══ Local aarch64-linux image builder (1vl) ═══════════════════════════
+      # Realizing Linux OCI images on this aarch64-DARWIN host needs an
+      # aarch64-linux builder. We use a REPO-SCOPED nixpkgs `darwin.linux-builder`
+      # QEMU VM (Hypervisor.framework accel) booted on demand — NO host mutation:
+      # no /etc/nix edits, no nix-darwin `linux-builder.enable`, no sudo. The VM
+      # authorizes a SELF-GENERATED key from a scratch dir and forwards guest
+      # ssh(22) → host :31022. Because macOS nix is multi-user, `--builders` would
+      # make the ROOT daemon ssh (key-ownership friction), so instead we drive the
+      # VM entirely CLIENT-SIDE as the invoking user: export the derivation
+      # closure over ssh, `nix-store --realise` on the VM, export the result back,
+      # then `skopeo copy nix:… docker-archive:` + `podman load` into the machine.
+      linuxSystem = "aarch64-linux";
+      builderPort = "31022";
+
+      # nix2container's skopeo (understands the `nix:` transport) built for THIS
+      # (darwin) host, so it can read the copied-back Linux image closure and emit
+      # a docker-archive for `podman load`.
+      n2cSkopeo = inputs'.nix2container.packages.skopeo-nix2container;
+
+      # create-builder = add-keys (which sudo-installs creds — AVOIDED) + run-builder.
+      # We call run-builder DIRECTLY (it only `nix-store --add`s the keys + boots
+      # qemu — no sudo). Grep its path out of create-builder so the closure (hence
+      # run-builder) stays a runtime dep of the app and is never GC'd out from under us.
+      #
+      # DARWIN-ONLY: `darwin.linux-builder` (a macOS-host concept) has no
+      # aarch64-linux build, so force it ONLY on darwin — otherwise `nix flake
+      # check --all-systems` fails evaluating the aarch64-linux app set. On a
+      # non-darwin host these builder apps are inert (empty path); the builder is
+      # never needed there (you'd realize the Linux images natively).
+      createBuilderBin = lib.optionalString pkgs.stdenv.hostPlatform.isDarwin "${pkgs.darwin.linux-builder}/bin/create-builder";
+
+      # Common builder scratch + ssh helpers (sourced by the builder apps).
+      builderLib = ''
+        BUILDER_DIR="''${XDG_CACHE_HOME:-$HOME/.cache}/web-ui-ssr-linux-builder"
+        BUILDER_KEY="$BUILDER_DIR/keys/builder_ed25519"
+        # -F /dev/null: ignore the user's ~/.ssh/config (e.g. a colima Include with
+        # options this ssh build rejects) — every needed option is passed explicitly.
+        vm_ssh() { ssh -F /dev/null -i "$BUILDER_KEY" -p ${builderPort} \
+          -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+          -o ConnectTimeout=4 -o BatchMode=yes builder@localhost "$@"; }
+        vm_up() { vm_ssh true >/dev/null 2>&1; }
+      '';
+
+      # Boot the VM idempotently and block until ssh answers.
+      builderStart = ''
+        ${builderLib}
+        mkdir -p "$BUILDER_DIR/keys" "$BUILDER_DIR/tmp"
+        if [ ! -f "$BUILDER_KEY" ]; then
+          ssh-keygen -q -f "$BUILDER_KEY" -t ed25519 -N "" -C 'builder@localhost'
+        fi
+        if vm_up; then
+          echo "linux-builder already running (ssh :${builderPort})."
+        else
+          RUNBUILDER=$(grep -o '/nix/store/[a-z0-9]*-run-builder/bin/run-builder' \
+            ${createBuilderBin} | head -1)
+          echo "Booting aarch64-linux builder VM (first run pulls the NixOS VM + builds a ~20GB qcow2 under $BUILDER_DIR)…"
+          KEYS="$BUILDER_DIR/keys" \
+          NIX_DISK_IMAGE="$BUILDER_DIR/nixos.qcow2" \
+          TMPDIR="$BUILDER_DIR/tmp" USE_TMPDIR=1 \
+          NIX_SSL_CERT_FILE="''${NIX_SSL_CERT_FILE:-/etc/ssl/cert.pem}" \
+            nohup "$RUNBUILDER" > "$BUILDER_DIR/vm.log" 2>&1 &
+          echo $! > "$BUILDER_DIR/vm.pid"
+          echo "Waiting for ssh on :${builderPort} …"
+          for _ in $(seq 1 90); do
+            if vm_up; then break; fi
+            sleep 4
+          done
+          if vm_up; then
+            echo "linux-builder ready ($(vm_ssh 'uname -m'))."
+          else
+            echo "ERROR: linux-builder never became reachable; see $BUILDER_DIR/vm.log" >&2
+            exit 1
+          fi
+        fi
+      '';
+
+      # Realize one aarch64-linux image THROUGH the VM and load it into podman.
+      # Args: <package-attr> <image-name> <image-tag>
+      realizeLoadFn = ''
+        realize_and_load() {
+          local attr="$1" iname="$2" itag="$3" drv out tar
+          echo "==> $iname:$itag — evaluating (aarch64-linux)"
+          drv=$(nix eval --raw ".#packages.${linuxSystem}.$attr.drvPath")
+          echo "==> $iname:$itag — sending derivation closure to the builder"
+          nix-store --export $(nix-store -qR "$drv") | vm_ssh "nix-store --import >/dev/null"
+          echo "==> $iname:$itag — realising on the builder"
+          out=$(vm_ssh "nix-store --realise '$drv'" | tail -1)
+          echo "==> $iname:$itag — copying the image closure back"
+          vm_ssh "nix-store --export \$(nix-store -qR '$out')" | nix-store --import >/dev/null
+          tar="$(mktemp -d)/image.tar"
+          echo "==> $iname:$itag — skopeo nix: → docker-archive → podman load"
+          ${lib.getExe' n2cSkopeo "skopeo"} --insecure-policy copy "nix:$out" "docker-archive:$tar:$iname:$itag"
+          podman load -i "$tar"
+          rm -rf "$(dirname "$tar")"
+        }
+      '';
 
       # writeShellApplication helper carrying our common preamble knobs.
       mkApp =
@@ -301,58 +415,6 @@
         meta.description = "ESLint across web-ui-ssr src — was devenv eslint:check:all";
       };
 
-      # ── Dockerfile format / lint ───────────────────────────────────────────
-      docker-fmt = mkApp {
-        name = "docker-fmt";
-        runtimeInputs = [ pkgs.dockerfmt ];
-        text = ''
-          if [ -n "''${1:-}" ]; then
-            exec dockerfmt --write --newline "$1"
-          else
-            exec find . -name 'Dockerfile*' -not -path '*/node_modules/*' -exec dockerfmt --write --newline {} +
-          fi
-        '';
-        meta.description = "Format Dockerfiles (dockerfmt) — was devenv docker:fmt";
-      };
-      docker-fmt-check = mkApp {
-        name = "docker-fmt-check";
-        runtimeInputs = [ pkgs.dockerfmt ];
-        text = "exec find . -name 'Dockerfile*' -not -path '*/node_modules/*' -exec dockerfmt --check --newline {} +";
-        meta.description = "Check Dockerfile formatting — was devenv docker:fmt:check";
-      };
-      docker-lint = mkApp {
-        name = "docker-lint";
-        runtimeInputs = [ pkgs.hadolint ];
-        text = ''
-          if [ -n "''${1:-}" ]; then
-            exec hadolint --config tooling/docker/hadolint.yaml "$1"
-          else
-            exec find . -name 'Dockerfile*' -not -path '*/node_modules/*' -exec hadolint --config tooling/docker/hadolint.yaml {} +
-          fi
-        '';
-        meta.description = "Lint Dockerfiles (hadolint) — was devenv docker:lint";
-      };
-
-      # ── docker-compose lint ────────────────────────────────────────────────
-      compose-lint = mkApp {
-        name = "compose-lint";
-        runtimeInputs = [
-          pkgs.bun
-          pkgs.nodejs_22
-        ];
-        text = "exec bunx dclint . --recursive --config tooling/docker/dclintrc.yaml --exclude node_modules";
-        meta.description = "Lint docker-compose files (dclint) — was devenv compose:lint";
-      };
-      compose-lint-fix = mkApp {
-        name = "compose-lint-fix";
-        runtimeInputs = [
-          pkgs.bun
-          pkgs.nodejs_22
-        ];
-        text = "exec bunx dclint . --recursive --fix --config tooling/docker/dclintrc.yaml --exclude node_modules";
-        meta.description = "Auto-fix docker-compose lint — was devenv compose:lint:fix";
-      };
-
       # ── Java: adapter install bridge / build / verify ──────────────────────
       # De-reactored (517): no root reactor pom. build-bom pom + adapter jar are
       # installed into ~/.m2 (the dev bridge); the service then resolves them.
@@ -394,7 +456,11 @@
       playwright-up = mkApp {
         name = "playwright-up";
         runtimeInputs = containerInputs;
-        excludeShellChecks = [ "SC2016" ];
+        excludeShellChecks = [
+          "SC2016"
+          # $(nix-store -qR …) word-splitting in the builder realize/load helper.
+          "SC2046"
+        ];
         text = ''
           ${dockerHostWiring}
           ${playwrightUpBody}
@@ -476,6 +542,8 @@
           "SC2086"
           # cleanup/kill_port are invoked via `trap`, which shellcheck can't see.
           "SC2329"
+          # $(nix-store -qR …) word-splitting in the builder realize/load helper.
+          "SC2046"
         ];
         text = ''
           # ── Ensure the CDP browser is up (was devenv `after = [playwright:up]`) ──
@@ -671,6 +739,64 @@
         meta.description = "INFORMATIONAL: show (never block on) proto wire-contract breaking changes vs main — was devenv ci:proto-breaking";
       };
 
+      # ── Local aarch64-linux builder VM lifecycle (1vl) ─────────────────────
+      linux-builder = mkApp {
+        name = "linux-builder";
+        runtimeInputs = [
+          pkgs.openssh
+          pkgs.coreutils
+        ];
+        excludeShellChecks = [ "SC2046" ];
+        text = ''
+          cmd="''${1:-start}"
+          ${builderLib}
+          case "$cmd" in
+            start) ${builderStart} ;;
+            status)
+              if vm_up; then echo "linux-builder: running ($(vm_ssh 'uname -m'), ssh :${builderPort})"; else echo "linux-builder: stopped"; fi
+              ;;
+            stop)
+              if [ -f "$BUILDER_DIR/vm.pid" ] && kill "$(cat "$BUILDER_DIR/vm.pid")" 2>/dev/null; then
+                rm -f "$BUILDER_DIR/vm.pid"; echo "linux-builder stopped."
+              else
+                pkill -f 'qemu-system-aarch64.*nixos' 2>/dev/null && echo "linux-builder stopped (by match)." || echo "linux-builder not running."
+              fi
+              ;;
+            *) echo "usage: nix run .#linux-builder -- {start|status|stop}" >&2; exit 1 ;;
+          esac
+        '';
+        meta.description = "Manage the repo-scoped aarch64-linux builder VM (start|status|stop) — no host mutation (1vl)";
+      };
+
+      # ── Realize the aarch64-linux images through the builder → podman (1vl) ─
+      build-images = mkApp {
+        name = "build-images";
+        runtimeInputs = [
+          pkgs.openssh
+          pkgs.coreutils
+          pkgs.podman
+        ];
+        excludeShellChecks = [
+          "SC2046"
+          "SC2091"
+        ];
+        text = ''
+          ${dockerHostWiring}
+          ${builderLib}
+          if ! vm_up; then
+            echo "Builder not up — starting it first (nix run .#linux-builder start)…"
+            ${builderStart}
+          fi
+          ${realizeLoadFn}
+          realize_and_load image-business-logic-java "${imageInfo.names.business-logic-java}" "${imageInfo.tag}"
+          realize_and_load image-web-ui-ssr          "${imageInfo.names.web-ui-ssr}"          "${imageInfo.tag}"
+          realize_and_load image-pw-browser          "${imageInfo.names.pw-browser}"          "local"
+          echo "==> Loaded images:"
+          podman images --format '{{.Repository}}:{{.Tag}}' | grep -E 'web-ui-ssr-experiment|web-ui-pw-browser' || true
+        '';
+        meta.description = "Realize the 3 aarch64-linux OCI images through the builder VM and load them into podman (1vl)";
+      };
+
       # ── Local stack via Arion Option A (nix-built compose) ─────────────────
       up = mkApp {
         name = "up";
@@ -680,9 +806,26 @@
         ];
         text = ''
           ${dockerHostWiring}
+          # The nix service images must be loaded into podman first
+          # (`nix run .#build-images`); postgres pulls upstream. Warn if missing.
+          if ! podman image exists "${imageInfo.names.business-logic-java}:${imageInfo.tag}" 2>/dev/null; then
+            echo "NOTE: nix images not loaded — run 'nix run .#build-images' first (postgres still pulls)." >&2
+          fi
           exec podman compose -f ${config.packages.arion-compose} up "$@"
         '';
-        meta.description = "Bring the local stack up via the nix-built Arion compose (podman)";
+        meta.description = "Bring the local stack up via the nix-built Arion compose (podman); images from .#build-images";
+      };
+      down = mkApp {
+        name = "down";
+        runtimeInputs = [
+          pkgs.podman
+          pkgs.podman-compose
+        ];
+        text = ''
+          ${dockerHostWiring}
+          exec podman compose -f ${config.packages.arion-compose} down "$@"
+        '';
+        meta.description = "Tear down the local Arion stack (podman compose down)";
       };
     in
     {
@@ -701,11 +844,6 @@
           eslint-check
           eslint-fix
           eslint-check-all
-          docker-fmt
-          docker-fmt-check
-          docker-lint
-          compose-lint
-          compose-lint-fix
           java-adapter-install
           java-build
           java-verify
@@ -717,7 +855,10 @@
           ci-hygiene
           ci-e2e
           ci-proto-breaking
+          linux-builder
+          build-images
           up
+          down
           ;
       };
     };

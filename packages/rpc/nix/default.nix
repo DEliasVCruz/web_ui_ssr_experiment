@@ -20,6 +20,31 @@
         ];
       };
 
+      # ── Cross-platform buf node-plugin wrappers (1vl) ────────────────────
+      # buf.gen.yaml resolves the node `local:` plugins (protoc-gen-es,
+      # protoc-gen-connect-query) by NAME on PATH; bun lays them down in
+      # rpc-node-modules/.bin as scripts with a `#!/usr/bin/env node` shebang.
+      # That shebang is fine on darwin (nix.conf `sandbox = false`, so the build
+      # sees the host /usr/bin/env) but FAILS in the Linux nix sandbox — which is
+      # a minimal chroot with NO /usr/bin/env — so realizing rpc-gen through the
+      # linux-builder died with `fork/exec …/protoc-gen-es: no such file or
+      # directory` (1vl finding). Wrap each plugin in a script whose shebang is an
+      # ABSOLUTE nix-store interpreter, exec-ing node against the ORIGINAL script
+      # in place (so its relative `require`s still resolve inside the FOD). The
+      # generated code is byte-identical either way, so rpc-gen's outputHash is
+      # unchanged — this only fixes HOW the plugin is launched, cross-platform.
+      bufNodePlugins = pkgs.runCommand "buf-node-plugins" { } ''
+        mkdir -p "$out/bin"
+        for p in protoc-gen-es protoc-gen-connect-query; do
+          real=$(readlink -f "${config.packages.rpc-node-modules}/node_modules/.bin/$p")
+          {
+            printf '#!%s\n' "${pkgs.runtimeShell}"
+            printf 'exec %s/bin/node "%s" "$@"\n' "${pkgs.nodejs_22}" "$real"
+          } > "$out/bin/$p"
+          chmod +x "$out/bin/$p"
+        done
+      '';
+
       # Source `buf generate` + wrap-jsonschema.ts actually read. Kept tight so
       # edits elsewhere don't invalidate the codegen hash.
       genSrc = lib.fileset.toSource {
@@ -101,9 +126,12 @@
           export HOME="$TMPDIR"
 
           # buf resolves the node-based `local:` plugins (protoc-gen-es,
-          # protoc-gen-connect-query) by name on PATH, exactly as the `generate`
-          # script does via packages/rpc/node_modules/.bin.
-          export PATH="${config.packages.rpc-node-modules}/node_modules/.bin:$PATH"
+          # protoc-gen-connect-query) by name on PATH. Use the absolute-shebang
+          # wrappers (bufNodePlugins) so this realizes in the Linux nix sandbox
+          # too (the raw .bin scripts' `#!/usr/bin/env node` shebang has no
+          # /usr/bin/env there); the dev-loop `generate` app keeps using the
+          # plain .bin (host has /usr/bin/env). Same generated output either way.
+          export PATH="${bufNodePlugins}/bin:$PATH"
 
           buf generate
           bun run packages/rpc/scripts/wrap-jsonschema.ts

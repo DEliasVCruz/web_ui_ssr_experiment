@@ -69,6 +69,16 @@
         );
       };
 
+      # patchShebangs the jooq-codegen.sh helper (exec-maven-plugin runs it at
+      # generate-sources). Its `#!/usr/bin/env bash` shebang is fine on darwin
+      # (nix.conf `sandbox = false` → host /usr/bin/env) but the Linux nix
+      # sandbox has NO /usr/bin/env, so realizing this build through the
+      # linux-builder failed with `Cannot run program …/jooq-codegen.sh: Exec
+      # failed, error: 2` (1vl). Rewriting to the absolute nix-store bash makes it
+      # cross-platform; the produced .m2/jar are unaffected so mvnHash is stable.
+      # Runs in BOTH the phase-1 FOD and the sealed phase-2 (both hit codegen).
+      patchScripts = "patchShebangs services/business-logic-java/scripts";
+
       # Copy the buf-generated Java sources (rpc-gen /java) into place. Shared by both
       # the FOD (compiles them online) and the sealed build.
       copyBufJava = ''
@@ -123,6 +133,7 @@
         mvnFetchExtraArgs = {
           preBuild = ''
             export MAVEN_ARGS="-Dmaven.repo.local=$out/.m2"
+            ${patchScripts}
             ${installDeps}
             ${copyBufJava}
           '';
@@ -146,7 +157,10 @@
         # preBuild copies buf-java again; afterDepsSetup (after $mvnDeps is set, before
         # the outer mvn) points at the copied offline repo and re-injects build-bom +
         # the adapter so the outer AND the nested jooq-codegen mvn resolve them offline.
-        preBuild = copyBufJava;
+        preBuild = ''
+          ${patchScripts}
+          ${copyBufJava}
+        '';
         afterDepsSetup = ''
           export MAVEN_ARGS="-o -Dmaven.repo.local=$mvnDeps/.m2"
           ${installDeps}

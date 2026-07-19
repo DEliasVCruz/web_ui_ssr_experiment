@@ -17,13 +17,17 @@
         names = {
           web-ui-ssr = "web-ui-ssr-experiment/web-ui-ssr";
           business-logic-java = "web-ui-ssr-experiment/business-logic-java";
-          # pw-browser keeps the devenv task's :local tag (playwright:up reuse check).
-          pw-browser = "web-ui-pw-browser";
+          # Namespaced like the other two (1vl) so `podman load` yields a
+          # DISTINCTIVE docker.io/web-ui-ssr-experiment/pw-browser reference that
+          # does NOT collide with any stale `localhost/web-ui-pw-browser:local`
+          # left over from the deleted Dockerfile's `podman build`. Keeps the
+          # :local tag (playwright-up reuse check).
+          pw-browser = "web-ui-ssr-experiment/pw-browser";
         };
       };
 
       # nix2container builder specialised to THIS system (flake-parts inputs').
-      # Only forced inside the x86_64-linux guard below, so darwin eval never
+      # Only forced inside the linux packages guard below, so darwin eval never
       # instantiates a Linux skopeo.
       n2c = inputs'.nix2container.packages.nix2container;
 
@@ -31,9 +35,9 @@
       # JDK 25 (~380 MB closure), NOT a trimmed JRE — nixpkgs ships no
       # `temurin-jre-25` and the Dockerfile's eclipse-temurin:25-jre has no direct
       # nixpkgs analogue. It runs the jar correctly; shrinking it to a jlink'd
-      # module set (jdeps → custom runtime) is a deploy-size optimization deferred
-      # to 2pk.4, kept out of scope here to avoid guessing Helidon's module needs.
-      # The image is x86_64-linux, so this is the Linux JDK closure.
+      # module set (jdeps → custom runtime) is a deploy-size optimization,
+      # kept out of scope here to avoid guessing Helidon's module needs.
+      # The realized image is aarch64-linux, so this is the Linux JDK closure.
       jre = pkgs.jdk25_headless;
 
       # ══ web-ui-ssr — bun runtime + dist, vendor BELOW app ═════════════════
@@ -132,14 +136,41 @@
       # socat and the run.sh supervisor (socat bridges 0.0.0.0:9222 → loopback
       # :9223, kills PID1 on its own death). apk is unavailable in a nix2container
       # overlay, so socat comes from pkgsStatic (musl-linked to run on Alpine).
+      #
+      # PER-ARCH (1vl): zenika/alpine-chrome:124 is a multi-arch OCI index with
+      # BOTH linux/amd64 and linux/arm64 sub-manifests. `pullImage` pins a
+      # PER-ARCH MANIFEST digest (not the index), so `imageDigest` AND the NAR
+      # `sha256` are selected per-system. The realized target is aarch64-linux →
+      # arm64 (podman-machine native — Daniel's ruling). NB: the digest pinned
+      # since 1w9 (…88859dd…) is in fact the ARM64 manifest (amd64 is …bbd196…);
+      # the arm64 base NAR hash was RE-PROVEN through the linux-builder VM (1vl).
+      # x86_64-linux/amd64 is PARKED (eval-only, not realized here): its hash is a
+      # placeholder — recapture on an amd64 builder (flip to lib.fakeHash → build
+      # → read the mismatch, see nix/README.md).
+      pwArch =
+        {
+          x86_64-linux = "amd64";
+          aarch64-linux = "arm64";
+          aarch64-darwin = "arm64";
+        }
+        .${system} or "arm64";
+
+      zenikaBaseByArch = {
+        arm64 = {
+          imageDigest = "sha256:88859ddda17e1faef0b1a0fd38d9c4761dbe1e9b1fb1aa5a14222e53bc20a5f5";
+          sha256 = "sha256-1o9FaPLrKrOWWaaoKkREGcHfHeGh9qLo3Y2DS+efO1I=";
+        };
+        amd64 = {
+          imageDigest = "sha256:bbd19645eae3e55c7e3bbe9a7cc8039549e9a42d4509492e93a709f9af436399";
+          sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        };
+      };
+
       zenikaBase = n2c.pullImage {
         imageName = "zenika/alpine-chrome";
-        imageDigest = "sha256:88859ddda17e1faef0b1a0fd38d9c4761dbe1e9b1fb1aa5a14222e53bc20a5f5";
-        # NAR hash of the amd64 skopeo `dir://` output — pinned via a darwin
-        # `skopeo copy --override-arch amd64` + `nix hash path`, so the base is
-        # reproducible on the Linux realization host with no follow-up step.
-        sha256 = "sha256-1o9FaPLrKrOWWaaoKkREGcHfHeGh9qLo3Y2DS+efO1I=";
-        arch = "amd64";
+        imageDigest = zenikaBaseByArch.${pwArch}.imageDigest;
+        sha256 = zenikaBaseByArch.${pwArch}.sha256;
+        arch = pwArch;
       };
 
       pwBrowserRoot = pkgs.runCommand "pw-browser-root" { } ''
@@ -153,7 +184,7 @@
         name = imageInfo.names.pw-browser;
         tag = "local";
         fromImage = zenikaBase;
-        arch = "amd64";
+        arch = pwArch;
         copyToRoot = [ pwBrowserRoot ];
         config = {
           User = "chrome";
@@ -168,19 +199,26 @@
       # Share the image identity with nix/arion.nix (both perSystem, same system).
       _module.args.imageInfo = imageInfo;
 
-      # ── Image packages — x86_64-linux ONLY (Fly.io deploy arch; Daniel's
-      # ruling). As of 2pk.4 they DO evaluate from aarch64-darwin: repinning off
-      # devenv-nixpkgs to plain nixpkgs removed its per-system `applyPatches` IFD,
-      # so instantiating `legacyPackages.x86_64-linux` no longer needs a Linux
-      # builder just to evaluate (`nix flake check --all-systems` passes from
-      # darwin). They still can NOT be REALIZED on darwin — the Linux closure needs
-      # an x86_64-linux builder. 2pk.4+ builds + pushes them on Linux CI agents via
-      # nix2container copyToRegistry/copyToPodman. The image plumbing was also
-      # smoke-validated by building aarch64-darwin variants (README).
-      packages = lib.optionalAttrs (system == "x86_64-linux") {
-        image-web-ui-ssr = imageWebUiSsr;
-        image-business-logic-java = imageBusinessLogicJava;
-        image-pw-browser = imagePwBrowser;
-      };
+      # ── Image packages — LINUX only (1vl). The REALIZED target is
+      # aarch64-linux (podman-machine native on this aarch64-darwin host —
+      # Daniel's 1vl ruling; the old x86_64/Fly ruling is PARKED but its outputs
+      # stay evaluable). Both linux systems EVALUATE from aarch64-darwin (the
+      # 2pk.4 repin to plain nixpkgs removed devenv-nixpkgs' `applyPatches` IFD,
+      # so `nix flake check --no-build --all-systems` resolves them). They are
+      # REALIZED on an aarch64-linux builder — the repo-scoped `nix run
+      # .#linux-builder` VM (nix/apps.nix) — and loaded into podman by `nix run
+      # .#build-images` (nix2container → podman load). x86_64-linux realization
+      # is unchanged (parked) and needs its own x86_64 builder + FOD recapture.
+      packages =
+        lib.optionalAttrs
+          (lib.elem system [
+            "x86_64-linux"
+            "aarch64-linux"
+          ])
+          {
+            image-web-ui-ssr = imageWebUiSsr;
+            image-business-logic-java = imageBusinessLogicJava;
+            image-pw-browser = imagePwBrowser;
+          };
     };
 }

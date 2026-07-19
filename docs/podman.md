@@ -4,11 +4,15 @@ The local container runtime for this repo is [podman](https://podman.io/) drivin
 a lightweight Linux VM (Fedora CoreOS) via Apple's virtualization framework. It is
 used for three things:
 
-1. Running `docker-compose.yml` locally (`podman compose`).
+1. Running the local **Arion stack** (`nix run .#up` / `.#down`) — the nix-built
+   compose (`nix/arion.nix`) from the nix2container images (`nix run
+   .#build-images`). There is no `docker-compose.yml`.
 2. Backing [Testcontainers](https://testcontainers.com/) integration tests
    (the Java service, wired via env — see below).
 3. The headless Chromium E2E browser container (`nix run .#playwright-up`,
-   used by `nix run .#ci-e2e`).
+   used by `nix run .#ci-e2e`) — the pw-browser nix2container image (no Dockerfile).
+4. Receiving the aarch64-linux OCI images realized through the `nix run
+   .#linux-builder` VM (via `podman load`).
 
 podman is installed **alongside** any existing Docker Desktop install — it does
 not replace it. The `docker` CLI and Docker Desktop are left untouched; inside
@@ -128,18 +132,20 @@ reverse change to the developer's machine.
 > leaks nothing; `--memory 4096` and rootful+privileged-Ryuk remain available (as
 > above) if the container set ever grows.
 
-## Running docker-compose under podman
+## Running the local stack (Arion, all-nix)
 
-From the repo root, inside the `nix develop` shell:
+From the repo root:
 
 ```bash
-podman compose -f docker-compose.yml up --build -d   # builds both Dockerfiles via buildah
+nix run .#build-images    # realize the 3 aarch64-linux images → podman load (first run boots the builder VM)
+nix run .#up -d           # bring the stack up (postgres + backend + web + pw-browser)
 # ... services on 127.0.0.1:3000 (web-ui-ssr) and 127.0.0.1:3001 (business-logic)
-podman compose -f docker-compose.yml down
+nix run .#down            # tear it down
 ```
 
-`podman compose` shells out to an **external compose provider**. It looks for a
-`docker-compose` binary on `PATH` **and** in Docker's CLI-plugin locations
+`nix run .#up` runs `podman compose -f <nix-built arion compose> up`, which shells
+out to an **external compose provider**. It looks for a `docker-compose` binary on
+`PATH` **and** in Docker's CLI-plugin locations
 (`~/.docker/cli-plugins/docker-compose` etc.), preferring those over
 `podman-compose`. On any machine with Docker Desktop installed, that means
 Docker's `docker-compose` is effectively always the provider and the
@@ -147,10 +153,10 @@ Docker's `docker-compose` is effectively always the provider and the
 unreachable. Either provider is just a client — it talks to the podman socket
 via `DOCKER_HOST` and does **not** touch the Docker Desktop daemon.
 
-The image builds run under **buildah** and honour the Dockerfiles' BuildKit
-`TARGETARCH` arg. `docker-compose.yml` uses a postgres `pg_isready` healthcheck
-with `depends_on: { condition: service_healthy }`, which podman's compose
-providers honour — so it maps cleanly with no compose-provider edits.
+The service images come from `nix/images.nix` (nix2container) — no Dockerfiles,
+no buildah. The Arion compose uses a postgres `pg_isready` healthcheck with
+`depends_on: { condition: service_healthy }`, which podman's compose providers
+honour, so the backend only starts once postgres is ready.
 
 ## Known rough edges
 
@@ -170,8 +176,8 @@ providers honour — so it maps cleanly with no compose-provider edits.
   the test suite.
 - **Ryuk disabled** ⇒ hard-crashed runs can leak containers (see above).
 - **Rootless port binding.** The machine is rootless, so containers can only bind
-  host ports ≥ 1024. `docker-compose.yml` uses 3000/3001, so this is fine; switch
-  to `--rootful` if you ever need privileged ports.
+  host ports ≥ 1024. The Arion stack uses 3000/3001/5432/9222, so this is fine;
+  switch to `--rootful` if you ever need privileged ports.
 
 ## Uninstalling / reversal
 

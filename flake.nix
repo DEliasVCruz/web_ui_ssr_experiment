@@ -40,11 +40,15 @@
   outputs =
     inputs@{ flake-parts, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
-      # aarch64-darwin = the dev host; x86_64-linux = the Fly.io deploy target
-      # (Daniel's ruling 2026-07-18). Linux image builds via builders are a LATER
-      # task — this skeleton only declares the system so evaluation is complete.
+      # aarch64-darwin = the dev host. aarch64-linux = the REALIZED image/deploy
+      # target (podman-machine native — Daniel's 1vl ruling; images built through
+      # the repo-scoped `nix run .#linux-builder` VM and loaded into podman).
+      # x86_64-linux is kept EVALUABLE (the old Fly ruling is parked) so its image
+      # outputs still resolve under `nix flake check --all-systems`, but it is not
+      # a realized target here.
       systems = [
         "aarch64-darwin"
+        "aarch64-linux"
         "x86_64-linux"
       ];
 

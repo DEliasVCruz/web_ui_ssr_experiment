@@ -6,20 +6,18 @@
 #   • `nix develop` — nix/devshell.nix shellHook runs `lefthook install`
 # (2pk.4: devenv is retired, so the nix devshell is the only installer.)
 #
-# The lefthook binary and most hook tools (buf, dclint via bunx, dockerfmt,
-# hadolint, ast-grep) come from the devshell PATH; biome + eslint run from the
+# The lefthook binary and the remaining hook tools (buf, ast-grep) come from the
+# devshell PATH; biome + eslint run from the
 # `tooling` unit's node_modules/.bin (de-workspaced 5ae). lefthook, unlike
 # git-hooks.nix, does not auto-provision tools from nixpkgs (design note 2pk.1,
 # Gap 6: the switch is lateral — parallel Go runner gained, auto-tools lost).
 #
-# Parity with the 8 prek hooks (devenv.nix git-hooks.hooks / nix/devshell.nix):
+# Hook set (1vl: dockerfmt/hadolint/dclint DROPPED — Dockerfiles + compose are
+# gone, replaced by nix2container images + the Arion-generated compose):
 #   prek id      lefthook cmd  glob (file scoping)                 files passed
 #   buf-format   buf-format    *.proto                             yes ({staged_files})
 #   buf-lint     buf-lint      *.proto                             no  (whole project)
 #   biome        biome         *.{js,cjs,mjs,jsx,ts,tsx,json}      no  (biome --staged)
-#   dockerfmt    dockerfmt     Dockerfile(.*)                      yes
-#   hadolint     hadolint      Dockerfile(.*)                      yes
-#   dclint       dclint        (docker-)?compose*.ya?ml            yes
 #   eslint       eslint        *.{ts,tsx}                          yes  ← 8cc FIX
 #   ast-grep     ast-grep      *.{ts,tsx,java}                     no  (whole-repo scan)
 #
@@ -31,7 +29,7 @@
 # there is no built-in to collide with: eslint is scoped by a single glob
 # `*.{ts,tsx}` and receives the staged TS files via `{staged_files}`.
 #
-# Write hooks (buf-format, biome, dockerfmt) set `stage_fixed: true`: they edit
+# Write hooks (buf-format, biome) set `stage_fixed: true`: they edit
 # files in place, and without re-staging lefthook would commit the UN-formatted
 # staged blob (a silent no-op, the same failure class as 8cc). prek instead
 # aborted the commit on modification; re-staging the fixes is the lefthook idiom
@@ -61,19 +59,11 @@
               run = "tooling/node_modules/.bin/biome check --write --staged --no-errors-on-unmatched --colors=off";
               stage_fixed = true;
             };
-            dockerfmt = {
-              glob = "{Dockerfile,Dockerfile.*,*/Dockerfile,*/Dockerfile.*}";
-              run = "dockerfmt --write --newline {staged_files}";
-              stage_fixed = true;
-            };
-            hadolint = {
-              glob = "{Dockerfile,Dockerfile.*,*/Dockerfile,*/Dockerfile.*}";
-              run = "hadolint --config tooling/docker/hadolint.yaml {staged_files}";
-            };
-            dclint = {
-              glob = "{compose*.yml,compose*.yaml,docker-compose*.yml,docker-compose*.yaml,*/compose*.yml,*/compose*.yaml,*/docker-compose*.yml,*/docker-compose*.yaml}";
-              run = "bunx dclint --config tooling/docker/dclintrc.yaml {staged_files}";
-            };
+            # dockerfmt / hadolint / dclint hooks removed (1vl): all Dockerfiles
+            # and docker-compose.yml are deleted — nix2container images + the
+            # Arion-generated compose replace them, so there is nothing left for
+            # these hooks to lint. dockerfmt + hadolint were also dropped from the
+            # devshell.
             eslint = {
               glob = "*.{ts,tsx}";
               # De-workspaced (5ae): eslint + plugins live in the `tooling` unit; the

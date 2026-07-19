@@ -18,18 +18,8 @@ pre-commit:
     buf-lint:
       glob: '*.proto'
       run: buf lint
-    dclint:
-      glob: '{compose*.yml,compose*.yaml,docker-compose*.yml,docker-compose*.yaml,*/compose*.yml,*/compose*.yaml,*/docker-compose*.yml,*/docker-compose*.yaml}'
-      run: bunx dclint --config tooling/docker/dclintrc.yaml {staged_files}
-    dockerfmt:
-      glob: '{Dockerfile,Dockerfile.*,*/Dockerfile,*/Dockerfile.*}'
-      run: dockerfmt --write --newline {staged_files}
-      stage_fixed: true
     eslint:
       glob: '*.{ts,tsx}'
       run: tooling/node_modules/.bin/eslint --no-warn-ignored --cache --cache-location
         tooling/node_modules/.cache/eslint {staged_files}
-    hadolint:
-      glob: '{Dockerfile,Dockerfile.*,*/Dockerfile,*/Dockerfile.*}'
-      run: hadolint --config tooling/docker/hadolint.yaml {staged_files}
   parallel: true

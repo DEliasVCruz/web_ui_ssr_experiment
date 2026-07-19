@@ -17,8 +17,13 @@ Proof-of-concept for the web UI SSR layer of a larger platform.
 ├── tooling/                 # Repo-wide lint toolchain (own package.json + bun.lock)
 ├── packages/rpc/            # Generated Connect RPC client (own package.json + bun.lock)
 ├── tsconfig.json            # Shared TypeScript config
-└── docker-compose.yml       # Service orchestration
+└── nix/                     # Flake: dev shell, apps, nix2container images, Arion compose
 ```
+
+Orchestration is **all-nix**: OCI images are built by `nix/images.nix`
+(nix2container) and the local stack is a nix-built Arion compose
+(`nix/arion.nix`). There are no Dockerfiles and no `docker-compose.yml` — see
+[`nix/README.md`](nix/README.md).
 
 Each TS unit is self-contained (own `package.json` + committed `bun.lock`) —
 there is **no** root `package.json` / bun workspace (de-workspaced).
@@ -39,8 +44,11 @@ nix run .#generate
 # Run the web-ui-ssr dev server (start the backend separately: nix run .#up)
 nix run .#dev
 
-# Bring the whole local stack up (postgres + backend + web) via podman compose
-nix run .#up
+# Build the aarch64-linux service images (through the local builder VM) into podman
+nix run .#build-images
+
+# Bring the whole local stack up (postgres + backend + web) via the Arion compose
+nix run .#up          # tear down with: nix run .#down
 ```
 
 Run `nix run .#` and press Tab, or see [`nix/README.md`](nix/README.md), for the
@@ -63,7 +71,7 @@ full app set (lint, typecheck, Java build/verify, E2E, …).
 
 This is a learning exercise and not production code. See `AGENTS.md` for detailed guidance.
 
-The local container runtime (for `docker-compose.yml` and Testcontainers) is
+The local container runtime (for the Arion stack and Testcontainers) is
 **podman** — see [`docs/podman.md`](docs/podman.md) for one-time machine setup,
 the env wiring, and the Ryuk decision.
 

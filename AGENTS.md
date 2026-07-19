@@ -92,7 +92,8 @@ All notes live under `architecture/` in the `web_ui` project:
 
 ## Architecture at a glance
 
-Two services orchestrated by Docker Compose:
+Two services orchestrated by a **nix-built Arion compose** (`nix/arion.nix`;
+`nix run .#up` / `.#down`) from **nix2container** images (`nix/images.nix`):
 
 1. **web-ui-ssr** — Bun + Hono rendering server. Runs SolidJS SSR via
    `renderToStream`, serves the client bundle, and calls the
@@ -100,7 +101,8 @@ Two services orchestrated by Docker Compose:
 2. **business-logic-java** — Java (Helidon SE) stub of the real backend
    (compose service name stays `business-logic`). Exposes the Connect
    RPC endpoints connect-es clients speak. Persists data in PostgreSQL
-   (a `postgres` compose service; schema managed by Flyway migrations).
+   (a `postgres` compose service, upstream `postgres:17-alpine`; schema
+   managed by Flyway migrations).
 
 The browser, after hydration, talks to the business-logic server
 **directly** via connect-es. The rendering server is not a proxy for
@@ -119,7 +121,7 @@ post-hydration traffic.
 - **Code splitting**: `lazy()` on route components, producing paired JS+CSS chunks; manifest-driven preload + stylesheet injection
 - **Styling**: Panda CSS (zero-runtime CSS-in-JS via PostCSS, utility + recipe patterns)
 - **Data store**: PostgreSQL (business-logic server only; Flyway + HikariCP + pgjdbc)
-- **Orchestration**: Docker + Docker Compose
+- **Orchestration**: nix2container OCI images + nix-built Arion compose on podman (no Dockerfiles / `docker-compose.yml`)
 
 ## Out of scope (do not add)
 
