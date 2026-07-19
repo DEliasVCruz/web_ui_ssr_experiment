@@ -51,6 +51,14 @@
           chmod -R u+w ./ws
           cd ws/services/web-ui-ssr
           bun install --frozen-lockfile --ignore-scripts
+
+          # REPRODUCIBILITY: bun materializes the `file:../../packages/rpc` dep as an
+          # ABSOLUTE symlink into the ephemeral build dir, which serializes into the
+          # NAR and makes this FOD hash non-deterministic (--rebuild → different hash).
+          # Drop the slot: every consumer (build, checks, image) injects the nix-built
+          # rpc package over node_modules/@web-ui-poc/rpc anyway, and this also stops
+          # the FOD from varying with packages/rpc/package.json.
+          rm -rf node_modules/@web-ui-poc
           runHook postBuild
         '';
 
@@ -63,7 +71,7 @@
 
         outputHashMode = "recursive";
         outputHashAlgo = "sha256";
-        outputHash = "sha256-yH0Y8hGLaIOJgx55Q5LPmMcPgF142SI+kiI79xFZoDg=";
+        outputHash = "sha256-SJXPOJ1WgHKvtaEECeXztTIiI4OhQFz2MBUhPk8+FCE=";
       };
 
       # ── packages.web-ui-ssr — panda codegen + rsbuild build → dist ────────

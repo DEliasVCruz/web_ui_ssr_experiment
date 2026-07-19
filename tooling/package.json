@@ -3,7 +3,7 @@
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
-	"description": "Repo-wide lint / hygiene toolchain (biome, eslint + plugins, knip, syncpack, sherif, dependency-cruiser). De-workspaced: these tools run repo-wide from the root via tooling/node_modules/.bin. See docs/workspace-hygiene.md.",
+	"description": "Repo-wide lint / hygiene toolchain (biome, eslint + plugins, knip, syncpack, dependency-cruiser). De-workspaced: these tools run repo-wide from the root via tooling/node_modules/.bin. See docs/workspace-hygiene.md.",
 	"devDependencies": {
 		"@biomejs/biome": "~2.4.12",
 		"@pandacss/eslint-plugin": "^0.3.2",

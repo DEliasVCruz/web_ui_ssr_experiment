@@ -1,7 +1,7 @@
 // dependency-cruiser — declarative module-boundary rules for the TypeScript
-// workspace (bun workspaces, no Nx). Encodes DEPENDENCY-DIRECTION invariants that
-// the rest of the hygiene stack does NOT cover:
-//   * syncpack / sherif  → dependency-version consistency across the workspace
+// units (de-workspaced: file: deps, no bun workspaces, no Nx). Encodes
+// DEPENDENCY-DIRECTION invariants that the rest of the hygiene stack does NOT cover:
+//   * syncpack           → dependency-version consistency across the units
 //   * knip               → unused files / exports / dependencies (dead code)
 //   * ast-grep (rules/)  → structural code patterns (incl. WHERE a Connect
 //                          transport may be constructed)
