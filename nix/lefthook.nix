@@ -17,7 +17,7 @@
 #   prek id      lefthook cmd  glob (file scoping)                 files passed
 #   buf-format   buf-format    *.proto                             yes ({staged_files})
 #   buf-lint     buf-lint      *.proto                             no  (whole project)
-#   biome        biome         *.{js,cjs,mjs,jsx,ts,tsx,json}      no  (biome --staged)
+#   biome        biome         *.{js,cjs,mjs,jsx,ts,tsx,json}      no  (biome --staged, ci.json — 5cn)
 #   eslint       eslint        *.{ts,tsx}                          yes  ← 8cc FIX
 #   ast-grep     ast-grep      *.{ts,tsx,java}                     no  (whole-repo scan)
 #
@@ -56,7 +56,33 @@
               glob = "*.{js,cjs,mjs,jsx,ts,tsx,json}";
               # De-workspaced (5ae): biome lives in the `tooling` unit (no root
               # node_modules), invoked by its committed bin path from the repo root.
-              run = "tooling/node_modules/.bin/biome check --write --staged --no-errors-on-unmatched --colors=off";
+              #
+              # ── Hook ⇄ CI ALIGNMENT (5cn) ────────────────────────────────────
+              # `--config-path tooling/biome/ci.json` makes the hook run the SAME
+              # config as the `ci-biome` gate (nix/apps.nix, nix/checks.nix), which
+              # extends base.json with ~15 type-aware nursery rules at error
+              # (noFloatingPromises, noMisusedPromises, noUnnecessaryConditions,
+              # useNullishCoalescing, …). Before 5cn the hook used biome.json (base
+              # only), so a file could pass the commit hook yet fail ci-biome. Now a
+              # hook-green commit is ci-biome-green for the staged files.
+              #
+              # Why this is safe + fast (measured 5cn, biome 2.4.16):
+              #   • Fast: the ci config adds only ~80–100 ms over base on a warm run;
+              #     worst case (all 74 TS files) 0.42–0.45 s, whole-repo `check .`
+              #     0.47 s — far under the ~2 s budget for a typical few-file commit.
+              #   • No unwanted `--write` mutation: every ci-only nursery rule is a
+              #     type-aware DIAGNOSTIC with NO autofix — `--write` (safe fixes
+              #     only; we never pass `--unsafe`) applies nothing for them, so they
+              #     REPORT-and-BLOCK (biome exits non-zero) without touching the file.
+              #     `--write` still auto-applies + re-stages base-tier safe fixes
+              #     (formatting, organizeImports) exactly as before.
+              #   • `--staged` scoping is compatible: biome resolves types across the
+              #     whole project but only emits diagnostics for the staged files.
+              # If a future nursery rule ships a SAFE autofix that would mutate on
+              # `--write`, split the nursery tier into a check-only invocation rather
+              # than dropping the alignment. `--no-errors-on-unmatched` only silences
+              # empty-glob runs; it does NOT suppress lint errors.
+              run = "tooling/node_modules/.bin/biome check --write --staged --no-errors-on-unmatched --colors=off --config-path tooling/biome/ci.json";
               stage_fixed = true;
             };
             # dockerfmt / hadolint / dclint hooks removed (1vl): all Dockerfiles

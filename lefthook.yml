@@ -9,7 +9,7 @@ pre-commit:
     biome:
       glob: '*.{js,cjs,mjs,jsx,ts,tsx,json}'
       run: tooling/node_modules/.bin/biome check --write --staged --no-errors-on-unmatched
-        --colors=off
+        --colors=off --config-path tooling/biome/ci.json
       stage_fixed: true
     buf-format:
       glob: '*.proto'

@@ -74,6 +74,14 @@ nix build .#lefthook-config && cp -f result lefthook.yml && chmod +w lefthook.ym
 `lefthook.yml` ever drifts from what `nix/lefthook.nix` renders. The 5-hook →
 prek parity table (and the 8cc eslint-scoping fix) live in `nix/lefthook.nix`.
 
+**Biome hook ⇄ CI alignment (5cn):** the pre-commit `biome` hook runs
+`--config-path tooling/biome/ci.json` — the **same** config as the `ci-biome`
+gate — so a hook-green commit is `ci-biome`-green for its staged files (no more
+"passes the hook, fails CI" gap on the ~15 type-aware nursery rules). It stays
+fast (ci config adds ~80–100 ms; whole-repo `check` ~0.5 s) and never mutates on
+those rules: they are diagnostic-only, so the hook's `--write` (safe fixes only)
+reports-and-blocks without touching the file. Rationale in `nix/lefthook.nix`.
+
 > **Toolchain (2pk.4).** `flake.nix` pins nixpkgs to plain **nixos-unstable**
 > (`61b7c44c`), which provides: **bun 1.3.13**, **protoc 35.1** (⇒ rpc-gen `/java`
 > stamps gencode `4.35.1`, which exactly meets `build-bom`'s `protobuf-java 4.35.1`
