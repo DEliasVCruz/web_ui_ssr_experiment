@@ -122,8 +122,8 @@
       <!-- Internal: lets business-logic-java depend on the adapter without
            repeating the version. The adapter is built as its OWN standalone unit
            (packages/java/connect-unary-adapter); in the Nix build it is injected
-           into the offline .m2 as a pre-built jar, in the devenv dev loop it is
-           `mvn install`ed to ~/.m2 first (see that module's README + devenv task). -->
+           into the offline .m2 as a pre-built jar, in the dev loop it is
+           `mvn install`ed to ~/.m2 first (see that module's README + the `nix run .#java-adapter-install` app). -->
       <dependency>
         <groupId>com.webuipoc</groupId>
         <artifactId>connect-unary-adapter</artifactId>

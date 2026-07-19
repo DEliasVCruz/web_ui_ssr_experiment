@@ -23,7 +23,7 @@
       # service-agnostic and has zero generated sources (unlike business-logic-java).
       #
       # TESTS. doCheck=false (-DskipTests): the adapter's 28 unit/ArchUnit tests are
-      # pure and COULD run in the sandbox, but are kept in the impure CI/devenv path
+      # pure and COULD run in the sandbox, but are kept in the impure CI path (the `nix run .#java-verify` app)
       # for symmetry with business-logic-java (whose Testcontainers tests need a
       # daemon). Test sources still compile.
       #

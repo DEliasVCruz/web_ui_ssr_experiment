@@ -49,7 +49,7 @@
     <!-- jOOQ OSS: typed SQL DSL over the generated todos metamodel (task wdt.4).
          KNOWN ACCEPTED RISK: JDK 25 is certified only in the (as of 2026-07 unreleased)
          jOOQ 3.22 line; 3.21.6 is pinned as the current OSS GA, verified working on the
-         devenv JDK 25 toolchain. UPGRADE TRIGGER: move to 3.22 as soon as it GAs. The
+         nix dev shell JDK 25 toolchain. UPGRADE TRIGGER: move to 3.22 as soon as it GAs. The
          SAME ${version.jooq}/${version.flyway}/${version.pgjdbc} drive the hermetic
          codegen plugins (jooq-codegen profile), so generated code and runtime can never
          drift. -->
@@ -416,7 +416,7 @@
 
       <!-- jOOQ codegen against the REAL schema (task wdt.4, made hermetic in 2pk.6):
            at generate-sources the exec-maven-plugin below runs scripts/jooq-codegen.sh,
-           which starts an EPHEMERAL PostgreSQL from the devenv/nix environment (initdb
+           which starts an EPHEMERAL PostgreSQL from the nix dev shell (initdb
            + pg_ctl on a loopback port and a unix socket in a private temp dir — NO
            container runtime, NO Docker socket), applies THIS module's actual Flyway
            migrations, runs jOOQ's generator against the live catalog, then tears the

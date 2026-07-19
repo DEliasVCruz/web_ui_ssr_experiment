@@ -51,7 +51,7 @@
       # TESTS. doCheck=false (-DskipTests): the Java suite (surefire DB-repository tests
       # + failsafe *IT) boots Testcontainers postgres, which needs a podman/docker
       # socket the Nix sandbox lacks. Test SOURCES still compile. Execution stays in the
-      # impure CI/devenv path (`mvn verify` under the podman machine).
+      # impure CI path (`nix run .#java-verify`, i.e. `mvn verify` under the podman machine).
       #
       # ARCH. Java is arch-portable — builds and runs on aarch64-darwin and x86_64-linux.
 

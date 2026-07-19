@@ -14,8 +14,8 @@
       # BUILDS on aarch64-darwin even though the images it names are x86_64-linux
       # (realized + loaded on Linux, see nix/images.nix). This mirrors
       # docker-compose.yml (postgres + business-logic + web-ui-ssr) and adds the
-      # pw-browser CDP service the devenv playwright:up task manages, plus the
-      # devenv orchestration env (ports, host.docker.internal, healthchecks).
+      # pw-browser CDP service the `nix run .#playwright-up` app manages, plus the
+      # ci-e2e app's orchestration env (ports, host.docker.internal, healthchecks).
       #
       # `service.image` is set to an external NAME:TAG, which disables arion's own
       # nix image build for these services (image.nixBuild defaults false when
@@ -79,12 +79,12 @@
                 };
 
                 # ── pw-browser (new-headless chromium + socat CDP bridge) ────
-                # Mirrors devenv playwright:up: --shm-size 2g, published :9222,
+                # Mirrors `nix run .#playwright-up`: --shm-size 2g, published :9222,
                 # and the run.sh forwarded flags (--user-data-dir + the
                 # *.docker.internal secure-origin allowlist that lets Service
                 # Workers register over the plain-HTTP host.docker.internal
                 # origin). host.docker.internal→host-gateway keeps the CDP client
-                # and the SSR origin reachable exactly as under devenv.
+                # and the SSR origin reachable exactly as under the ci-e2e app.
                 pw-browser.service = {
                   image = "${names.pw-browser}:local";
                   command = [
@@ -93,7 +93,7 @@
                   ];
                   ports = [ "127.0.0.1:9222:9222" ];
                   extra_hosts = [ "host.docker.internal:host-gateway" ];
-                  # Equivalent of devenv's --shm-size=2g: a large /dev/shm keeps
+                  # Equivalent of the playwright-up app's --shm-size=2g: a large /dev/shm keeps
                   # Chromium from crashing under --no-sandbox (arion has no
                   # shm_size option; a sized tmpfs mount is the compose analogue).
                   tmpfs = [ "/dev/shm:size=2g" ];
@@ -108,7 +108,7 @@
       # compose `name:`, so a consumer's project identity would default to the
       # invoking directory's basename — running `podman compose -f …` from a
       # foreign cwd would mint a DIFFERENT project + a `<cwd>_postgres-data` volume,
-      # silently splitting state from devenv's `web-ui-ssr-experiment` stack.
+      # silently splitting state from the `web-ui-ssr-experiment` stack.
       # Inject the top-level `name:` (Compose spec v2) so identity is pinned in the
       # file itself — every consumer (apps.up AND a bare `podman compose config`
       # from any cwd) resolves the same project/volume names.

@@ -129,7 +129,7 @@
       # package.json + the buf-generated TS under gen/. This is exactly the
       # content services/web-ui-ssr's node_modules/@web-ui-poc/rpc must hold; the
       # web-ui-ssr build/checks inject it (replacing the bun `file:` copy). In the
-      # devenv dev loop the same slot is a live symlink created by web-ui-ssr's
+      # dev loop the same slot is a live symlink created by web-ui-ssr's
       # postinstall — NO bun workspace resolution in either world.
       packages.rpc = pkgs.runCommand "web-ui-poc-rpc" { } ''
         mkdir -p "$out/gen"

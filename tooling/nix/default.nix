@@ -17,7 +17,7 @@
       # ── packages.tooling-node-modules — the lint toolchain node_modules FOD ─
       # `bun install --frozen-lockfile --ignore-scripts` in tooling/. Its
       # node_modules/.bin provides biome/eslint/knip/syncpack/depcruise for the
-      # repo-wide lint checks (nix/checks.nix) and devenv ci:* tasks. FIXED-OUTPUT.
+      # repo-wide lint checks (nix/checks.nix) and the ci-* apps (nix/apps.nix). FIXED-OUTPUT.
       packages.tooling-node-modules = pkgs.stdenv.mkDerivation {
         pname = "tooling-node-modules";
         version = "0.0.1";
