@@ -9,9 +9,9 @@
 #   4. these file defaults
 #
 # The ${VAR:default} expressions below preserve the service's public env-var
-# contract, so docker-compose and the devenv ci:e2e task inject DATABASE_URL /
-# DATABASE_USERNAME / DATABASE_PASSWORD (and PORT) and those values flow through
-# avaje-config instead of raw System.getenv() in Java.
+# contract, so docker-compose and the ci-e2e / java-verify workflows inject
+# DATABASE_URL / DATABASE_USERNAME / DATABASE_PASSWORD (and PORT) and those
+# values flow through avaje-config instead of raw System.getenv() in Java.
 #
 # Profiles: set CONFIG_PROFILES=<name> (or -Dconfig.profiles=<name>) to layer
 # application-<name>.yaml on top of these defaults. See application-docker.yaml.

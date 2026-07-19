@@ -23,5 +23,4 @@ rules:
 quiet: false
 
 exclude:
-  - .devenv
   - node_modules

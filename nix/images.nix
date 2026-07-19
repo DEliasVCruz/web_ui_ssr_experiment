@@ -169,13 +169,14 @@
       _module.args.imageInfo = imageInfo;
 
       # ── Image packages — x86_64-linux ONLY (Fly.io deploy arch; Daniel's
-      # ruling). They can NOT be evaluated OR realized from aarch64-darwin: the
-      # pinned devenv-nixpkgs builds its patched pkgs via a per-system
-      # `applyPatches` derivation it then imports (an IFD), so instantiating
-      # `legacyPackages.x86_64-linux` needs a Linux builder — this blocks eval too,
-      # not just realization (see nix/README.md). 2pk.4 builds + pushes them on
-      # Linux CI agents via nix2container copyToRegistry/copyToPodman. The image
-      # plumbing was smoke-validated by building aarch64-darwin variants (README).
+      # ruling). As of 2pk.4 they DO evaluate from aarch64-darwin: repinning off
+      # devenv-nixpkgs to plain nixpkgs removed its per-system `applyPatches` IFD,
+      # so instantiating `legacyPackages.x86_64-linux` no longer needs a Linux
+      # builder just to evaluate (`nix flake check --all-systems` passes from
+      # darwin). They still can NOT be REALIZED on darwin — the Linux closure needs
+      # an x86_64-linux builder. 2pk.4+ builds + pushes them on Linux CI agents via
+      # nix2container copyToRegistry/copyToPodman. The image plumbing was also
+      # smoke-validated by building aarch64-darwin variants (README).
       packages = lib.optionalAttrs (system == "x86_64-linux") {
         image-web-ui-ssr = imageWebUiSsr;
         image-business-logic-java = imageBusinessLogicJava;

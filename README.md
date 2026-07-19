@@ -21,16 +21,26 @@ Proof-of-concept for the web UI SSR layer of a larger platform.
 
 ## Quick Start
 
+Nix is the only entry point. `nix develop` gives you the dev shell (it also
+bootstraps a fresh clone: per-unit `bun install`, panda codegen, git hooks,
+podman/DOCKER_HOST wiring), and `nix run .#<app>` runs every workflow.
+
 ```bash
-# Install dependencies
-bun install
+# Enter the dev shell (fully provisions a fresh clone on first entry)
+nix develop
 
-# Run all services in development
-bun run dev
+# Regenerate code from protobuf (buf + JSON Schema + panda)
+nix run .#generate
 
-# Build all services
-bun run build
+# Run the web-ui-ssr dev server (start the backend separately: nix run .#up)
+nix run .#dev
+
+# Bring the whole local stack up (postgres + backend + web) via podman compose
+nix run .#up
 ```
+
+Run `nix run .#` and press Tab, or see [`nix/README.md`](nix/README.md), for the
+full app set (lint, typecheck, Java build/verify, E2E, …).
 
 ## Services
 
@@ -56,4 +66,4 @@ the env wiring, and the Ryuk decision.
 Dependency-version consistency, shared version catalog, and unused-code lints
 (syncpack + bun catalog + sherif + knip) are described in
 [`docs/workspace-hygiene.md`](docs/workspace-hygiene.md) — run them with
-`bun run lint:hygiene` or `devenv tasks run ci:hygiene`.
+`bun run lint:hygiene` or `nix run .#ci-hygiene`.

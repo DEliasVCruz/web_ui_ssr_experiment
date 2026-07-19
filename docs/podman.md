@@ -7,28 +7,28 @@ used for three things:
 1. Running `docker-compose.yml` locally (`podman compose`).
 2. Backing [Testcontainers](https://testcontainers.com/) integration tests
    (the Java service, wired via env — see below).
-3. The headless Chromium E2E browser container (`devenv tasks run playwright:up`,
-   used by `ci:e2e`).
+3. The headless Chromium E2E browser container (`nix run .#playwright-up`,
+   used by `nix run .#ci-e2e`).
 
 podman is installed **alongside** any existing Docker Desktop install — it does
 not replace it. The `docker` CLI and Docker Desktop are left untouched; inside
-the devenv shell the `docker` client is simply pointed at the podman socket (see
+the `nix develop` shell the `docker` client is simply pointed at the podman socket (see
 [DOCKER_HOST](#env-vars-and-where-they-live)). colima, which previously ran the
-E2E browser container, was **removed** from devenv in this migration — podman is
+E2E browser container, was **removed** in the podman migration — podman is
 the only project-managed runtime now.
 
 > Decided 2026-07-16. `nerdctl` was considered and deferred to the nix epic.
 
 ## Fresh-machine setup (macOS, Apple Silicon)
 
-Everything is provisioned by the repo's `devenv` shell plus two one-time podman
+Everything is provisioned by the repo's `nix develop` shell plus two one-time podman
 machine commands. From the repo root:
 
 ```bash
-# 1. Enter the devenv shell — this puts `podman` and `podman-compose` on PATH
+# 1. Enter the nix develop shell — this puts `podman` and `podman-compose` on PATH
 #    (both come from nixpkgs; the podman wrapper bundles the macOS VM helpers
 #    vfkit + gvproxy, so nothing extra needs installing).
-devenv shell
+nix develop
 
 # 2. Create the podman machine (one-time; pulls the CoreOS VM image, ~minutes).
 podman machine init
@@ -51,7 +51,8 @@ podman run --rm alpine echo hi
 
 ## Env vars and where they live
 
-All wiring lives in `devenv.nix`, so every `devenv shell` gets it automatically:
+All wiring lives in the flake dev shell (`nix/devshell.nix`), so every
+`nix develop` gets it automatically:
 
 | Variable | Value | Set in |
 | --- | --- | --- |
@@ -64,7 +65,7 @@ All wiring lives in `devenv.nix`, so every `devenv shell` gets it automatically:
 exports `unix://<that path>` — but only if the socket actually exists. If the
 podman machine is not running (or not created), `DOCKER_HOST` is left untouched
 so `docker` keeps talking to whatever context is otherwise active. Outside the
-devenv shell, `DOCKER_HOST` is never set by this repo, so Docker Desktop is
+`nix develop` shell, `DOCKER_HOST` is never set by this repo, so Docker Desktop is
 unaffected.
 
 Testcontainers reads these three variables to find and use podman. That is the
@@ -105,7 +106,7 @@ and create `~/.testcontainers.properties` containing:
 ryuk.container.privileged=true
 ```
 
-then remove `TESTCONTAINERS_RYUK_DISABLED` from `devenv.nix`. Rootful + privileged
+then remove `TESTCONTAINERS_RYUK_DISABLED` from `nix/devshell.nix`. Rootful + privileged
 Ryuk lets the reaper run. We avoided this because rootful is a heavier, harder-to-
 reverse change to the developer's machine.
 
@@ -113,13 +114,13 @@ reverse change to the developer's machine.
 > **Decision: keep Ryuk disabled + rootless + 2 GiB RAM**, with `podman container
 > prune` as the documented cleanup habit after a hard-killed run. Rationale: the
 > Maven JVMs run on the **host**, not in the VM — the VM only hosts containers, so
-> its memory ceiling governs container footprint alone. `mvn verify` runs at most
+> its memory ceiling governs container footprint alone. `nix run .#java-verify` runs at most
 > **one** `postgres:17-alpine` at a time (the jOOQ-codegen throwaway at
 > generate-sources, then surefire's singleton container, then — in a separate
 > forked JVM — the failsafe suite's singleton; never concurrent), and the failsafe
 > `*IT` reuses that same singleton container via `PostgresSupport` rather than
 > starting its own. Measured on the 2 GiB machine: **~1.28 GiB free at idle even
-> with the E2E Chromium container up**, and a full `mvn verify` + `ci:e2e` run
+> with the E2E Chromium container up**, and a full `nix run .#java-verify` + `nix run .#ci-e2e` run
 > (postgres + chromium, the heaviest concurrent set) stayed comfortably within it.
 > Every container is closed by a JVM shutdown hook on clean exit, so a normal run
 > leaks nothing; `--memory 4096` and rootful+privileged-Ryuk remain available (as
@@ -127,7 +128,7 @@ reverse change to the developer's machine.
 
 ## Running docker-compose under podman
 
-From the repo root, inside the devenv shell:
+From the repo root, inside the `nix develop` shell:
 
 ```bash
 podman compose -f docker-compose.yml up --build -d   # builds both Dockerfiles via buildah
@@ -140,7 +141,7 @@ podman compose -f docker-compose.yml down
 (`~/.docker/cli-plugins/docker-compose` etc.), preferring those over
 `podman-compose`. On any machine with Docker Desktop installed, that means
 Docker's `docker-compose` is effectively always the provider and the
-`podman-compose` fallback (kept in devenv for Docker-free machines) is
+`podman-compose` fallback (kept in the nix dev shell for Docker-free machines) is
 unreachable. Either provider is just a client — it talks to the podman socket
 via `DOCKER_HOST` and does **not** touch the Docker Desktop daemon.
 
@@ -159,9 +160,9 @@ The image builds run under **buildah** and honour the Dockerfiles' BuildKit
   machines the provider is Docker's own `docker-compose`. If you see a
   `>>>> Executing external compose provider "…docker-compose" <<<<` banner,
   that is expected.
-- **E2E browser (`playwright:up`) needs the machine up.** The task runs the
+- **E2E browser (`nix run .#playwright-up`) needs the machine up.** The app runs the
   Chromium container through `docker` → podman socket, so `podman machine start`
-  must have happened first. The task polls `localhost:9222/json/version` before
+  must have happened first. The app polls `localhost:9222/json/version` before
   returning, so the first-run image pull (~1 min through gvproxy) doesn't race
   the test suite.
 - **Ryuk disabled** ⇒ hard-crashed runs can leak containers (see above).
@@ -180,7 +181,7 @@ podman machine stop
 podman machine rm podman-machine-default
 
 # 2. Remove the packages: delete pkgs.podman / pkgs.podman-compose from
-#    devenv.nix (and the DOCKER_HOST/TESTCONTAINERS_* wiring); the nix store
+#    nix/devshell.nix (and the DOCKER_HOST/TESTCONTAINERS_* wiring); the nix store
 #    paths are garbage-collected by `nix store gc` eventually.
 ```
 

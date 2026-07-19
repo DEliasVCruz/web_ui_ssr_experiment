@@ -24,10 +24,10 @@ bun run lint:knip         # knip           — unused files/exports/deps
 bun run lint:hygiene      # all three, sequentially
 ```
 
-Or via the aggregate devenv task (what CI runs):
+Or via the aggregate nix app (what CI runs):
 
 ```bash
-devenv tasks run ci:hygiene
+nix run .#ci-hygiene
 ```
 
 ## Bun catalog (single version source of truth)
@@ -90,7 +90,7 @@ sherif runs with three rules turned off:
   They aren't cross-module imports, so knip's "unused export" report is a false
   positive; suppressing it beats un-exporting working code.
 - Root `entry: ["tooling/eslint/ci.ts"]` — that config is loaded via
-  `eslint --config …` (the `ci:eslint` task), never imported, so knip can't infer
+  `eslint --config …` (the `nix run .#ci-eslint` app), never imported, so knip can't infer
   it is reachable.
 - Root `ignoreDependencies`:
   - `@bufbuild/protoc-gen-es`, `@connectrpc/protoc-gen-connect-query` — buf codegen

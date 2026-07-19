@@ -4,7 +4,7 @@ const HTTP_OK = 200;
 
 // The browser is a headless Chromium running in a podman container, exposing CDP
 // on this endpoint. Playwright connects to it over CDP instead of launching a
-// local browser (see playwright.config.ts / devenv `playwright:up`).
+// local browser (see playwright.config.ts / `nix run .#playwright-up`).
 // Destructured with defaults: dot access on process.env is barred by
 // noPropertyAccessFromIndexSignature (TS4111) and bracket access by biome's
 // useLiteralKeys; destructuring-with-default is exempt from both.

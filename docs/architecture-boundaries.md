@@ -24,7 +24,7 @@ bun run lint:boundaries    # depcruise — the CI gate (exit ≠ 0 on any violat
 Also runs inside the aggregate hygiene gate:
 
 ```bash
-devenv tasks run ci:hygiene
+nix run .#ci-hygiene
 ```
 
 Regenerate the full, detailed module graph **on demand** (no committed binary artifact —
@@ -38,7 +38,7 @@ bunx depcruise services packages --config .dependency-cruiser.cjs \
   --output-type dot | dot -T svg > graph.svg   # needs graphviz (`dot`)
 ```
 
-> graphviz (`dot`) is **not** in devenv; use the `mermaid` reporter, which needs no
+> graphviz (`dot`) is **not** in the nix dev shell; use the `mermaid` reporter, which needs no
 > system dependency.
 
 ## Forbidden rules (each is a real boundary here)

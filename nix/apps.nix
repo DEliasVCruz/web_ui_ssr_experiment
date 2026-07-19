@@ -31,12 +31,17 @@
 
       # ── Shared bash fragments (the "lib") ──────────────────────────────────
 
-      # Point Docker/Testcontainers clients at the RUNNING podman machine socket
-      # (was devenv enterShell / nix devshell shellHook). Left untouched when
-      # podman is down. Needed by every container-using app (playwright, e2e,
-      # java-verify's Testcontainers *IT) since `nix run` may execute outside the
-      # devshell that would otherwise export it.
+      # Testcontainers → podman wiring (was devenv `env` + enterShell / nix devshell
+      # shellHook). Point Docker/Testcontainers clients at the RUNNING podman machine
+      # socket (left untouched when podman is down) AND set the two static knobs the
+      # devshell exported: Ryuk autodetection is unreliable on macOS rootless podman
+      # so it is DISABLED, and the socket override is the classic docker path inside
+      # the podman VM. Needed by every container-using app (playwright, e2e,
+      # java-verify's Testcontainers *IT) because `nix run` may execute OUTSIDE the
+      # devshell that would otherwise export these.
       dockerHostWiring = ''
+        export TESTCONTAINERS_RYUK_DISABLED=true
+        export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
         if command -v podman >/dev/null 2>&1; then
           _podman_sock=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null | head -1)
           if [ -n "$_podman_sock" ] && [ -S "$_podman_sock" ]; then
@@ -144,9 +149,16 @@
         }:
         {
           type = "app";
-          program = lib.getExe (pkgs.writeShellApplication {
-            inherit name runtimeInputs excludeShellChecks text;
-          });
+          program = lib.getExe (
+            pkgs.writeShellApplication {
+              inherit
+                name
+                runtimeInputs
+                excludeShellChecks
+                text
+                ;
+            }
+          );
           inherit meta;
         };
 
@@ -168,6 +180,22 @@
           ( cd services/web-ui-ssr && ./node_modules/.bin/panda codegen --clean )
         '';
         meta.description = "buf generate + wrap-jsonschema + panda codegen (was devenv buf:generate)";
+      };
+
+      # ── Dev loop ───────────────────────────────────────────────────────────
+      # web-ui-ssr dev server (tsx watch of src/index.ts). The backend it calls
+      # during SSR is started separately (`nix run .#up`, or java-build + run).
+      dev = mkApp {
+        name = "dev";
+        runtimeInputs = [
+          pkgs.bun
+          pkgs.nodejs_22
+        ];
+        text = ''
+          cd services/web-ui-ssr
+          exec bun run dev
+        '';
+        meta.description = "Run the web-ui-ssr dev server (tsx watch)";
       };
 
       # ── TypeScript ─────────────────────────────────────────────────────────
@@ -290,7 +318,7 @@
       docker-fmt-check = mkApp {
         name = "docker-fmt-check";
         runtimeInputs = [ pkgs.dockerfmt ];
-        text = ''exec find . -name 'Dockerfile*' -not -path '*/node_modules/*' -exec dockerfmt --check --newline {} +'';
+        text = "exec find . -name 'Dockerfile*' -not -path '*/node_modules/*' -exec dockerfmt --check --newline {} +";
         meta.description = "Check Dockerfile formatting — was devenv docker:fmt:check";
       };
       docker-lint = mkApp {
@@ -313,7 +341,7 @@
           pkgs.bun
           pkgs.nodejs_22
         ];
-        text = ''exec bunx dclint . --recursive --config tooling/docker/dclintrc.yaml --exclude node_modules'';
+        text = "exec bunx dclint . --recursive --config tooling/docker/dclintrc.yaml --exclude node_modules";
         meta.description = "Lint docker-compose files (dclint) — was devenv compose:lint";
       };
       compose-lint-fix = mkApp {
@@ -322,7 +350,7 @@
           pkgs.bun
           pkgs.nodejs_22
         ];
-        text = ''exec bunx dclint . --recursive --fix --config tooling/docker/dclintrc.yaml --exclude node_modules'';
+        text = "exec bunx dclint . --recursive --fix --config tooling/docker/dclintrc.yaml --exclude node_modules";
         meta.description = "Auto-fix docker-compose lint — was devenv compose:lint:fix";
       };
 
@@ -664,6 +692,7 @@
       apps = {
         inherit
           generate
+          dev
           ts-check
           buf-format
           buf-format-check

@@ -23,7 +23,7 @@ export default defineConfig({
 	retries: CI ? 2 : 1,
 	timeout: 30_000,
 	expect: { timeout: 15_000 },
-	// Persist a report to disk regardless of pass/fail: `devenv tasks run ci:e2e`
+	// Persist a report to disk regardless of pass/fail: `nix run .#ci-e2e`
 	// swallows stdout, so a failing run needs an on-disk artifact to diagnose from.
 	// Paths are relative to this config's dir (services/web-ui-ssr); both are gitignored.
 	reporter: [

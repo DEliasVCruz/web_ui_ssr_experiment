@@ -69,6 +69,9 @@
           pkgs.ast-grep
           # nixfmt (RFC-style) — formats this repo's *.nix.
           pkgs.nixfmt
+          # shellcheck — lints the shell in the nix apps (writeShellApplication runs
+          # it at build time) and any ad-hoc scripting in the shell.
+          pkgs.shellcheck
           pkgs.jdk25
           maven
           dockerfmt

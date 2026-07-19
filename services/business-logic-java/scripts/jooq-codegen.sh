@@ -14,7 +14,7 @@
 #   5. tear postgres down and delete the temp dir (trap, even on failure).
 #
 # It needs NO Docker socket, NO network egress, and NO privileged anything —
-# just local processes over loopback — so it runs identically in the devenv
+# just local processes over loopback — so it runs identically in the nix dev
 # shell today and in a future pure Nix build sandbox (2pk.3), which provides
 # loopback + the postgres binaries but no container daemon.
 #

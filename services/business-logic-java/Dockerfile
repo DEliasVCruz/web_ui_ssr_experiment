@@ -1,8 +1,11 @@
 # Build stage: regenerate the protobuf/gRPC Java sources from proto/ and
 # build the runnable jar. Codegen is self-contained: the protoc and
-# protoc-gen-grpc-java binaries are fetched from Maven Central (same versions
-# devenv pins via nixpkgs: protoc 34.0 == 4.34.0, protoc-gen-grpc-java 1.80.0),
-# so the build never depends on host-generated gitignored sources.
+# protoc-gen-grpc-java binaries are fetched from Maven Central at the versions
+# pinned by the ARGs below (protoc 4.34.0 ⇒ gencode 4.34.0; grpc-java 1.80.0).
+# These are pinned INDEPENDENTLY of the nix dev shell (whose nixpkgs protoc is
+# 35.1 ⇒ gencode 4.35.1); both satisfy pom.xml's invariant — gencode ≤ the
+# protobuf-java 4.35.1 runtime and grpc-java plugin ≤ the grpc 1.82.2 runtime.
+# So the build never depends on host-generated gitignored sources.
 FROM maven:3.9.16-eclipse-temurin-25 AS build
 
 WORKDIR /build
@@ -69,7 +72,7 @@ RUN mkdir -p services/business-logic-java/generated-sources/protobuf \
 # by walking up from each pom, so a single copy at /build/.mvn serves all three units.
 # The hermetic jOOQ codegen (scripts/jooq-codegen.sh, run at generate-sources) needs
 # postgres server+client binaries (initdb/pg_ctl/createdb) on PATH — the same tools
-# devenv/nix supply via postgresql_17 — plus a NON-ROOT user, since initdb refuses to
+# the nix dev shell supplies via postgresql_17 — plus a NON-ROOT user, since initdb refuses to
 # run as root. Install postgres, symlink its versioned server bindir onto PATH, and add
 # a build user. (Version-pin lint waived: the base image's apt suite floats with its tag.)
 # hadolint ignore=DL3008
@@ -117,7 +120,7 @@ COPY --from=build /build/services/business-logic-java/target/business-logic-java
 # whose db.url default targets the compose-network `postgres` service host.
 # PORT / DATABASE_URL / DATABASE_USERNAME / DATABASE_PASSWORD environment
 # variables still override these file values (env > profile file), so compose's
-# DATABASE_* injection and the devenv e2e task's PORT/DATABASE_URL keep working.
+# DATABASE_* injection and the ci-e2e app's PORT/DATABASE_URL keep working.
 # Secrets (DATABASE_PASSWORD) come from the environment, never the image.
 ENV CONFIG_PROFILES=docker
 ENV PORT=3001

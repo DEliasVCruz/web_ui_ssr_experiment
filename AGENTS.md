@@ -48,24 +48,24 @@ You may be spawned inside a **git worktree** (a sibling directory like
   branch.
 - Before editing any file, verify you are using the path under your
   **actual CWD** (check with `pwd` if unsure).
-- `devenv.nix`, `AGENTS.md`, etc. exist in both the main repo and the
-  worktree — always operate on the worktree's copy.
+- `flake.nix`, `nix/` files, `AGENTS.md`, etc. exist in both the main repo
+  and the worktree — always operate on the worktree's copy.
 
 ## Enviroment setup
 
-You are **already running inside a devenv shell**. Do not wrap commands with
-`devenv shell --`; just run them directly. The shell is managed by devenv.nix
-at the repo root.
+You are **already running inside a `nix develop` shell**. Do not wrap commands
+with `nix develop --command`; just run them directly. The shell is managed by
+`flake.nix` (dev shell defined in `nix/devshell.nix`) at the repo root.
 
 If there is some tool that you require but it's not relevant to the project,
-create an ad-hoc environment:
+pull it in temporarily with a one-off `nix shell`:
 
-    $ devenv -O languages.rust.enable:bool true -O packages:pkgs "mypackage mypackage2" shell -- cli args
+    $ nix shell nixpkgs#mypackage nixpkgs#mypackage2 --command cli args
     
 When the tool that you require it's not available and it's miningfull for the project then
-configure it through devenv.nix
+add it to the devshell packages list in `nix/devshell.nix`.
 
-See https://devenv.sh/ad-hoc-developer-environments/
+See the Nix/flakes documentation (https://nixos.org/manual/nix/stable/, `nix develop --help`).
 
 ## Committing your work
 
@@ -152,33 +152,29 @@ didn't intend to ask yet.
 ## Wire contract: informational breaking-change check
 
 The Connect/proto definitions under `proto/` are the wire contract shared by
-`web-ui-ssr` (connect-es) and `business-logic-java`. The `ci:proto-breaking`
-devenv task surfaces contract drift so it never happens by accident.
+`web-ui-ssr` (connect-es) and `business-logic-java`. The `nix run .#ci-proto-breaking`
+app surfaces contract drift so it never happens by accident.
 
 - **What it does**: runs `buf breaking --against '.git#branch=main'`, comparing
   your current proto module (working tree included — uncommitted edits count)
   against the tip of `main`, using buf's strictest `FILE` category
   (configured in `buf.yaml` under `breaking:`).
 - **Informational, never blocking**: breaking changes are **allowed** in this
-  experiment. The task captures buf's exit code, prints any findings under a
+  experiment. The app captures buf's exit code, prints any findings under a
   loud banner, and **always exits 0**. A breaking change is fine — it just has
   to be **deliberate and visible**, not a silent surprise for the other service.
 - **On `main` / no delta**: the comparison is against `main`'s committed protos,
   so on `main` (or a branch with no proto changes) it reports a quiet one-line OK.
 
-Run it manually from your interactive devenv shell:
+Run it manually from your `nix develop` shell:
 
 ```bash
-devenv tasks run ci:proto-breaking
+nix run .#ci-proto-breaking
 ```
 
-Run it from an **interactive** shell (a terminal): `devenv tasks run` buffers a
-successful task's stdout, so the task writes its banner straight to the
-controlling terminal (`/dev/tty`). With no terminal (e.g. output piped to a
-file), it falls back to normal stdout, which devenv only replays if the task
-fails — so a plain non-interactive run of an always-exit-0 task can look silent.
-Headless escape hatch: `devenv --verbose tasks run ci:proto-breaking` (global
-`--verbose` before the subcommand) streams the task's output even on success.
+Nix apps stream their output directly (they do **not** buffer stdout), so
+`nix run .#ci-proto-breaking` prints its findings straight to your terminal —
+no `/dev/tty` fallback or verbose flag needed.
 
 This is a soft gate only — it is intentionally **not** wired into git hooks and
 does not fail CI. If it warns, confirm the contract change was intended and that

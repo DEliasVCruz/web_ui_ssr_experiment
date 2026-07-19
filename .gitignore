@@ -20,12 +20,11 @@ packages/java/*/target/
 *.db
 .beads-credential-key
 
-# devenv / nix
-.devenv/
-.pre-commit-config.yaml
-# nix flake build artifacts (2pk skeleton)
+# nix flake build artifacts
 result
 result-*
+# nix direnv cache (if `use flake` is adopted locally)
+.direnv/
 
 # Claude
 .claude/skills

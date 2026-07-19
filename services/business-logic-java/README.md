@@ -28,14 +28,14 @@ the default `db.url` host to the compose-network `postgres` service. pgjdbc
 tuning (`prepareThreshold=1`, statement-cache) is applied in `AppFactory` as
 datasource properties, so a bare operator-supplied `DATABASE_URL` cannot drop it.
 
-## Toolchain (provided by devenv)
+## Toolchain (provided by the nix dev shell)
 
 | Tool | Version | Source |
 | --- | --- | --- |
-| JDK | 25 (OpenJDK; nixpkgs `jdk25`, vendor varies by platform) | `devenv.nix` (`languages.java`) |
-| Maven | 3.9.x | `devenv.nix` (`languages.java.maven`) |
-| protoc | 34.0 | `devenv.nix` (`pkgs.protobuf`) |
-| protoc-gen-grpc-java | 1.80.0 | `devenv.nix` (`pkgs.protoc-gen-grpc-java`) |
+| JDK | 25 (OpenJDK; nixpkgs `jdk25`, vendor varies by platform) | `nix/devshell.nix` |
+| Maven | 3.9.x | `nix/devshell.nix` |
+| protoc | 34.0 | `nix/devshell.nix` (`pkgs.protobuf`) |
+| protoc-gen-grpc-java | 1.80.0 | `nix/devshell.nix` (`pkgs.protoc-gen-grpc-java`) |
 
 Pinned in `pom.xml`: Helidon `4.4.1`, protobuf-java `4.35.1`, grpc-java `1.82.2`.
 
@@ -45,19 +45,20 @@ Version constraints (protobuf 4.x enforces these at class-load time):
   `4.34.0` from nixpkgs protoc 34.0), same major version.
 - `grpc-java` (runtime) should be ≥ the `protoc-gen-grpc-java` plugin version.
 
-If a devenv/nixpkgs bump changes protoc or the grpc plugin, re-check these pins.
+If a nixpkgs bump changes protoc or the grpc plugin, re-check these pins.
 
 ## Codegen
 
 Buf is the single codegen orchestrator for the repo. The root `buf.gen.yaml`
 emits the Java sources into `generated-sources/` here (gitignored, like
 `packages/rpc/gen`), using protoc's builtin `java` generator and
-`protoc-gen-grpc-java` as local buf plugins from devenv — fully offline.
+`protoc-gen-grpc-java` as local buf plugins from the nix dev shell — fully offline.
 
-From the repo root (inside `devenv shell`):
+From the repo root (inside `nix develop`):
 
 ```sh
-bun run generate   # buf generate → TS (packages/rpc/gen) + Java (here)
+nix run .#generate   # buf generate → TS (packages/rpc/gen) + Java (here)
+# (or `bun run generate` — the same package.json script, inside the dev shell)
 ```
 
 `generated-sources/protobuf` and `generated-sources/grpc` are wired into the
@@ -67,7 +68,7 @@ once before the first Maven build.
 The **jOOQ metamodel** (`com.webuipoc.jooq`, under `target/generated-sources/jooq`,
 also gitignored) is generated at Maven `generate-sources` by `scripts/jooq-codegen.sh`
 (wired via exec-maven-plugin). The script is **hermetic — no container runtime /
-Docker socket**: it `initdb`s a throwaway PostgreSQL from the devenv/nix
+Docker socket**: it `initdb`s a throwaway PostgreSQL from the nix
 environment, starts it on a loopback port + a unix socket in a temp dir, applies
 the Flyway migrations under `src/main/resources/db/migration`, runs jOOQ's
 generator against the live catalog, then tears it all down. It needs only the
@@ -92,11 +93,11 @@ service is a **standalone** unit. Its `pom.xml` (no `<parent>`) imports the shar
 scope=import, and depends on `connect-unary-adapter`
 (`packages/java/connect-unary-adapter`) as a **plain artifact**. Because there is no
 reactor to build the sibling for you, the adapter must be in your local `~/.m2`
-first (the dev bridge). The `java:verify` devenv task encodes the full ordered CI
+first (the dev bridge). The `nix run .#java-verify` app encodes the full ordered CI
 gate:
 
 ```sh
-devenv tasks run java:verify
+nix run .#java-verify
 # equivalently, by hand:
 mvn -q -N install -f packages/java/build-bom/pom.xml            # shared BOM → ~/.m2
 mvn      clean verify -f packages/java/connect-unary-adapter/pom.xml   # adapter (28 tests)
@@ -115,7 +116,7 @@ Tests run in two tiers, both wired into `mvn verify`:
   `postgres:17-alpine` and drives it over raw HTTP, pinning the Connect wire
   contract (binary POST, Connect GET, JSON debug codec, error envelopes,
   protovalidate rejections). It replaces the retired Bun `connect-contract-test.ts`.
-  A running container runtime (the devenv podman machine) is required, exactly as
+  A running container runtime (the podman machine) is required, exactly as
   for the repository tests. `mvn verify` runs failsafe after surefire.
 
 ## Run
@@ -127,7 +128,7 @@ jar — so the jar must stay next to its `libs/` directory). Install the shared 
 the adapter into `~/.m2` first (the dev bridge), then package this service:
 
 ```sh
-devenv tasks run java:build       # build-bom + adapter → ~/.m2, then package the jar
+nix run .#java-build       # build-bom + adapter → ~/.m2, then package the jar
 # Needs a reachable Postgres (see docker-compose.yml `postgres` service);
 # Flyway migrates it on startup.
 PORT=3001 DATABASE_URL=jdbc:postgresql://localhost:5432/todos \
@@ -140,7 +141,7 @@ shared BOM + the adapter to the local repo once (the dev bridge), then run the
 service standalone:
 
 ```sh
-devenv tasks run java:adapter:install   # build-bom pom + connect-unary-adapter jar → ~/.m2
+nix run .#java-adapter-install   # build-bom pom + connect-unary-adapter jar → ~/.m2
 # default port 3001, override with PORT
 mvn -q -f services/business-logic-java compile exec:java
 PORT=4001 mvn -q -f services/business-logic-java compile exec:java
@@ -194,8 +195,8 @@ plus a conflict-fetch, both in one transaction (see its javadoc).
 `Dockerfile` (multi-stage, used by the root `docker-compose.yml`):
 
 1. **build** (`maven:3.9.16-eclipse-temurin-25`): fetches `protoc` 4.34.0 and
-   `protoc-gen-grpc-java` 1.80.0 from Maven Central (the same versions devenv
-   pins via nixpkgs, arch-selected via `TARGETARCH`), regenerates the Java
+   `protoc-gen-grpc-java` 1.80.0 from Maven Central (the same versions the nix
+   dev shell pins via nixpkgs, arch-selected via `TARGETARCH`), regenerates the Java
    sources from `proto/`, then builds the Java units standalone (de-reactored 517):
    `mvn -N install` the shared `build-bom` pom, `mvn install` the
    `connect-unary-adapter` jar (both into the image `~/.m2`), then `mvn package`

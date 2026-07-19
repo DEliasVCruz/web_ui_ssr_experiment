@@ -3,14 +3,14 @@ import { expect } from "@playwright/test";
 import { RAW_BASE_URL, test } from "./fixtures";
 
 // The SSR + backend servers write their wide-event JSON lines to stdout, which
-// `devenv tasks run ci:e2e` redirects to these files. Reading them lets us prove
+// `nix run .#ci-e2e` redirects to these files. Reading them lets us prove
 // the epic's deliverable end-to-end: a single trace_id flows from an inbound
 // request through the SSR event and into the backend event. Destructured with a
 // presence check (dot access is barred by noPropertyAccessFromIndexSignature and
 // bracket access by biome useLiteralKeys); absent outside the ci:e2e harness.
 // E2E_BACKEND_URL is the harness fingerprint (ci:e2e always exports it): when it
-// is present but the log paths are NOT, the log-capture exports in devenv.nix
-// have regressed — that must FAIL the spec, not skip it, or the suite would go
+// is present but the log paths are NOT, the log-capture exports in nix/apps.nix
+// (the ci-e2e app) have regressed — that must FAIL the spec, not skip it, or the suite would go
 // green with zero cross-service coverage. A plain skip is correct only outside
 // the harness (e.g. `bunx playwright test` against a hand-started server).
 const { E2E_SSR_LOG, E2E_BACKEND_LOG, E2E_BACKEND_URL } = process.env;
@@ -95,7 +95,7 @@ test.describe("wide events", () => {
 		if (E2E_SSR_LOG === undefined || E2E_BACKEND_LOG === undefined) {
 			throw new Error(
 				"ci:e2e harness detected (E2E_BACKEND_URL is set) but E2E_SSR_LOG / E2E_BACKEND_LOG are missing — " +
-					"the wide-event log-capture exports in devenv.nix have regressed. Failing loudly: skipping here " +
+					"the wide-event log-capture exports in nix/apps.nix (the ci-e2e app) have regressed. Failing loudly: skipping here " +
 					"would turn the suite green with zero cross-service correlation coverage.",
 			);
 		}

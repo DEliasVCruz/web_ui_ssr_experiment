@@ -87,7 +87,7 @@ test.describe("browser trace correlation", () => {
 		if (E2E_BACKEND_LOG === undefined) {
 			throw new Error(
 				"ci:e2e harness detected (E2E_BACKEND_URL is set) but E2E_BACKEND_LOG is missing — " +
-					"the wide-event log-capture exports in devenv.nix have regressed. Failing loudly.",
+					"the wide-event log-capture exports in nix/apps.nix (the ci-e2e app) have regressed. Failing loudly.",
 			);
 		}
 

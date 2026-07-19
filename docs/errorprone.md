@@ -1,7 +1,7 @@
 # Error Prone + NullAway + jSpecify (task d4n.8)
 
 Static null-safety and bug-pattern analysis for the Java units, running at
-compile time as a javac plugin on the devenv **JDK 25** toolchain.
+compile time as a javac plugin on the nix dev shell **JDK 25** toolchain.
 
 ## Verdict: GO
 

@@ -18,7 +18,7 @@ plugins:
     exclude_types:
       - buf.validate
   # JSON Schema codegen (bufbuild/protoschema-plugins protoc-gen-jsonschema,
-  # provisioned from source via devenv.nix). This one DELIBERATELY keeps
+  # provisioned from source via nix/devshell.nix). This one DELIBERATELY keeps
   # buf.validate: the whole point is to carry the constraints (string min_len /
   # max_len -> minLength / maxLength) into JSON Schema, which the frontend form
   # validator is derived from (packages/rpc/gen — gitignored). target=json emits
@@ -28,7 +28,7 @@ plugins:
     out: packages/rpc/gen/jsonschema
     opt: target=json
   # Java codegen for services/business-logic-java (gitignored output).
-  # Both plugins come from devenv (nixpkgs): protoc (builtin java) and
+  # Both plugins come from the nix dev shell (nixpkgs): protoc (builtin java) and
   # protoc-gen-grpc-java, so generation is fully offline and reproducible.
   - protoc_builtin: java
     out: services/business-logic-java/generated-sources/protobuf

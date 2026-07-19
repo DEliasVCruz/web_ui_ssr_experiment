@@ -13,7 +13,7 @@ import org.testcontainers.utility.DockerImageName;
  * Testcontainers "singleton container" pattern), reached through a small HikariCP
  * pool, with the Flyway schema migrated once.
  *
- * <p>Runs on the podman machine wired by devenv (DOCKER_HOST) with the ryuk
+ * <p>Runs on the podman machine wired by the nix dev shell / apps (DOCKER_HOST) with the ryuk
  * reaper disabled by env. Because ryuk is off, an explicit JVM shutdown hook
  * closes the pool and {@code stop()}s the container on clean exit — so a normal
  * {@code mvn verify} leaves no leaked container. (A hard-killed JVM cannot run
