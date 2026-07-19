@@ -9,7 +9,7 @@
 #   4. these file defaults
 #
 # The ${VAR:default} expressions below preserve the service's public env-var
-# contract, so docker-compose and the ci-e2e / java-verify workflows inject
+# contract, so the Arion compose and the ci-e2e / java-verify workflows inject
 # DATABASE_URL / DATABASE_USERNAME / DATABASE_PASSWORD (and PORT) and those
 # values flow through avaje-config instead of raw System.getenv() in Java.
 #

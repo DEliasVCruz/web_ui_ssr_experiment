@@ -14,8 +14,8 @@
     # This rev provides every tool the workflows need at a workable version — jdk25
     # + maven-on-jdk25, bun 1.3.13, buf 1.71 + protoc plugins, lefthook 2.1.5
     # (2.x, which the last stable channel lacks), postgresql_17, podman, ast-grep,
-    # hadolint, dockerfmt 0.5.4 (now packaged — no from-source build), shellcheck,
-    # nixfmt. protobuf is 35.1, so `protoc --java_out` stamps gencode 4.35.1, which
+    # shellcheck, nixfmt (hadolint/dockerfmt dropped in 1vl with the Dockerfiles).
+    # protobuf is 35.1, so `protoc --java_out` stamps gencode 4.35.1, which
     # exactly meets business-logic's protobuf-java 4.35.1 runtime pin (gencode ≤
     # runtime holds). The lock pins the exact rev the channel branch resolves to.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

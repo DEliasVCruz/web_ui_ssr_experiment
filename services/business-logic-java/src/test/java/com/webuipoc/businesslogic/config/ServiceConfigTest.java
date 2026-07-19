@@ -38,7 +38,7 @@ class ServiceConfigTest {
     /**
      * Layering the {@code docker} profile file on top of the base overrides the
      * JDBC URL to the compose-network host {@code postgres} — this is the profile
-     * mechanism the Dockerfile activates via {@code CONFIG_PROFILES=docker}.
+     * mechanism the nix2container image activates via {@code CONFIG_PROFILES=docker}.
      */
     @Test
     void dockerProfileOverridesDatabaseUrl() {

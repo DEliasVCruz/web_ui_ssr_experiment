@@ -138,7 +138,7 @@ From the repo root:
 
 ```bash
 nix run .#build-images    # realize the 3 aarch64-linux images → podman load (first run boots the builder VM)
-nix run .#up -d           # bring the stack up (postgres + backend + web + pw-browser)
+nix run .#up -- -d        # bring the stack up (postgres + backend + web + pw-browser)
 # ... services on 127.0.0.1:3000 (web-ui-ssr) and 127.0.0.1:3001 (business-logic)
 nix run .#down            # tear it down
 ```

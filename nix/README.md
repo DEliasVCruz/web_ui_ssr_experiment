@@ -15,7 +15,7 @@ structure + gap closure"* (project `main`).
 |------|----------|-------|
 | `../flake.nix` | flake-parts entry; pins nixpkgs to plain **nixos-unstable** (`61b7c44c`, 2pk.4 — replaced `devenv-nixpkgs`, dropping its `applyPatches` IFD) | ✅ |
 | `devshell.nix` | `devShells.default` — the sole dev shell (bun, jdk25+maven, buf, podman, postgres_17, ast-grep, protoc plugins, nixfmt, shellcheck…; dockerfmt/hadolint dropped in 1vl), DOCKER_HOST wiring, `.env` load, per-unit bun install, **lefthook install** | ✅ works |
-| `lefthook.nix` | git-hooks: renders `../lefthook.yml` from Nix (source of truth for the 8-hook pre-commit set), `packages.lefthook-config` regen target, `checks.lefthook-config-sync` drift guard | ✅ (2pk.2) |
+| `lefthook.nix` | git-hooks: renders `../lefthook.yml` from Nix (source of truth for the 5-hook pre-commit set), `packages.lefthook-config` regen target, `checks.lefthook-config-sync` drift guard | ✅ (2pk.2) |
 | `../packages/rpc/nix` | `packages.rpc-gen` — `buf generate` + wrap-jsonschema (TS/JSON-Schema + Java outputs) | ✅ builds (FOD); deterministic (double `--rebuild`) |
 | `../services/web-ui-ssr/nix` | `packages.web-ui-ssr-node-modules` (FOD) → `packages.web-ui-ssr` (panda + rsbuild → `dist/`) | ✅ builds |
 | `../tooling/nix` | `packages.tooling-node-modules` (lint toolchain FOD) | ✅ builds |
@@ -71,7 +71,7 @@ nix build .#lefthook-config && cp -f result lefthook.yml && chmod +w lefthook.ym
 ```
 
 `checks.lefthook-config-sync` (part of `nix flake check`) fails if the committed
-`lefthook.yml` ever drifts from what `nix/lefthook.nix` renders. The 8-hook →
+`lefthook.yml` ever drifts from what `nix/lefthook.nix` renders. The 5-hook →
 prek parity table (and the 8cc eslint-scoping fix) live in `nix/lefthook.nix`.
 
 > **Toolchain (2pk.4).** `flake.nix` pins nixpkgs to plain **nixos-unstable**
@@ -79,9 +79,9 @@ prek parity table (and the 8cc eslint-scoping fix) live in `nix/lefthook.nix`.
 > stamps gencode `4.35.1`, which exactly meets `build-bom`'s `protobuf-java 4.35.1`
 > runtime pin — gencode ≤ runtime holds), **lefthook 2.1.5** (2.x — the last
 > stable channel only ships 1.13.x), **jdk25 25.0.3**, **maven 3.9.16**,
-> **dockerfmt 0.5.4** (now packaged; the from-source `buildGoModule` is retired),
-> hadolint 2.14, shellcheck 0.11, ast-grep 0.44, nixfmt 1.4, postgresql_17 17.10,
-> podman 5.8.4. Repinning off `devenv-nixpkgs` re-pinned every FOD (rpc-gen + both
+> shellcheck 0.11, ast-grep 0.44, nixfmt 1.4, postgresql_17 17.10,
+> podman 5.8.4 (dockerfmt/hadolint dropped in 1vl). Repinning off
+> `devenv-nixpkgs` re-pinned every FOD (rpc-gen + both
 > Maven `mvnHash`es; the 3 bun `node_modules` FODs rebuilt identically), each
 > re-proven with double `nix build --rebuild`.
 
@@ -255,7 +255,7 @@ after). `stop` kills the qemu process.
 
 Proven (1vl): all three realize through the builder, `podman load` into the
 machine (`podman images` shows `web-ui-ssr-experiment/web-ui-ssr:latest`,
-`…/business-logic-java:latest`, `web-ui-pw-browser:local`), and RUN — the arion
+`…/business-logic-java:latest`, `…/pw-browser:local`), and RUN — the arion
 stack serves SSR + RPC end-to-end (below), and the pw-browser image answers CDP
 with the socat supervisor intact (kill socat → container exits ≤ 1 s).
 

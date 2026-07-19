@@ -44,9 +44,32 @@
         export TESTCONTAINERS_RYUK_DISABLED=true
         export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
         if command -v podman >/dev/null 2>&1; then
-          _podman_sock=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null | head -1)
+          # podman's `PodmanSocket.Path` is TMPDIR-DERIVED
+          # ($TMPDIR/podman/…-api.sock), so from the ambient `nix develop` shell
+          # (a fresh /tmp/nix-shell.XXXX TMPDIR) it names a NON-EXISTENT socket —
+          # the old `[ -S ]` guard then silently left DOCKER_HOST unset and clients
+          # fell through to Docker Desktop. Resolve the ACTUAL api socket
+          # TMPDIR-independently from gvproxy's -forward-sock (the real listening
+          # path), falling back to the inspect value, and FAIL LOUDLY if neither
+          # is a live socket rather than leaking to Docker Desktop.
+          # Match gvproxy by EXACT process name (-x) — a broad `-f gvproxy` also
+          # matches our own shell if its cmdline mentions gvproxy — and read the
+          # -forward-sock from its FULL cmdline (`ps -ww` — macOS ps truncates
+          # otherwise). Iterate in case several machines' gvproxy run.
+          _podman_sock=""
+          for _gvp in $(pgrep -x gvproxy 2>/dev/null); do
+            _gvcmd=$(ps -ww -o command= -p "$_gvp" 2>/dev/null)
+            _gvsock=$(printf '%s' "$_gvcmd" | grep -oE '/[^ ]*podman-machine-default-api\.sock' | head -1)
+            if [ -n "$_gvsock" ]; then _podman_sock="$_gvsock"; break; fi
+          done
+          unset _gvp _gvcmd _gvsock
+          if [ -z "$_podman_sock" ] || [ ! -S "$_podman_sock" ]; then
+            _podman_sock=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null | head -1)
+          fi
           if [ -n "$_podman_sock" ] && [ -S "$_podman_sock" ]; then
             export DOCKER_HOST="unix://$_podman_sock"
+          else
+            echo "WARNING: podman machine socket not found (run 'podman machine start'?); DOCKER_HOST left unset — container clients may fall through to Docker Desktop." >&2
           fi
           unset _podman_sock
         fi
@@ -196,6 +219,10 @@
           -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
           -o ConnectTimeout=4 -o BatchMode=yes builder@localhost "$@"; }
         vm_up() { vm_ssh true >/dev/null 2>&1; }
+        # PIDs of the qemu process backing OUR builder — identified by our unique
+        # NIX_DISK_IMAGE (nixos.qcow2) in its cmdline, NOT by a recorded $! (which
+        # is the nohup'd run-builder WRAPPER, not qemu — killing it orphans qemu).
+        vm_qemu_pids() { pgrep -f "$BUILDER_DIR/nixos.qcow2" 2>/dev/null || true; }
       '';
 
       # Boot the VM idempotently and block until ssh answers.
@@ -205,18 +232,39 @@
         if [ ! -f "$BUILDER_KEY" ]; then
           ssh-keygen -q -f "$BUILDER_KEY" -t ed25519 -N "" -C 'builder@localhost'
         fi
+        # Concurrent-start guard: refuse to boot a SECOND qemu if one is already
+        # up OR mid-boot (ssh not yet answering) — keyed off the qcow2, so it
+        # holds even before sshd is ready. Prevents two VMs racing the same disk.
         if vm_up; then
           echo "linux-builder already running (ssh :${builderPort})."
+        elif [ -n "$(vm_qemu_pids)" ]; then
+          echo "linux-builder already booting (qemu up, waiting for ssh :${builderPort})…"
+          for _ in $(seq 1 90); do
+            if vm_up; then break; fi
+            sleep 4
+          done
+          if vm_up; then
+            echo "linux-builder ready ($(vm_ssh 'uname -m'))."
+          else
+            echo "ERROR: builder qemu is running but ssh never came up; see $BUILDER_DIR/vm.log" >&2
+            exit 1
+          fi
         else
           RUNBUILDER=$(grep -o '/nix/store/[a-z0-9]*-run-builder/bin/run-builder' \
             ${createBuilderBin} | head -1)
+          # Start from a CLEAN scratch TMPDIR each boot: run-nixos-vm `cp`s the
+          # store.img + certs/ca-certificates.crt into $TMPDIR as read-only (0444)
+          # files, and a stale copy from a previous boot makes the next `cp` fail
+          # with "Permission denied". (The persistent VM disk is nixos.qcow2, which
+          # lives in $BUILDER_DIR — NOT under tmp — so this does not rebuild it.)
+          rm -rf "$BUILDER_DIR/tmp"
+          mkdir -p "$BUILDER_DIR/tmp"
           echo "Booting aarch64-linux builder VM (first run pulls the NixOS VM + builds a ~20GB qcow2 under $BUILDER_DIR)…"
           KEYS="$BUILDER_DIR/keys" \
           NIX_DISK_IMAGE="$BUILDER_DIR/nixos.qcow2" \
           TMPDIR="$BUILDER_DIR/tmp" USE_TMPDIR=1 \
           NIX_SSL_CERT_FILE="''${NIX_SSL_CERT_FILE:-/etc/ssl/cert.pem}" \
             nohup "$RUNBUILDER" > "$BUILDER_DIR/vm.log" 2>&1 &
-          echo $! > "$BUILDER_DIR/vm.pid"
           echo "Waiting for ssh on :${builderPort} …"
           for _ in $(seq 1 90); do
             if vm_up; then break; fi
@@ -244,11 +292,18 @@
           out=$(vm_ssh "nix-store --realise '$drv'" | tail -1)
           echo "==> $iname:$itag — copying the image closure back"
           vm_ssh "nix-store --export \$(nix-store -qR '$out')" | nix-store --import >/dev/null
-          tar="$(mktemp -d)/image.tar"
+          # Stage the 0.5–1.5GB image tar INSIDE the builder scratch (not the
+          # ambient TMPDIR) and trap-clean it so a mid-run failure can't leak a
+          # /tmp/tmp.XXXX dir.
+          mkdir -p "$BUILDER_DIR/tmp"
+          local tdir
+          tdir=$(mktemp -d "$BUILDER_DIR/tmp/img.XXXXXX")
+          trap 'rm -rf "$tdir"' RETURN
+          tar="$tdir/image.tar"
           echo "==> $iname:$itag — skopeo nix: → docker-archive → podman load"
           ${lib.getExe' n2cSkopeo "skopeo"} --insecure-policy copy "nix:$out" "docker-archive:$tar:$iname:$itag"
           podman load -i "$tar"
-          rm -rf "$(dirname "$tar")"
+          rm -rf "$tdir"
         }
       '';
 
@@ -746,20 +801,46 @@
           pkgs.openssh
           pkgs.coreutils
         ];
-        excludeShellChecks = [ "SC2046" ];
+        excludeShellChecks = [
+          "SC2046"
+          # $(vm_qemu_pids) is intentionally word-split into `kill`'s arg list.
+          "SC2086"
+        ];
         text = ''
           cmd="''${1:-start}"
           ${builderLib}
           case "$cmd" in
             start) ${builderStart} ;;
             status)
-              if vm_up; then echo "linux-builder: running ($(vm_ssh 'uname -m'), ssh :${builderPort})"; else echo "linux-builder: stopped"; fi
+              if vm_up; then
+                echo "linux-builder: running ($(vm_ssh 'uname -m'), ssh :${builderPort})"
+              elif [ -n "$(vm_qemu_pids)" ]; then
+                echo "linux-builder: booting (qemu up, ssh not ready)"
+              else
+                echo "linux-builder: stopped"
+              fi
               ;;
             stop)
-              if [ -f "$BUILDER_DIR/vm.pid" ] && kill "$(cat "$BUILDER_DIR/vm.pid")" 2>/dev/null; then
-                rm -f "$BUILDER_DIR/vm.pid"; echo "linux-builder stopped."
+              pids=$(vm_qemu_pids)
+              if [ -z "$pids" ]; then
+                echo "linux-builder not running."
+                exit 0
+              fi
+              kill $pids 2>/dev/null || true
+              # VERIFY death before claiming success (TERM, then escalate to KILL).
+              for _ in $(seq 1 20); do
+                [ -z "$(vm_qemu_pids)" ] && break
+                sleep 0.5
+              done
+              if [ -n "$(vm_qemu_pids)" ]; then
+                kill -9 $(vm_qemu_pids) 2>/dev/null || true
+                sleep 1
+              fi
+              if [ -z "$(vm_qemu_pids)" ]; then
+                echo "linux-builder stopped."
               else
-                pkill -f 'qemu-system-aarch64.*nixos' 2>/dev/null && echo "linux-builder stopped (by match)." || echo "linux-builder not running."
+                echo "ERROR: builder qemu still running ($(vm_qemu_pids))" >&2
+                exit 1
               fi
               ;;
             *) echo "usage: nix run .#linux-builder -- {start|status|stop}" >&2; exit 1 ;;

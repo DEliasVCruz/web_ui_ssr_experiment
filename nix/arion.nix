@@ -11,15 +11,18 @@
       # A NIX-BUILT compose file the container runtime (podman/docker compose)
       # consumes — as opposed to Option B (arion driving the daemon itself). The
       # generated YAML is plain text referencing image NAME:TAG strings, so it
-      # BUILDS on aarch64-darwin even though the images it names are x86_64-linux
-      # (realized + loaded on Linux, see nix/images.nix). This mirrors
-      # docker-compose.yml (postgres + business-logic + web-ui-ssr) and adds the
-      # pw-browser CDP service the `nix run .#playwright-up` app manages, plus the
-      # ci-e2e app's orchestration env (ports, host.docker.internal, healthchecks).
+      # BUILDS on aarch64-darwin even though the images it names are aarch64-linux
+      # (realized + loaded via the linux-builder VM, see nix/images.nix). This is
+      # the SOLE compose definition (there is no docker-compose.yml, deleted 1vl):
+      # postgres + business-logic + web-ui-ssr, plus the pw-browser CDP service the
+      # `nix run .#playwright-up` app manages, plus the ci-e2e app's orchestration
+      # env (ports, host.docker.internal, healthchecks).
       #
       # `service.image` is set to an external NAME:TAG, which disables arion's own
       # nix image build for these services (image.nixBuild defaults false when
-      # service.image is set) — the images come from nix/images.nix + copyToPodman.
+      # service.image is set) — the images come from nix/images.nix, realized on the
+      # builder VM and loaded into podman by `nix run .#build-images` (skopeo
+      # nix: → docker-archive → podman load).
       names = imageInfo.names;
       tag = imageInfo.tag;
 
@@ -34,7 +37,7 @@
               docker-compose.volumes.postgres-data = { };
 
               services = {
-                # ── postgres (verbatim from docker-compose.yml) ──────────────
+                # ── postgres (upstream postgres:17-alpine) ───────────────────
                 postgres.service = {
                   image = "postgres:17-alpine";
                   environment = {

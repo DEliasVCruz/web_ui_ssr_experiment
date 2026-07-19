@@ -131,7 +131,7 @@ the adapter into `~/.m2` first (the dev bridge), then package this service:
 
 ```sh
 nix run .#java-build       # build-bom + adapter → ~/.m2, then package the jar
-# Needs a reachable Postgres (see docker-compose.yml `postgres` service);
+# Needs a reachable Postgres (the Arion stack's `postgres` service — nix run .#up);
 # Flyway migrates it on startup.
 PORT=3001 DATABASE_URL=jdbc:postgresql://localhost:5432/todos \
     DATABASE_USERNAME=todos DATABASE_PASSWORD=todos \
@@ -192,29 +192,25 @@ future concern — single-user experiment today. Implemented in
 `TodoRepository.createTodo` as `INSERT … ON CONFLICT (id) DO NOTHING RETURNING *`
 plus a conflict-fetch, both in one transaction (see its javadoc).
 
-## Docker
+## Container image (nix2container)
 
-`Dockerfile` (multi-stage, used by the root `docker-compose.yml`):
-
-1. **build** (`maven:3.9.16-eclipse-temurin-25`): fetches `protoc` 4.34.0 and
-   `protoc-gen-grpc-java` 1.80.0 from Maven Central (pinned INDEPENDENTLY of the
-   nix dev shell's protoc 35.1 via the Dockerfile's own `ARG`s — gencode 4.34.0
-   still satisfies pom.xml's `protobuf-java 4.35.1` runtime; arch-selected via
-   `TARGETARCH`), regenerates the Java
-   sources from `proto/`, then builds the Java units standalone (de-reactored 517):
-   `mvn -N install` the shared `build-bom` pom, `mvn install` the
-   `connect-unary-adapter` jar (both into the image `~/.m2`), then `mvn package`
-   this service against them (`packages/java` is copied in for the first two). The
-   build is self-contained: host-generated `generated-sources/` and `target/` are
-   excluded by the root `.dockerignore`, so the image never depends on gitignored
-   host state.
-2. **runtime** (`eclipse-temurin:25-jre`): jar + `libs/`, `ENV PORT=3001`,
-   `ENV CONFIG_PROFILES=docker`; set `DATABASE_URL` / `DATABASE_USERNAME` /
-   `DATABASE_PASSWORD` to point at the Postgres service (compose does this).
+There is **no Dockerfile**. The container image is built by `nix/images.nix`
+(`image-business-logic-java`) from `packages.business-logic-java` — a pure Nix
+`buildMavenPackage` (see `nix/default.nix` in this dir): it regenerates the Java
+sources from `proto/` via `rpc-gen`, installs the shared `build-bom` pom + the
+`connect-unary-adapter` jar into the offline `.m2`, runs the hermetic jOOQ
+codegen (ephemeral postgres, no docker socket), and packages the runnable jar +
+`libs/`. `nix2container` then layers a JRE + that jar into an OCI image, with
+`PORT=3001` and `CONFIG_PROFILES=docker`; `DATABASE_URL` / `DATABASE_USERNAME` /
+`DATABASE_PASSWORD` point it at the Postgres service (the Arion compose does
+this). Realize + load it for aarch64-linux through the builder VM:
 
 ```sh
-docker build -f services/business-logic-java/Dockerfile .
+nix run .#build-images     # realize the images through the linux-builder VM → podman load
+nix run .#up               # run the whole stack (postgres + this service + web) via Arion
 ```
+
+See [`nix/README.md`](../../nix/README.md) for the builder VM + per-system FOD details.
 
 ## Connect-unary adapter (`packages/java/connect-unary-adapter`, `com.webuipoc.connect`)
 

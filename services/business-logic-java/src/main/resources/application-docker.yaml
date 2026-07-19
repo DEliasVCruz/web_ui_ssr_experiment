@@ -1,5 +1,5 @@
 # Docker profile — activated in the container image via ENV CONFIG_PROFILES=docker
-# (see services/business-logic-java/Dockerfile). Layered on top of application.yaml.
+# (set by the nix2container image; see nix/images.nix). Layered on application.yaml.
 #
 # In the container the database is a separate `postgres` service on the compose
 # network, reachable by its service name `postgres` (not localhost). So the
