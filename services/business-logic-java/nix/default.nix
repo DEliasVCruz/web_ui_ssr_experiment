@@ -140,7 +140,7 @@
         };
         # Pin after the first build (fakeHash → read the got: value). Deterministic (see
         # postInstall); .m2 is downloaded artifacts, portable across build hosts.
-        mvnHash = "sha256-Rf8w7vgK1xeRM+9lycwgei6X0eTzEep+61DRzbNaq04=";
+        mvnHash = "sha256-etTXRWL1MH8lEVjt3N9w9SNAkr/lIijElT1t6UTglmo=";
 
         # ── phase-2 (sealed, offline) ──────────────────────────────────────
         # preBuild copies buf-java again; afterDepsSetup (after $mvnDeps is set, before

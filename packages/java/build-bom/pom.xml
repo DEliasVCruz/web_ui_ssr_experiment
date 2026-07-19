@@ -41,9 +41,9 @@
   <properties>
     <!-- Runtime versions shared across modules. Constraints (see
          services/business-logic-java/README.md):
-         - protobuf-java must be >= the protoc gencode version (4.34.0 from
-           nixpkgs protoc 34.0, enforced by RuntimeVersion.validateProtobufGencodeVersion)
-         - grpc-java must be >= the protoc-gen-grpc-java plugin version (1.80.0 from nixpkgs) -->
+         - protobuf-java must be >= the protoc gencode version (4.35.1 from
+           nixpkgs protoc 35.1, enforced by RuntimeVersion.validateProtobufGencodeVersion)
+         - grpc-java must be >= the protoc-gen-grpc-java plugin version (1.82.1 from nixpkgs) -->
     <version.helidon>4.4.1</version.helidon>
     <version.protobuf>4.35.1</version.protobuf>
     <version.grpc>1.82.2</version.grpc>

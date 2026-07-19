@@ -2,10 +2,9 @@
 #
 # This module is the SINGLE SOURCE OF TRUTH for the pre-commit hook set. It
 # renders `lefthook.yml` (committed at the repo root) from the `lefthookConfig`
-# attrset below. Both shells install the SAME hooks by reading that one file:
-#   • nix devshell  — nix/devshell.nix shellHook runs `lefthook install`
-#   • devenv shell  — devenv.nix enterShell runs `lefthook install`
-# so `nix develop` and `devenv shell` converge on identical .git/hooks content.
+# attrset below. The devshell installs the hooks by reading that one file:
+#   • `nix develop` — nix/devshell.nix shellHook runs `lefthook install`
+# (2pk.4: devenv is retired, so the nix devshell is the only installer.)
 #
 # The lefthook binary and most hook tools (buf, dclint via bunx, dockerfmt,
 # hadolint, ast-grep) come from the devshell PATH; biome + eslint run from the

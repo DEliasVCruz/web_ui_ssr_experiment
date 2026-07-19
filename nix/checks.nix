@@ -103,10 +103,11 @@
               touch $out
             '';
 
-        # ── Repo-wide lint checks (mirror the devenv ci:* tasks) ───────────
+        # ── Repo-wide lint checks (same lints as the ci-* apps) ────────────
         # ci-proto-breaking is intentionally NOT a check: `buf breaking --against
         # .git#branch=main` needs the git history, which a sealed check derivation
-        # does not have. It stays a devenv task (same impurity class as ci:e2e).
+        # does not have. It stays an impure `nix run .#ci-proto-breaking` app (same
+        # impurity class as ci-e2e).
         ci-biome = mkRepoCheck {
           name = "ci-biome";
           cmd = "biome check . --config-path tooling/biome/ci.json";

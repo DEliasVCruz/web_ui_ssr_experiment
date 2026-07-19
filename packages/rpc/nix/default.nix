@@ -122,7 +122,7 @@
 
         outputHashMode = "recursive";
         outputHashAlgo = "sha256";
-        outputHash = "sha256-98yRVPp2jIo5uTBxL5j+yDbKjVw/EUCdXZS6O3gjMFg=";
+        outputHash = "sha256-8nKiyHjdruvQl9tIUTtRBhS3pEFcUrCRwr7cOEneCUg=";
       };
 
       # ── packages.rpc — the importable @web-ui-poc/rpc package (pure) ───────

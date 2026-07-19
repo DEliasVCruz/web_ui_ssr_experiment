@@ -2,24 +2,14 @@
   perSystem =
     { pkgs, ... }:
     let
-      # ── From-source tool derivations (mirrored verbatim from devenv.nix) ──
-      # Built from source so codegen/formatting is fully offline and reproducible,
-      # never a buf remote plugin. Exposed to other modules via _module.args.repoTools
-      # (codegen.nix needs protoc-gen-jsonschema).
-      dockerfmt = pkgs.buildGoModule rec {
-        pname = "dockerfmt";
-        version = "0.5.2";
-        src = pkgs.fetchFromGitHub {
-          owner = "reteps";
-          repo = "dockerfmt";
-          rev = "v${version}";
-          hash = "sha256-WfwrFe3E+CzfZ0ITSjMD8h4yrG+mnC6y0L+7OSYjMsw=";
-        };
-        vendorHash = "sha256-r8vmbZ4oyplqIU6R/6hhcyjoR3E/mOFrB69TrfPYxRI=";
-      };
-
+      # ── From-source tool derivation ───────────────────────────────────────
       # bufbuild's protoc-gen-jsonschema (from protoschema-plugins), pinned to
-      # v0.5.0 for the same toolchain reasons documented in devenv.nix.
+      # v0.5.0. Built from source because nixpkgs does not package it; invoked by
+      # buf (buf.gen.yaml) to emit JSON Schema (incl. buf.validate min_len/max_len
+      # → minLength/maxLength) that the frontend form validator is derived from.
+      # v0.5.0 needs only `go 1.23.0` (GOTOOLCHAIN=local keeps the build offline)
+      # and still ships protobuf v1.36.6 + protovalidate. Exposed to other modules
+      # via _module.args.repoTools (rpc-gen + the generate app need it).
       protoc-gen-jsonschema = pkgs.buildGoModule rec {
         pname = "protoc-gen-jsonschema";
         version = "0.5.0";
@@ -34,56 +24,74 @@
         env.GOTOOLCHAIN = "local";
       };
 
-      # Bind Maven to jdk25 (devenv.nix's languages.java.jdk.package = jdk25 +
-      # maven.enable). Plain nixpkgs maven would otherwise run on its own default JDK.
+      # dockerfmt is now packaged by nixpkgs (0.5.4) — the former from-source
+      # buildGoModule derivation is retired (2pk.4). Formats Dockerfiles (the
+      # docker-fmt app + the dockerfmt git hook).
+      dockerfmt = pkgs.dockerfmt;
+
+      # Bind Maven to jdk25 (plain nixpkgs maven would run on its own default JDK).
       maven = pkgs.maven.override { jdk_headless = pkgs.jdk25; };
     in
     {
+      # Shared with nix/apps.nix + packages/rpc/nix (rpc-gen).
       _module.args.repoTools = {
         inherit dockerfmt protoc-gen-jsonschema maven;
       };
 
-      # ── Git hooks: lefthook (2pk.2) ───────────────────────────────────────
-      # The prek / git-hooks.nix wiring that used to live here is gone. The hook
-      # set is now defined in nix/lefthook.nix and rendered to the committed
-      # ./lefthook.yml; the shellHook below runs `lefthook install` so this shell
-      # and the devenv shell install byte-identical .git/hooks. lefthook + every
-      # hook tool are on this shell's PATH (packages list below).
-
+      # ── The one devshell: `nix develop` (2pk.4 — devenv fully retired) ─────
+      # This is the SOLE entry point for interactive dev. Its shellHook is the
+      # complete bootstrap (formerly devenv's enterShell): a fresh clone that runs
+      # `nix develop` is fully provisioned afterward. Git hooks are lefthook
+      # (nix/lefthook.nix → committed ./lefthook.yml), installed by the shellHook.
       devShells.default = pkgs.mkShell {
-        # Parity with devenv.nix's `packages` list + languages.java (jdk25 + maven).
         packages = [
           pkgs.bun
           pkgs.nodejs_22
           pkgs.buf
           pkgs.git
           pkgs.hadolint
+          # Plain docker CLI (no daemon); talks to the podman machine via DOCKER_HOST.
           pkgs.docker-client
+          # Local container runtime (podman machine on Apple virtualization) + a
+          # compose fallback provider. Drives compose, the e2e browser, and
+          # Testcontainers.
           pkgs.podman
           pkgs.podman-compose
+          # PostgreSQL server+client (initdb/pg_ctl) for the hermetic jOOQ codegen
+          # (services/business-logic-java/scripts/jooq-codegen.sh). Pinned to 17 to
+          # match the integration tests' postgres:17 catalog.
           pkgs.postgresql_17
+          # protoc + grpc-java plugin (buf.gen.yaml Java codegen).
           pkgs.protobuf
           pkgs.protoc-gen-grpc-java
+          # ast-grep: cross-language structural guardrails (sgconfig.yml + rules/),
+          # wired as the ast-grep git hook; run standalone with `ast-grep scan`.
           pkgs.ast-grep
+          # nixfmt (RFC-style) — formats this repo's *.nix.
+          pkgs.nixfmt
           pkgs.jdk25
           maven
           dockerfmt
           protoc-gen-jsonschema
-          # lefthook: the git-hooks runner (2pk.2, replaces prek). Reads ./lefthook.yml.
+          # lefthook: the git-hooks runner (reads ./lefthook.yml).
           pkgs.lefthook
         ];
 
-        # Shared, non-secret env (mirror devenv.nix's `env`). JAVA_HOME is set here
-        # explicitly since a plain mkShell does not derive it like languages.java does.
+        # Shared, non-secret env. JAVA_HOME is set explicitly (plain mkShell does
+        # not derive it the way a language module would).
         NODE_ENV = "development";
+        # Testcontainers → podman: Ryuk autodetection is unreliable on macOS
+        # rootless podman, so it is DISABLED (clean crashed runs with
+        # `podman container prune`; see docs/podman.md). The socket override is
+        # the classic docker path inside the podman VM.
         TESTCONTAINERS_RYUK_DISABLED = "true";
         TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE = "/var/run/docker.sock";
         JAVA_HOME = "${pkgs.jdk25}";
 
         shellHook = ''
-          # ─── Point Docker/Testcontainers clients at the podman machine (wdt.2) ──
-          # Mirrors devenv.nix's enterShell: derive DOCKER_HOST from the RUNNING
-          # podman machine's socket; leave it untouched when podman is down.
+          # ─── Point Docker/Testcontainers clients at the podman machine ─────────
+          # Derive DOCKER_HOST from the RUNNING podman machine socket; leave it
+          # untouched when podman is down (this shell never forces podman on).
           if command -v podman >/dev/null 2>&1; then
             _podman_sock=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null | head -1)
             if [ -n "$_podman_sock" ] && [ -S "$_podman_sock" ]; then
@@ -92,31 +100,39 @@
             unset _podman_sock
           fi
 
-          # ─── Install the lefthook git hooks (same set devenv installs) ─────────
-          # Reads the committed ./lefthook.yml (rendered from nix/lefthook.nix), so
-          # this shell and the devenv shell install byte-identical .git/hooks.
-          # --force: git-hooks.nix/prek left `core.hooksPath` set to the shared
-          # worktree hooks dir; --force installs into exactly that dir (non-
-          # destructive) instead of erroring on the pre-existing hooks path.
-          if [ -f lefthook.yml ]; then
-            lefthook install --force >/dev/null || echo "lefthook install failed (hooks not updated)" >&2
-          fi
-
-          # ─── Load .env (mirror devenv.nix's dotenv.enable = true) ──────────────
+          # ─── Load .env ─────────────────────────────────────────────────────────
           if [ -f .env ]; then set -a; . ./.env; set +a; fi
 
-          # ─── bun install parity (mirror devenv.nix's enterShell) ───────────────
-          if [ -f package.json ]; then
-            lock_hash=""
-            if [ -f bun.lock ]; then
-              lock_hash=$(md5 -q bun.lock 2>/dev/null || md5sum bun.lock | cut -d' ' -f1)
+          # ─── Per-unit bun install (de-workspaced 5ae) ──────────────────────────
+          # There is NO root package.json / bun workspace. Each TS unit is
+          # self-contained with its own package.json + committed bun.lock, so we
+          # install per-unit (only when that unit's lockfile changed). Order matters:
+          # web-ui-ssr's postinstall symlinks node_modules/@web-ui-poc/rpc →
+          # packages/rpc and its `prepare` runs panda codegen, so install rpc FIRST
+          # (symlink target) then web-ui-ssr LAST. Scripts run (no --ignore-scripts),
+          # so the symlink + panda styled-system/ are provisioned on entry.
+          for _unit in packages/rpc tooling services/web-ui-ssr; do
+            if [ -f "$_unit/package.json" ]; then
+              _lock_hash=""
+              if [ -f "$_unit/bun.lock" ]; then
+                _lock_hash=$(md5 -q "$_unit/bun.lock" 2>/dev/null || md5sum "$_unit/bun.lock" | cut -d' ' -f1)
+              fi
+              _cache_file="$_unit/node_modules/.bun-lock-hash"
+              if [ ! -d "$_unit/node_modules" ] || [ ! -f "$_cache_file" ] || [ "$_lock_hash" != "$(cat "$_cache_file" 2>/dev/null)" ]; then
+                echo "Lock file changed, running bun install in $_unit..."
+                ( cd "$_unit" && bun install )
+                echo "$_lock_hash" > "$_cache_file"
+              fi
             fi
-            cache_file="node_modules/.devenv-lock-hash"
-            if [ ! -d node_modules ] || [ ! -f "$cache_file" ] || [ "$lock_hash" != "$(cat "$cache_file" 2>/dev/null)" ]; then
-              echo "Lock file changed, running bun install..."
-              bun install
-              echo "$lock_hash" > "$cache_file"
-            fi
+          done
+          unset _unit _lock_hash _cache_file
+
+          # ─── Install the lefthook git hooks ────────────────────────────────────
+          # Reads the committed ./lefthook.yml (rendered from nix/lefthook.nix).
+          # --force installs into the shared worktree hooks dir even when a prior
+          # core.hooksPath is pinned (non-destructive).
+          if [ -f lefthook.yml ] && command -v lefthook >/dev/null 2>&1; then
+            lefthook install --force >/dev/null || echo "lefthook install failed (hooks not updated)" >&2
           fi
         '';
       };

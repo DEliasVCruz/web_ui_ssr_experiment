@@ -1,18 +1,24 @@
 {
-  description = "web-ui-ssr-experiment — flake-parts skeleton for the nix migration (2pk)";
+  description = "web-ui-ssr-experiment — the single root flake (nix is the only entry point)";
 
-  # Transition state (2pk): devenv.nix remains AUTHORITATIVE for daily dev and CI
-  # until the cutover task (2pk.4). This flake is additive — it proves the native
-  # flake-parts devshell + package derivations while devenv keeps working. See
-  # nix/README.md.
+  # Nix is the sole entry point (2pk.4 cutover): `nix develop` for the shell and
+  # `nix run .#<app>` for every workflow. devenv is fully retired — this flake and
+  # its devshell are AUTHORITATIVE for daily dev and CI. See nix/README.md.
   inputs = {
-    # Pinned to the EXACT nixpkgs rev devenv.lock resolves (cachix/devenv-nixpkgs
-    # rolling → efff4732), not the moving `rolling` branch, so this flake's tool
-    # versions match devenv's byte-for-byte: bun 1.3.11, protoc 34.0 (rpc-gen /java
-    # stamps gencode 4.34.0 identically), jdk25, go 1.25.2 — which also keeps the
-    # from-source plugin hashes (dockerfmt, protoc-gen-jsonschema) copied from
-    # devenv.nix valid and keeps pom.xml's gencode invariant honest.
-    nixpkgs.url = "github:cachix/devenv-nixpkgs/efff47329167854ce48541c7ef731bf120753c7e";
+    # Plain nixos-unstable (2pk.4). Replaces the former cachix/devenv-nixpkgs pin,
+    # whose `applyPatches` wrapper was an IFD that blocked cross-system eval from
+    # darwin (x86_64-linux image derivations could not even evaluate). A plain
+    # nixpkgs channel has no such patch derivation, so `nix flake check
+    # --all-systems` now evaluates the Linux images from the darwin host.
+    #
+    # This rev provides every tool the workflows need at a workable version — jdk25
+    # + maven-on-jdk25, bun 1.3.13, buf 1.71 + protoc plugins, lefthook 2.1.5
+    # (2.x, which the last stable channel lacks), postgresql_17, podman, ast-grep,
+    # hadolint, dockerfmt 0.5.4 (now packaged — no from-source build), shellcheck,
+    # nixfmt. protobuf is 35.1, so `protoc --java_out` stamps gencode 4.35.1, which
+    # exactly meets business-logic's protobuf-java 4.35.1 runtime pin (gencode ≤
+    # runtime holds). The lock pins the exact rev the channel branch resolves to.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
     # git-hooks.nix input removed in 2pk.2: the git hooks now run under lefthook
     # (nix/lefthook.nix), whose config is committed as ./lefthook.yml and whose

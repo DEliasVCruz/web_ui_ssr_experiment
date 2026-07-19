@@ -93,7 +93,7 @@
         };
         # Pin after the first build (fakeHash → read the got: value). Deterministic
         # (see postInstall); .m2 is downloaded artifacts, portable across build hosts.
-        mvnHash = "sha256-FrKvihvbDzkyOKPDiGb6Aqrpazpxt95DgEM4BYvYcZw=";
+        mvnHash = "sha256-AZOWAenuJyYJ8zq0TYSWvEcCQoMrYJPxCar7VMI0iiI=";
 
         # ── phase-2 (sealed, offline) ──────────────────────────────────────
         afterDepsSetup = ''
